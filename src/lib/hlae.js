@@ -83,7 +83,7 @@ class HlaeSession {
   async start(isCancelled) {
     if (!isInstalled(this.dir)) throw new Error(`HLAE not found in ${this.dir}. Set its folder in Settings → Recording.`);
     if (await this.connectOnce()) { this.log('Reusing the running HLAE CS2 session'); return { launched: false }; }
-    if (cs2Pids().length) throw new Error('CS2 is already running normally. Close it so ClipMaker can start it through HLAE for background recording.');
+    if (cs2Pids().length) throw new Error('CS2 is already running normally. Close it so ClipMaker can start it through HLAE (needed to record clips and to open demos at a given moment).');
 
     this.writeFfmpegIni();
     const f = hlaeFiles(this.dir);

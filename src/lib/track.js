@@ -1,6 +1,9 @@
-// Player positions over a whole match for the 2D replay, sampled every STEP ticks (8 per second at
-// 64 tick) and packed into a compact binary file (about 10 bytes per player per sample, ~1.5 MB
-// per match). Built in a worker the first time a match's radar is opened, then read from disk.
+// Everything the 2D replay draws that the stats don't need, built in a worker the first time a
+// match's replay is opened, then read from disk:
+//  - player positions over the whole match, sampled every STEP ticks (8 per second at 64 tick) and
+//    packed into a compact binary block (about 10 bytes per player per sample, ~1.5 MB per match)
+//  - in header.extra: grenade flight paths with how each one was thrown, shots with their aim, bomb
+//    plant/defuse/carrier events and the round and bomb timers
 //
 // File: [uint32 header length][header JSON][samples]. Each sample holds, for every player in
 // header.players order, one REC-byte record:
@@ -8,9 +11,17 @@
 //   header.weapons, 255 = none), uint8 flags (1 = present, 2 = alive, 4 = CT)
 const parser = require('./parser');
 
-const TRACK_VERSION = 1;
+const TRACK_VERSION = 2;
 const STEP = 8;
 const REC = 10;
+
+const PROJECTILES = { CSmokeGrenadeProjectile: 'smoke', CFlashbangProjectile: 'flash', CHEGrenadeProjectile: 'he', CMolotovProjectile: 'molotov', CIncendiaryGrenadeProjectile: 'molotov', CDecoyProjectile: 'decoy' };
+const THROWN = { smokegrenade: 'smoke', flashbang: 'flash', hegrenade: 'he', molotov: 'molotov', incgrenade: 'molotov', decoy: 'decoy' };
+const NOT_SHOTS = /grenade|flashbang|molotov|decoy|knife|bayonet|c4|taser/;
+const PATH_STEP = 2; // grenade path points every 2 ticks (plus every bounce's last point)
+
+const r1 = v => Math.round(v * 10) / 10;
+const ri = v => Math.round(v);
 
 function extractTrack(file, core) {
   const first = core.rounds[0]?.startTick ?? 0;
@@ -46,7 +57,133 @@ function extractTrack(file, core) {
     buf[o + 8] = w;
     buf[o + 9] = 1 | (r.is_alive ? 2 : 0) | (r.team_num === 3 ? 4 : 0);
   }
-  return { header: { version: TRACK_VERSION, step: STEP, rec: REC, firstTick: first, samples: ticks.length, players, weapons }, data: buf };
+  const extra = extractExtra(file, core, first, last, index);
+  return { header: { version: TRACK_VERSION, step: STEP, rec: REC, firstTick: first, samples: ticks.length, players, weapons, extra }, data: buf };
+}
+
+function extractExtra(file, core, first, last, index) {
+  const events = parser.parseEvents(file,
+    ['weapon_fire', 'player_jump', 'bomb_beginplant', 'bomb_begindefuse', 'bomb_pickup', 'bomb_dropped', 'server_cvar'],
+    ['X', 'Y', 'Z', 'pitch', 'yaw'], []);
+  const inMatch = e => e.tick >= first && e.tick <= last;
+
+  // Server settings for the round clock and the bomb timer (CS2 doesn't announce mp_c4timer when it is the default 40).
+  const cvar = {};
+  for (const e of events) if (e.event_name === 'server_cvar') cvar[e.name] = parseFloat(e.value);
+  const timers = {
+    roundTime: Math.round(60 * (cvar.mp_roundtime_defuse || cvar.mp_roundtime || 1.92)),
+    c4: cvar.mp_c4timer || 40,
+  };
+
+  // Shots: [tick, player index, x, y, z, yaw]
+  const shots = [];
+  const throws = [];
+  for (const e of events) {
+    if (e.event_name !== 'weapon_fire' || !inMatch(e) || e.user_X == null) continue;
+    const p = index.get(e.user_steamid);
+    if (p === undefined) continue;
+    const w = (e.weapon || '').replace(/^weapon_/, '');
+    if (THROWN[w]) throws.push({ tick: e.tick, steamid: e.user_steamid, type: THROWN[w], weapon: w, x: e.user_X, y: e.user_Y, z: e.user_Z, pitch: e.user_pitch, yaw: e.user_yaw, used: false });
+    else if (!NOT_SHOTS.test(w)) shots.push([e.tick, p, ri(e.user_X), ri(e.user_Y), ri(e.user_Z), r1(e.user_yaw || 0)]);
+  }
+
+  const jumps = new Map();
+  for (const e of events) if (e.event_name === 'player_jump' && inMatch(e)) {
+    if (!jumps.has(e.user_steamid)) jumps.set(e.user_steamid, []);
+    jumps.get(e.user_steamid).push({ tick: e.tick, pos: [r1(e.user_X), r1(e.user_Y), r1(e.user_Z)] });
+  }
+
+  const bomb = events.filter(e => /^bomb_/.test(e.event_name) && inMatch(e)).map(e => ({
+    tick: e.tick, type: e.event_name.slice(5), player: e.user_steamid || null,
+    pos: e.user_X == null ? null : [ri(e.user_X), ri(e.user_Y), ri(e.user_Z ?? 0)],
+    ...(e.event_name === 'bomb_begindefuse' ? { kit: !!e.haskit } : {}),
+  }));
+
+  return { timers, shots, nades: grenadePaths(file, first, last, throws, jumps), bomb };
+}
+
+// Every thrown grenade's flight from the parser's per-tick projectile positions, matched to the
+// throw (weapon_fire) it came from, with how the player threw it.
+function grenadePaths(file, first, last, throws, jumps) {
+  const rows = parser.parseGrenades(file).filter(r => PROJECTILES[r.grenade_type] && r.x != null && r.tick >= first && r.tick <= last);
+  rows.sort((a, b) => a.grenade_entity_id - b.grenade_entity_id || a.tick - b.tick);
+
+  // Entity ids get reused: a gap in the ticks starts a new projectile.
+  const flights = [];
+  let cur = null;
+  for (const r of rows) {
+    if (!cur || cur.entity !== r.grenade_entity_id || r.tick - cur.rows.at(-1).tick > 4) {
+      cur = { entity: r.grenade_entity_id, type: PROJECTILES[r.grenade_type], steamid: r.steamid, rows: [] };
+      flights.push(cur);
+    }
+    cur.rows.push(r);
+  }
+
+  const nades = [];
+  for (const f of flights.sort((a, b) => a.rows[0].tick - b.rows[0].tick)) {
+    // Smokes and decoys keep their entity after landing: cut the path where it stopped moving.
+    let end = f.rows.length - 1;
+    while (end > 0) {
+      const a = f.rows[end], b = f.rows[end - 1];
+      if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) + Math.abs(a.z - b.z) > 0.5) break;
+      end--;
+    }
+    const pts = f.rows.slice(0, end + 1);
+    if (pts.length < 2) continue;
+    const t0 = pts[0].tick;
+    const path = [];
+    pts.forEach((r, i) => {
+      // Keep every PATH_STEP-th point, the last one and any point where the direction changes sharply (bounces).
+      const prev = pts[i - 1], next = pts[i + 1];
+      const bounce = prev && next && ((r.x - prev.x) * (next.x - r.x) + (r.y - prev.y) * (next.y - r.y) + (r.z - prev.z) * (next.z - r.z)) < 0;
+      if (i % PATH_STEP === 0 || i === pts.length - 1 || bounce) path.push(r.tick - t0, ri(r.x), ri(r.y), ri(r.z));
+    });
+
+    let from = null;
+    for (let i = throws.length - 1; i >= 0; i--) {
+      const t = throws[i];
+      if (t.used || t.steamid !== f.steamid || t.type !== f.type || t.tick > t0) continue;
+      if (t0 - t.tick <= 96) { t.used = true; from = t; }
+      break;
+    }
+    nades.push({ type: f.type, thrower: f.steamid || null, entity: f.entity, t0, t1: pts.at(-1).tick, path, throw: from && throwInfo(from, jumps) });
+  }
+  addMovement(file, nades);
+  return nades;
+}
+
+function throwInfo(t, jumps) {
+  const jump = (jumps.get(t.steamid) || []).filter(j => j.tick <= t.tick && t.tick - j.tick <= 64).at(-1);
+  return {
+    tick: t.tick, weapon: t.weapon,
+    pos: [r1(t.x), r1(t.y), r1(t.z)], pitch: r1(t.pitch || 0), yaw: r1(t.yaw || 0),
+    jumpAgo: jump ? t.tick - jump.tick : null, jumpPos: jump ? jump.pos : null,
+  };
+}
+
+// Buttons and movement around each throw: which mouse buttons were held (throw strength), which
+// movement keys, crouching, in the air, and the speed.
+function addMovement(file, nades) {
+  const thrown = nades.filter(n => n.throw);
+  if (!thrown.length) return;
+  const want = new Set();
+  for (const n of thrown) for (let d = -4; d <= 0; d++) want.add(n.throw.tick + d);
+  const props = ['X', 'Y', 'FIRE', 'RIGHTCLICK', 'FORWARD', 'BACK', 'LEFT', 'RIGHT', 'JUMP', 'is_walking', 'ducking', 'is_airborne'];
+  const byKey = new Map();
+  for (const r of parser.parseTicks(file, props, [...want].sort((a, b) => a - b))) byKey.set(`${r.tick}|${r.steamid}`, r);
+  for (const n of thrown) {
+    const t = n.throw.tick;
+    const at = d => byKey.get(`${t + d}|${n.thrower}`);
+    const now = at(0), before = at(-4);
+    if (!now) continue;
+    const held = k => [-2, -1, 0].some(d => at(d)?.[k]);
+    const keys = ['FORWARD', 'BACK', 'LEFT', 'RIGHT'].filter(held);
+    const speed = before && before.X != null ? Math.round(Math.hypot(now.X - before.X, now.Y - before.Y) / (4 / 64)) : null;
+    Object.assign(n.throw, {
+      left: held('FIRE'), right: held('RIGHTCLICK'), keys, jumpKey: held('JUMP'),
+      walk: !!now.is_walking, duck: !!now.ducking, air: !!now.is_airborne, speed,
+    });
+  }
 }
 
 function packTrack({ header, data }) {

@@ -8,7 +8,7 @@
 //   derived.json      demo id|steamid -> per-player match summary (overview), rebuilt when its version changes
 //   <id>.json         core data: rounds, rosters, kills (highlights, lists, duplicate detection)
 //   <id>.events.json  damage, shots, flashes, grenades, bomb (scoreboard, heatmap)
-//   <id>.track.bin    sampled player positions for the 2D replay, built on first use
+//   <id>.track.bin    2D replay: sampled player positions, grenade flights, shots, bomb events; built on first use
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');

@@ -7,7 +7,7 @@ const steam = require('./lib/steam');
 const ffmpeg = require('./lib/ffmpeg');
 const { Settings } = require('./lib/settings');
 const { Library } = require('./lib/library');
-const { Recorder, Cancelled } = require('./lib/recorder');
+const { Recorder, Cancelled, demoRef } = require('./lib/recorder');
 const { buildHighlights, weaponName } = require('./lib/highlights');
 const { DATA_VERSION } = require('./lib/demo');
 const { DemoStore } = require('./lib/store');
@@ -24,6 +24,8 @@ let win;
 let settings;
 let env;
 let recorder = null;
+let viewer = null;   // HLAE session left open by "Watch in CS2": { session, demo }
+let watching = null; // the "Watch in CS2" request being opened
 let ffmpegFound = null;
 let encoderReady = Promise.resolve();
 let downloader;
@@ -353,16 +355,22 @@ function registerIpc() {
     }
     return { map: core.map, matches, points };
   });
-  // Everything the 2D replay needs: sampled positions plus kills, grenades and bomb events.
+  // Everything the 2D replay needs: sampled positions, grenade paths, shots and bomb events from the
+  // track file, plus kills, damage, flashes and grenade effects from the stored events.
   handle('demo:replay', async file => {
     const { core, events } = await demoData(file);
     const track = await demoTrack(file);
+    const { extra, ...header } = track.header;
     return {
       map: core.map, tickrate: core.tickrate, players: core.players,
       rounds: core.rounds.map(({ roster, ...r }) => r),
-      kills: core.kills.map(k => ({ tick: k.tick, round: k.round, attacker: k.attacker, victim: k.victim, attackerTeam: k.attackerTeam, victimTeam: k.victimTeam, weapon: weaponName(k.weapon), headshot: k.headshot, victimPos: k.victimPos })),
-      grenades: events.grenades, bomb: events.bomb,
-      track: { header: track.header, data: new Uint8Array(track.data.buffer, track.data.byteOffset, track.data.byteLength) },
+      kills: core.kills.map(k => ({ tick: k.tick, round: k.round, attacker: k.attacker, victim: k.victim, attackerTeam: k.attackerTeam, victimTeam: k.victimTeam, weapon: weaponName(k.weapon), headshot: k.headshot, wallbang: k.wallbang, smoke: k.smoke, victimPos: k.victimPos })),
+      // [tick, attacker, victim, damage, hitgroup, weapon, victim x, victim y]
+      damage: events.damage.filter(d => d.victimPos).map(d => [d.tick, d.attacker, d.victim, d.dmg, d.hitgroup, d.weapon || '', d.victimPos[0], d.victimPos[1]]),
+      blinds: events.blinds.map(b => [b.tick, b.victim, b.duration, b.attacker]),
+      grenades: events.grenades, nades: extra.nades, shots: extra.shots, timers: extra.timers,
+      bomb: [...events.bomb, ...extra.bomb].sort((a, b) => a.tick - b.tick),
+      track: { header, data: new Uint8Array(track.data.buffer, track.data.byteOffset, track.data.byteLength) },
     };
   });
   handle('radar:maps', () => JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'radar', 'maps.json'), 'utf8')));
@@ -391,6 +399,10 @@ function registerIpc() {
 
   handle('record:start', async (items, steamid) => {
     if (recorder) throw new Error('A recording is already running.');
+    if (watching) throw new Error('CS2 is still opening a demo for watching. Try again in a moment.');
+    // The recording reuses a CS2 left open by "Watch in CS2" and closes it at the end.
+    viewer?.session.sock?.destroy();
+    viewer = null;
     // Never let CS2 start while the Steam helper is pretending to be CS2.
     while (downloader.checking) await new Promise(r => setTimeout(r, 500));
     if (!env.csgoDir) throw new Error('CS2 installation not found. Set it in Settings.');
@@ -430,6 +442,51 @@ function registerIpc() {
   });
 
   handle('record:cancel', () => { recorder?.cancel(); return true; });
+
+  // "View demo" / "Watch in CS2": opens the demo in CS2 through HLAE, as for recording, and jumps to
+  // a moment in one player's eyes.
+  //   tick   where to go (default: the start of the first round); playback starts `lead` seconds before it
+  //   name   player to spectate (optional)
+  //   pause  pause on `tick` (e.g. the moment a grenade leaves the hand)
+  // CS2 stays open afterwards; the next request reuses it.
+  handle('demo:watch', async (file, { tick = null, name = '', lead = 0, pause = false } = {}) => {
+    if (recorder) throw new Error('A recording is running. Wait until it has finished.');
+    if (watching) throw new Error('CS2 is still opening the demo. Wait a moment.');
+    if (!env.csgoDir) throw new Error('CS2 installation not found. Set it in Settings.');
+    const missing = hlae.missingFiles(hlaeDir());
+    if (missing.length) throw new Error(`HLAE_MISSING: Viewing demos in CS2 needs HLAE, which is not installed or incomplete in ${hlaeDir()} (missing: ${missing.join(', ')}). Install it from the Highlights & clips tab or Settings → Recording.`);
+    watching = (async () => {
+      const cfg = s();
+      let session = viewer?.session;
+      if (!session?.sock) {
+        session = new hlae.HlaeSession({
+          dir: hlaeDir(), cs2Dir: env.cs2Dir, port: cfg.hlae.port, width: cfg.hlae.width, height: cfg.hlae.height,
+          ffmpegPath: ffmpegFound || 'ffmpeg', log: m => log('watch:', m),
+        });
+        const { launched } = await session.start(() => false);
+        viewer = { session, demo: null };
+        if (launched) await new Promise(r => setTimeout(r, cfg.timing.startupWait * 1000));
+      }
+      if (viewer.demo !== file) {
+        session.mark();
+        await session.send([`playdemo "${demoRef(env.csgoDir, file, path.join(env.csgoDir, 'clipmaker_watch'))}"`]);
+        if (!(await session.waitFor(/Demo is version|Signon traffic "DEMO"/, 180000, () => false))) throw new Error('CS2 did not load the demo within 3 minutes.');
+        await new Promise(r => setTimeout(r, 3000));
+        viewer.demo = file;
+      }
+      if (tick == null) tick = (await parseDemo(file)).rounds[0]?.startTick ?? 1;
+      const who = String(name || '').replace(/[";]/g, '');
+      const start = Math.max(1, Math.round(tick - lead * 64));
+      await session.send([
+        'demo_pause', 'mirv_cmd clear', 'demo_timescale 1',
+        ...(who ? [`mirv_cmd addAtTick ${start + 32} spec_player "${who}"`, `mirv_cmd addAtTick ${start + 36} spec_mode 2`] : []),
+        ...(pause ? [`mirv_cmd addAtTick ${Math.round(tick)} demo_pause`] : []),
+        `demo_gototick ${start}`, 'demo_resume',
+      ]);
+    })();
+    try { await watching; } finally { watching = null; }
+    return true;
+  });
 
   handle('clips:list', () => library().list());
   handle('clips:delete', async id => {
