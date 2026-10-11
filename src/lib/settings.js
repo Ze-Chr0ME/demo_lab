@@ -9,11 +9,7 @@ const DEFAULTS = {
   ffmpegPath: '',
   encoder: 'auto',
   keepRaw: false,
-  // 'hlae' = background recording through HLAE (CS2 doesn't need focus); 'obs' = OBS + CS2 in front.
-  recording: { method: 'hlae' },
   hlae: { path: '', width: 1920, height: 1080, fps: 60, port: 2121 }, // path empty = <app data>/hlae
-  obs: { host: '127.0.0.1', port: 4455, password: '' },
-  control: { method: 'keypress', key: 'scrolllock', netconPort: 2121 },
   detection: {
     minMultiKill: 3,
     clutch: true,
@@ -24,15 +20,10 @@ const DEFAULTS = {
     padBefore: 3,       // seconds kept before the first kill of a segment
     padAfter: 2,        // seconds kept after the last kill
     mergeGap: 4,        // kills closer than this (after padding) stay in one continuous shot
-    startupWait: 35,    // seconds to wait after CS2's window appears before sending commands
-    demoLoadWait: 25,   // seconds to wait after playdemo
-    seekWait: 4,        // seconds to wait after jumping to a tick
-    specWait: 1.5,      // seconds to wait after switching to the player
+    startupWait: 35,    // seconds to wait after CS2's console answers before sending commands
   },
   commands: {
     setup: 'cl_drawhud 1; cl_draw_only_deathnotices 0',
-    seek: 'demo_gototick {tick}; demo_pause',
-    spectate: 'spec_player_by_accountid {accountid}; spec_player "{name}"',
   },
   montage: { fade: 0.25 },
   downloads: { auto: true, intervalMin: 30 },

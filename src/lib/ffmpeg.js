@@ -1,4 +1,4 @@
-// Thin wrappers around ffmpeg/ffprobe: trimming raw recordings, joining segments, montages.
+// Thin wrappers around ffmpeg/ffprobe: muxing HLAE recordings, joining segments, montages.
 const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -82,12 +82,6 @@ async function pickEncoder(pref) {
 const videoArgs = () => [...ENCODERS[chosenEncoder], '-pix_fmt', 'yuv420p'];
 const audioArgs = ['-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2'];
 
-// Accurate (re-encoding) cut of [start, start+duration] from a raw OBS recording.
-function trim(input, start, duration, output) {
-  return run(ffmpegPath, ['-y', '-hide_banner', '-ss', start.toFixed(3), '-i', input, '-t', duration.toFixed(3),
-    ...videoArgs(), ...audioArgs, '-movflags', '+faststart', output]);
-}
-
 // Puts HLAE's separate video.mp4 + audio.wav together (video copied as-is, audio to AAC).
 function mux(video, audio, output) {
   const hasAudio = audio && fs.existsSync(audio);
@@ -133,4 +127,4 @@ function thumbnail(input, output, at = 1) {
   return run(ffmpegPath, ['-y', '-hide_banner', '-ss', String(at), '-i', input, '-frames:v', '1', '-vf', 'scale=320:-2', '-q:v', '4', output]);
 }
 
-module.exports = { resolve, probe, pickEncoder, trim, mux, concat, montage, thumbnail, get encoder() { return chosenEncoder; }, get path() { return ffmpegPath; } };
+module.exports = { resolve, probe, pickEncoder, mux, concat, montage, thumbnail, get encoder() { return chosenEncoder; }, get path() { return ffmpegPath; } };

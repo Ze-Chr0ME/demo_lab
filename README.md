@@ -3,29 +3,58 @@
 Turns your CS2 demos into highlight clips automatically. It reads each demo to find your
 **multi-kills (3K/4K/ace)**, **clutches** and **special kills** (no-scopes, wallbangs, through smoke,
 while flashed, knife, Zeus, collaterals). Then CS2 replays those moments from your point of view
-while OBS records them, and ffmpeg trims the recordings into clips and joins them into montages.
+through [HLAE](https://www.advancedfx.org/), which records them in the background, and ffmpeg turns
+the recordings into clips and montages.
 
-## One-time setup
+## Setup
 
-1. **Install OBS Studio** (free): https://obsproject.com
-2. In OBS, open **Tools → WebSocket Server Settings**, tick **Enable WebSocket server**, then click
-   **Show Connect Info** and copy the password.
-3. Start ClipMaker by double-clicking **`Start ClipMaker.bat`**. Go to **Settings → OBS Studio**,
-   paste the password and click **Test & set up scene**. This creates a `CS2 ClipMaker` scene in OBS
-   that captures the CS2 window and only CS2's audio, so Discord and music stay out of the clips.
-4. Optional but recommended: in OBS **Settings → Output**, set the recording encoder to NVENC and the
-   format to MKV or MP4. In **Settings → Video**, use 1920×1080 at 60 fps.
+You need:
 
-ffmpeg is already installed on this PC (`C:\ffmpeg`), and ClipMaker uses your NVIDIA GPU (NVENC) to
-encode.
+- **Windows 10/11 (64-bit)** with **Steam** and **CS2** installed (start CS2 once so its folders exist).
+- **[Node.js](https://nodejs.org) 22.12+** (LTS).
+- **ffmpeg** with `ffprobe`, for example the
+  [gyan.dev essentials build](https://www.gyan.dev/ffmpeg/builds/) or `winget install Gyan.FFmpeg`.
+  ClipMaker looks for it on your `PATH`, in `C:\ffmpeg\bin` and in `C:\ffmpeg`. Anywhere else, set it
+  in **Settings → Output → ffmpeg**. `ffprobe.exe` has to sit next to `ffmpeg.exe`.
+- **[Visual C++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe)**, used by the
+  demo parser (usually already installed by Steam games).
+
+Then:
+
+1. Double-click **`Start ClipMaker.bat`**. The first launch runs `npm install` and downloads Electron,
+   which takes a few minutes. You can also run `npm install` and then `npm start` from a terminal.
+2. In **Settings → Recording**, click **Check for updates → Install HLAE**. ClipMaker downloads
+   [HLAE](https://www.advancedfx.org/) into `%APPDATA%\cs2-clipmaker\hlae`. If an antivirus
+   quarantines it (HLAE injects into CS2), restore it or add an exclusion for that folder.
+3. The status panel at the bottom left should show CS2, Steam, ffmpeg and HLAE in green.
 
 ## Making clips
 
-1. In CS2, download your matches from **Watch → Your Matches**. They appear in ClipMaker automatically.
-2. Pick a match on the left. Highlights are pre-selected (the 2★-and-up ones), and you can tick or untick any.
-3. Click **Record**. Keep OBS open and **don't touch the mouse or keyboard** while it records.
-4. Your clips show up in the **Clips** tab, saved to `Videos\CS2 Clips`. Click clips in the order you
-   want, then click **Create montage**.
+1. In CS2, download your matches from **Watch → Your Matches** (or let the **Downloads** tab do it,
+   see below). They show up in ClipMaker automatically.
+2. **Close CS2.** Recording needs its own CS2 session started through HLAE.
+3. Pick a match on the left. The 2★-and-up highlights are pre-selected, and you can tick or untick any.
+4. Click **Record**. CS2 opens in a window and plays the demo. **You can keep using your PC**, and you
+   can put other windows over CS2 or minimize it (it renders more slowly when minimized). CS2 closes
+   by itself when recording finishes.
+5. Your clips show up in the **Clips** tab and are saved to `Videos\CS2 Clips`. Click clips in the
+   order you want, then click **Create montage**.
+
+## How recording works
+
+- ClipMaker starts CS2 in a window through HLAE with `-insecure` (no VAC servers) and `-afxFixNetCon`
+  (so CS2's console port works on Windows), and sends commands over that port. CS2 never needs focus.
+- HLAE's `mirv_streams` records frames straight from the game engine at a fixed frame rate (60 fps by
+  default) and encodes them with ffmpeg. `mirv_cmd` starts and stops each recording on the exact demo
+  tick.
+- CS2 is **always closed** when the recording ends. Never use an HLAE/`-insecure` CS2 session to join
+  matches.
+- HLAE has to match the installed CS2 version. ClipMaker checks for new HLAE releases at startup and
+  every 6 hours, and shows a notice when one is available. After a CS2 update, install it from
+  **Settings → Recording**.
+- Resolution and frame rate are set in **Settings → Recording**. HLAE is looked for in
+  `%APPDATA%\cs2-clipmaker\hlae`, then in the project's `tools\hlae`. **Browse** points to another
+  folder.
 
 ## Automatic match downloads
 
@@ -50,45 +79,18 @@ folder, under CS2's own file names:
   still click **Download again**.
 - Valve deletes replays after a few weeks, so only recent matches can be downloaded.
 
-## Background recording (default)
-
-**Settings → Recording → Background — HLAE.** This mode doesn't need OBS, and you can keep using your PC
-while it records.
-
-- ClipMaker starts CS2 in a window through [HLAE](https://www.advancedfx.org/) 2.192.7, found in
-  `%APPDATA%\cs2-clipmaker\hlae` or in the project's `tools\hlae`. It uses `-insecure` (no VAC servers) and `-afxFixNetCon` (so CS2's
-  console port works on Windows), and sends commands over that port. CS2 never needs focus.
-- HLAE's `mirv_streams` records frames straight from the game engine at a fixed frame rate (60 fps by
-  default) and encodes them with your GPU. `mirv_cmd` starts and stops each recording on the exact demo
-  tick. CS2 can stay behind other windows or be minimized; minimized, it renders more slowly.
-- CS2 is **always closed** when the recording ends. Never use an HLAE/`-insecure` CS2 session to join
-  matches.
-- If recording fails right after a CS2 update, HLAE probably needs updating: download the latest
-  version from advancedfx.org and point **Settings → Recording → HLAE folder** to it.
-
-## How it controls CS2 (foreground / OBS mode)
-
-On Windows, CS2's remote console only works in Workshop Tools mode. Instead, ClipMaker launches CS2
-with `+exec clipmaker_init`, which binds **Scroll Lock** to `exec clipmaker_cmd`. To send a command,
-the app writes it into `csgo/cfg/clipmaker_cmd.cfg` and presses Scroll Lock in the CS2 window.
-
-- If CS2 is **already running** when you click Record, either type `exec clipmaker_init` in the CS2
-  console once, or close CS2 and let ClipMaker start it.
-- **Settings → Counter-Strike 2 → Test control** briefly opens and closes the CS2 console, which shows
-  that control works.
-- If you already use Scroll Lock in game, pick a different trigger key in Settings.
-
 ## If something looks off
 
-| Problem | Fix (Settings → Advanced) |
+| Problem | Fix |
 | --- | --- |
-| Clips show a loading screen or the wrong moment | Increase **Demo load wait** (large demos take longer to load) |
-| Clips start mid-action or show a freeze | Increase **Seek wait** |
-| Wrong player's view | Edit the **Spectate command** (`{accountid}` and `{name}` are filled in) |
-| The demo skips but doesn't stay paused | Try the seek command `demo_goto {tick} 0 1` |
-| Clips cut long pauses during clutches | Raise **Cut gaps longer than** (e.g. 60s) |
+| "CS2 is already running normally" | Close CS2 completely (check the Steam library says it isn't running), then click Record again |
+| CS2 opens but never starts recording, or crashes right after a CS2 update | Update HLAE in **Settings → Recording** |
+| The first clip fails right after CS2 opens | Raise **CS2 startup wait** in **Settings → Advanced timing & commands** |
+| "HLAE did not produce a video file" | Check the ffmpeg path in **Settings → Output** |
+| Clips cut long pauses during clutches | Raise **Cut gaps longer than** in **Settings → Highlights** (e.g. 60s) |
+| Steam Community sign-in doesn't stick | Look at `%APPDATA%\cs2-clipmaker\clipmaker.log` |
 
-Demos from brand-new game modes (e.g. `rush_001` maps) can't be read yet by the demo parser.
+Demos from game modes that are newer than the demo parser may not be readable.
 
 ## Demo parser (Rush support)
 
@@ -103,7 +105,8 @@ changes:
 
 On all 53 non-Rush demos tested, the output is byte-for-byte identical to the npm package, and all 10
 Rush demos parse. `src/lib/parser.js` loads the vendored build and falls back to the npm package if it
-is missing; set `CLIPMAKER_PARSER=npm` to force the npm package.
+is missing or can't be loaded (for example without the Visual C++ runtime); set `CLIPMAKER_PARSER=npm`
+to force the npm package.
 
 To rebuild it: install Rust, clone LaihoE/demoparser, apply the patch, make
 `src/csgoproto/build.rs` an empty `fn main() {}` (it needs `protoc` otherwise), remove
@@ -115,12 +118,12 @@ To rebuild it: install Rust, clone LaihoE/demoparser, apply the patch, make
 ```
 src/main.js              Electron main process, IPC
 src/lib/demo.js          Demo → rounds/rosters/kills (demoparser2, runs in a worker)
+src/lib/parser.js        Loads the vendored demo parser (or the npm one)
 src/lib/highlights.js    Multi-kill / clutch / special-kill detection, clip segments
-src/lib/cs2.js           Launching CS2, sending console commands (key press or netcon)
-src/lib/obs.js           OBS WebSocket: scene setup, start/stop recording
+src/lib/hlae.js          Starting CS2 through HLAE, console port, HLAE updates
 src/lib/recorder.js      Playback + recording orchestration
-src/lib/ffmpeg.js        Trim, join, montage, thumbnails
+src/lib/ffmpeg.js        Mux, join, montage, thumbnails
+src/lib/matches.js       Match downloads (gcWorker.js: Valve's list, community.js: Steam Community)
+src/lib/steam.js         Finding Steam, CS2 and the logged-in account
 src/renderer/            UI
 ```
-
-Run from a terminal with `npm start`.
