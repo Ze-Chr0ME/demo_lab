@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Worker } = require('worker_threads');
@@ -15,6 +15,8 @@ const { buildMatchStats } = require('./lib/stats');
 const { heatPoints } = require('./lib/heat');
 const { matchSummary, PROFILE_VERSION } = require('./lib/profile');
 const { unpackTrack } = require('./lib/track');
+const { INTEGRITY_VERSION, scoreIntegrity } = require('./lib/integrity');
+const { ensureGeometry } = require('./lib/geometry');
 const { MatchDownloader, fetchGcMatches } = require('./lib/matches');
 const { decode } = require('./lib/proto');
 const { Community, signIn, signOut, watchCookies, loginCookieSummary } = require('./lib/community');
@@ -182,6 +184,52 @@ async function demoTrack(file) {
     parseQueue = job.catch(() => {});
   }
   return tracking.get(id);
+}
+
+// Map collision meshes for line of sight (see lib/geometry.js): downloaded once, the first time a
+// match is checked. Without them (offline, unknown map) the check falls back on radar spotting.
+let geometryJob = null;
+function geometryDir() {
+  const dir = path.join(app.getPath('userData'), 'geometry');
+  if (!geometryJob) geometryJob = ensureGeometry(dir, net.fetch, m => log('geometry:', m))
+    .catch(err => { log('geometry: unavailable', err.message); geometryJob = null; return null; });
+  return geometryJob;
+}
+const meshFor = (dir, map) => dir && fs.existsSync(path.join(dir, `${map}.mesh`));
+
+// Aim and visibility facts for the Integrity tab: built once per demo (same queue), then read from
+// <id>.integrity.json. Progress goes to the renderer as integrity:progress. Facts made without map
+// geometry are rebuilt once the geometry is there.
+const checking = new Map();
+async function demoIntegrity(file) {
+  const core = await parseDemo(file);
+  const id = store.idOf(file);
+  const out = store.integrityFile(id);
+  let cached = null;
+  try { const d = JSON.parse(fs.readFileSync(out, 'utf8')); if (d.version === INTEGRITY_VERSION) cached = d; } catch {}
+  if (cached?.los) return { core, facts: cached };
+  if (!checking.has(id)) {
+    const job = (async () => {
+      if (!fs.existsSync(path.join(app.getPath('userData'), 'geometry', 'manifest.json'))) send('integrity:progress', { id, progress: 0, phase: 'geometry' });
+      const dir = await geometryDir();
+      if (cached && !meshFor(dir, core.map)) return cached;
+      const run = parseQueue.then(() => new Promise((resolve, reject) => {
+        const w = new Worker(path.join(__dirname, 'lib', 'parseWorker.js'), { workerData: { file, mode: 'integrity', core, geometryDir: dir } });
+        w.on('message', msg => {
+          if (msg.progress != null) return send('integrity:progress', { id, progress: msg.progress, phase: 'demo' });
+          w.terminate();
+          if (!msg.ok) return reject(new Error(`Could not check this demo: ${msg.error}`));
+          fs.writeFileSync(out, JSON.stringify(msg.data));
+          resolve(msg.data);
+        });
+        w.once('error', reject);
+      }));
+      parseQueue = run.catch(() => {});
+      return run;
+    })().finally(() => checking.delete(id));
+    checking.set(id, job);
+  }
+  return { core, facts: await checking.get(id) };
 }
 
 async function demoData(file) {
@@ -372,6 +420,11 @@ function registerIpc() {
       bomb: [...events.bomb, ...extra.bomb].sort((a, b) => a.tick - b.tick),
       track: { header, data: new Uint8Array(track.data.buffer, track.data.byteOffset, track.data.byteLength) },
     };
+  });
+  // Integrity tab: per player, how unusual their aim and game sense look, and the moments behind it.
+  handle('demo:integrity', async file => {
+    const { core, facts } = await demoIntegrity(file);
+    return scoreIntegrity(facts, core, mySteamId());
   });
   handle('radar:maps', () => JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'radar', 'maps.json'), 'utf8')));
   handle('demo:rename', (file, name) => { const id = store.idOf(file); store.setName(id, name); return store.name(id); });

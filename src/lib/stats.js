@@ -172,4 +172,4 @@ function buildMatchStats(core, events, mySteamId) {
   return { rounds: rounds.length, teams, duels, openings, me: myTeam ? mySteamId : null };
 }
 
-module.exports = { buildMatchStats, rating2, enemyKill };
+module.exports = { buildMatchStats, rating2, enemyKill, assignTeams };

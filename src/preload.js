@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('api', {
   stats: file => call('demo:stats', file),
   radarMaps: () => call('radar:maps'),
   replay: file => call('demo:replay', file),
+  integrity: file => call('demo:integrity', file),
+  onIntegrityProgress: on('integrity:progress'),
   watchDemo: (file, opts) => call('demo:watch', file, opts),
   heat: (file, steamid, scope) => call('demo:heat', file, steamid, scope),
   profile: () => call('profile:get'),
