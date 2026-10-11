@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld('api', {
   stats: file => call('demo:stats', file),
   radarMaps: () => call('radar:maps'),
   replay: file => call('demo:replay', file),
-  watchDemo: (file, tick, name) => call('demo:watch', file, tick, name),
+  watchDemo: (file, opts) => call('demo:watch', file, opts),
   heat: (file, steamid, scope) => call('demo:heat', file, steamid, scope),
   profile: () => call('profile:get'),
   mapHeat: (map, who) => call('map:heat', map, who),

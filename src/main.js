@@ -443,15 +443,18 @@ function registerIpc() {
 
   handle('record:cancel', () => { recorder?.cancel(); return true; });
 
-  // "Watch in CS2" (2D replay): opens the demo in CS2 through HLAE, as for recording, in one player's
-  // eyes from a few seconds before a tick, and pauses on that tick (e.g. the moment a grenade leaves
-  // the hand). CS2 stays open afterwards; the next request reuses it.
-  handle('demo:watch', async (file, tick, name) => {
+  // "View demo" / "Watch in CS2": opens the demo in CS2 through HLAE, as for recording, and jumps to
+  // a moment in one player's eyes.
+  //   tick   where to go (default: the start of the first round); playback starts `lead` seconds before it
+  //   name   player to spectate (optional)
+  //   pause  pause on `tick` (e.g. the moment a grenade leaves the hand)
+  // CS2 stays open afterwards; the next request reuses it.
+  handle('demo:watch', async (file, { tick = null, name = '', lead = 0, pause = false } = {}) => {
     if (recorder) throw new Error('A recording is running. Wait until it has finished.');
-    if (watching) throw new Error('CS2 is still opening the previous moment.');
+    if (watching) throw new Error('CS2 is still opening the demo. Wait a moment.');
     if (!env.csgoDir) throw new Error('CS2 installation not found. Set it in Settings.');
     const missing = hlae.missingFiles(hlaeDir());
-    if (missing.length) throw new Error(`HLAE_MISSING: Watching in CS2 needs HLAE, which is not installed or incomplete in ${hlaeDir()} (missing: ${missing.join(', ')}). Install it from the Highlights & clips tab or Settings → Recording.`);
+    if (missing.length) throw new Error(`HLAE_MISSING: Viewing demos in CS2 needs HLAE, which is not installed or incomplete in ${hlaeDir()} (missing: ${missing.join(', ')}). Install it from the Highlights & clips tab or Settings → Recording.`);
     watching = (async () => {
       const cfg = s();
       let session = viewer?.session;
@@ -471,13 +474,13 @@ function registerIpc() {
         await new Promise(r => setTimeout(r, 3000));
         viewer.demo = file;
       }
+      if (tick == null) tick = (await parseDemo(file)).rounds[0]?.startTick ?? 1;
       const who = String(name || '').replace(/[";]/g, '');
-      const start = Math.max(1, tick - 5 * 64);
+      const start = Math.max(1, Math.round(tick - lead * 64));
       await session.send([
         'demo_pause', 'mirv_cmd clear', 'demo_timescale 1',
-        `mirv_cmd addAtTick ${start + 32} spec_player "${who}"`,
-        `mirv_cmd addAtTick ${start + 36} spec_mode 2`,
-        `mirv_cmd addAtTick ${tick} demo_pause`,
+        ...(who ? [`mirv_cmd addAtTick ${start + 32} spec_player "${who}"`, `mirv_cmd addAtTick ${start + 36} spec_mode 2`] : []),
+        ...(pause ? [`mirv_cmd addAtTick ${Math.round(tick)} demo_pause`] : []),
         `demo_gototick ${start}`, 'demo_resume',
       ]);
     })();

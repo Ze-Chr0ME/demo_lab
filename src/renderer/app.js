@@ -26,6 +26,7 @@ const ICONS = {
   film: '<rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4" stroke="currentColor" stroke-width="1.8"/>',
   demo: '<path d="M4 5h16v14H4zM4 9h16M9 5v14" fill="none" stroke="currentColor" stroke-width="1.5"/>',
   x: '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  screen: '<rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 };
 
 function toast(msg, kind = '') {
@@ -324,7 +325,10 @@ function renderDetail() {
         sb ? stat('Rating', sb.rating == null ? '—' : sb.rating.toFixed(2), ratingClass(sb.rating)) : null,
       ) : null,
     ),
-    h('div', { class: 'player-pick' }, icon('<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8"/>'), 'Point of view', playerSelect),
+    h('div', { class: 'player-pick' }, icon('<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8"/>'), 'Point of view', playerSelect,
+      h('span', { class: 'spacer' }),
+      viewInCs2Button('View demo', 'btn', 'Opens this demo in CS2 (through HLAE) at the first round, in the eyes of the point-of-view player',
+        () => ({ name: a.player?.name }), 'The demo is playing in the CS2 window.')),
   );
 
   const tab = state.tab;
@@ -1064,6 +1068,8 @@ function radarView() {
     roomSelect(info, R.room, v => { R.room = v; renderDetail(); }),
     h('span', { class: 'spacer' }),
     h('span', { class: 'hint' }, 'Click a grenade to see how it was thrown'),
+    viewInCs2Button('View in CS2', 'btn', 'Opens this demo in CS2 (through HLAE) 2 s before this moment, in the eyes of the point-of-view player',
+      () => ({ tick: R.tick, lead: 2, name: state.analysis?.player?.name }), 'The demo is playing in the CS2 window.'),
   );
 
   // Clicking a grenade (in flight, its smoke/fire, or its path) opens how it was thrown.
@@ -1188,6 +1194,23 @@ const setposCmd = th => {
   return `setpos ${p[0]} ${p[1]} ${p[2]}; setang ${th.pitch} ${th.yaw} 0`;
 };
 
+// Button opening the current demo in CS2 at a moment (see demo:watch in main.js); opts() is read on click.
+function viewInCs2Button(label, cls, title, opts, doneMsg) {
+  const text = h('span', {}, label);
+  const btn = h('button', { class: cls, title }, icon(ICONS.screen), text);
+  btn.onclick = async () => {
+    const file = state.demo.path, o = opts();
+    btn.disabled = true;
+    text.textContent = 'Opening CS2…';
+    toast('Opening the demo in CS2. The first time takes a minute or two (CS2 starts, then loads the demo).');
+    try { await api.watchDemo(file, o); toast(doneMsg, 'ok'); }
+    catch (e) { toast(e.message.replace(/^.*HLAE_MISSING:s*/, ''), 'error'); }
+    btn.disabled = false;
+    text.textContent = label;
+  };
+  return btn;
+}
+
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); }
   catch {
@@ -1219,15 +1242,11 @@ function nadeCard(n) {
   const profile = h('canvas', { class: 'nc-profile', width: 560, height: 170 });
   requestAnimationFrame(() => drawProfile(profile, n));
 
-  const watchBtn = h('button', { class: 'btn nc-btn', title: 'Opens this demo in CS2 (through HLAE) in the thrower\'s eyes, 5 s before the throw, and pauses at the moment the grenade leaves the hand', disabled: !th }, 'Watch in CS2');
-  watchBtn.onclick = async () => {
-    watchBtn.disabled = true;
-    watchBtn.textContent = 'Opening CS2…';
-    toast('Opening the demo in CS2. The first time takes a minute or two (CS2 starts, then loads the demo).');
-    await guard(() => api.watchDemo(state.demo.path, th.tick, name), 'CS2 plays the throw in the CS2 window and pauses when the grenade leaves the hand (type demo_resume in the console to continue).');
-    watchBtn.disabled = false;
-    watchBtn.textContent = 'Watch in CS2';
-  };
+  const watchBtn = viewInCs2Button('Watch in CS2', 'btn nc-btn',
+    'Opens this demo in CS2 (through HLAE) in the thrower\'s eyes, 5 s before the throw, and pauses at the moment the grenade leaves the hand',
+    () => ({ tick: th.tick, name, lead: 5, pause: true }),
+    'CS2 plays the throw and pauses when the grenade leaves the hand (type demo_resume in the console to continue).');
+  watchBtn.disabled = !th;
 
   return h('div', { class: 'nade-card', style: { '--c': NADE_COLOR[n.type] } },
     h('div', { class: 'nc-head' },
