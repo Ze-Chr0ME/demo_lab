@@ -1,0 +1,19 @@
+{
+  "name": "cs2-clipmaker",
+  "version": "1.0.0",
+  "description": "Automatic CS2 highlight clips from demo files",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@laihoe/demoparser2": "^0.42.0",
+    "koffi": "^3.3.3",
+    "obs-websocket-js": "^5.0.8",
+    "unbzip2-stream": "^1.4.3"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0"
+  }
+}

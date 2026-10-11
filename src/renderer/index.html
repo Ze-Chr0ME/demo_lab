@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file: data:; media-src file:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>CS2 ClipMaker</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24"><path d="M4 6h11l5 6-5 6H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="10" cy="12" r="2.2" fill="currentColor"/></svg>
+      </div>
+      <div><div class="brand-name">ClipMaker</div><div class="brand-sub">for Counter-Strike 2</div></div>
+    </div>
+    <nav>
+      <button class="nav-btn active" data-view="matches">
+        <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 9h16M9 5v14" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Matches
+      </button>
+      <button class="nav-btn" data-view="clips">
+        <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor"/></svg>Clips<span class="nav-count" id="clipCount"></span>
+      </button>
+      <button class="nav-btn" data-view="downloads">
+        <svg viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Downloads<span class="nav-count" id="dlCount"></span>
+      </button>
+      <button class="nav-btn" data-view="settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" stroke="currentColor" stroke-width="1.8"/></svg>Settings
+      </button>
+    </nav>
+    <div class="status" id="status"></div>
+  </aside>
+
+  <main>
+    <section class="view active" id="view-matches">
+      <div class="demo-list">
+        <div class="list-head">
+          <input id="demoSearch" type="search" placeholder="Search demos or maps…">
+          <button class="icon-btn" id="refreshDemos" title="Rescan demo folders">
+            <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          </button>
+        </div>
+        <div class="list-sub" id="demoListSub"></div>
+        <div class="demos" id="demos"></div>
+      </div>
+      <div class="detail" id="detail"></div>
+    </section>
+
+    <section class="view" id="view-clips"></section>
+    <section class="view" id="view-downloads"></section>
+    <section class="view" id="view-settings"></section>
+  </main>
+
+  <div class="overlay hidden" id="overlay"></div>
+  <div class="toasts" id="toasts"></div>
+  <script src="app.js"></script>
+</body>
+</html>

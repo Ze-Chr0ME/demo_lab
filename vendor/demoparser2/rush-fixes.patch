@@ -1,0 +1,50 @@
+diff --git a/src/parser/src/first_pass/sendtables.rs b/src/parser/src/first_pass/sendtables.rs
+index 9aaf1a7..789e868 100644
+--- a/src/parser/src/first_pass/sendtables.rs
++++ b/src/parser/src/first_pass/sendtables.rs
+@@ -60,6 +60,8 @@ pub struct ConstructorField {
+     pub var_type: String,
+     pub send_node: String,
+     pub serializer_name: Option<String>,
++    // Several versions of the same serializer can exist (e.g. CBodyComponentBaseModelEntity on rush maps).
++    pub serializer_version: Option<i32>,
+     pub encoder: String,
+     pub encode_flags: i32,
+     pub bitcount: i32,
+@@ -156,6 +158,7 @@ impl<'a> FirstPassParser<'a> {
+                 // When collecting values we use the id as key.
+                 prop_controller.find_prop_name_paths(&mut ser);
+             }
++            serializers.insert(format!("{}#{}", ser.name, serializer.serializer_version()), ser.clone());
+             serializers.insert(ser.name.clone(), ser);
+         }
+         // Related to prop collection
+@@ -231,7 +234,8 @@ impl<'a> FirstPassParser<'a> {
+             _ => {}
+         };
+         if field.encoder == "qangle_precise" {
+-            field.decoder = QanglePresDecoder;
++            // Full-precision serializer versions (bitcount 32, e.g. rush_001 conveyors) send 3 raw floats.
++            field.decoder = if field.bitcount == 32 { Qangle3Decoder(32) } else { QanglePresDecoder };
+         }
+         field.field_type = ft;
+         Ok(field)
+@@ -412,6 +416,7 @@ pub fn field_from_msg(
+         var_type,
+         send_node,
+         serializer_name: ser_name,
++        serializer_version: field.field_serializer_version,
+         encoder: enc_name,
+         encode_flags: field.encode_flags(),
+         low_value: field.low_value(),
+@@ -538,7 +543,9 @@ fn create_field(
+ 
+     let element_field = match fd.serializer_name.as_ref() {
+         Some(name) => {
+-            let ser = match serializers.get(name.as_str()) {
++            // Prefer the exact serializer version the field asks for; the name alone is ambiguous.
++            let versioned = fd.serializer_version.map(|v| format!("{}#{}", name, v));
++            let ser = match versioned.as_ref().and_then(|k| serializers.get(k.as_str())).or_else(|| serializers.get(name.as_str())) {
+                 Some(ser) => ser,
+                 None => return Err(DemoParserError::MalformedMessage),
+             };
