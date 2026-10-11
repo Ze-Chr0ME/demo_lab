@@ -9,6 +9,7 @@
 //   <id>.json         core data: rounds, rosters, kills (highlights, lists, duplicate detection)
 //   <id>.events.json  damage, shots, flashes, grenades, bomb (scoreboard, heatmap)
 //   <id>.track.bin    2D replay: sampled player positions, grenade flights, shots, bomb events; built on first use
+//   <id>.integrity.json  aim and visibility facts for the Integrity tab; built on first use
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -129,6 +130,7 @@ class DemoStore {
   setName(id, name) { this.names.set(id, (name || '').trim().slice(0, 80) || undefined); }
 
   trackFile(id) { return path.join(this.dir, `${id}.track.bin`); }
+  integrityFile(id) { return path.join(this.dir, `${id}.integrity.json`); }
 }
 
 module.exports = { DemoStore, fingerprint };

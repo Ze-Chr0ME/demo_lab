@@ -340,14 +340,15 @@ function renderDetail() {
     : tab === 'duels' ? duelsView()
       : tab === 'heatmap' ? heatmapView()
         : tab === 'radar' ? radarView()
-          : highlightsView(a);
+          : tab === 'integrity' ? integrityView()
+            : highlightsView(a);
   el.replaceChildren(
     h('div', { class: 'detail-scroll' }, hero, tabs, ...[body].flat()),
     ...(tab === 'highlights' ? [actionBar()] : []),
   );
 }
 
-const MATCH_TABS = [['scoreboard', 'Scoreboard'], ['duels', 'Duels'], ['heatmap', 'Heatmap'], ['radar', '2D Replay'], ['highlights', 'Highlights & clips']];
+const MATCH_TABS = [['scoreboard', 'Scoreboard'], ['duels', 'Duels'], ['heatmap', 'Heatmap'], ['radar', '2D Replay'], ['integrity', 'Integrity'], ['highlights', 'Highlights & clips']];
 state.tab = 'scoreboard';
 
 function highlightsView(a) {
@@ -488,6 +489,102 @@ function duelsView() {
         ...colsT.players.map(b => cell(a, b)),
         total(a)))))),
   ];
+}
+
+// ---------- Integrity (aim and game-sense anomalies) ----------
+// Built once per demo in the main process (about a minute the first time), then cached.
+function integrityData() {
+  const d = state.demo;
+  if (state.integ?.id === d.id) return state.integ;
+  if (state.integLoading !== d.id) {
+    state.integLoading = d.id;
+    state.integProgress = 0;
+    state.integPhase = null;
+    api.integrity(d.path)
+      .then(v => { state.integ = { id: d.id, value: v }; })
+      .catch(e => { state.integ = { id: d.id, error: e.message }; })
+      .finally(() => { if (state.integLoading === d.id) state.integLoading = null; if (state.demo?.id === d.id && state.tab === 'integrity') renderDetail(); });
+  }
+  return null;
+}
+const integProgressText = () => state.integPhase === 'geometry'
+  ? 'Downloading the map geometry first (57 MB, only once)…'
+  : `${Math.round((state.integProgress || 0) * 100)}%`;
+api.onIntegrityProgress(({ id, progress, phase }) => {
+  if (state.integLoading !== id) return;
+  state.integProgress = progress;
+  state.integPhase = phase;
+  const el = document.getElementById('integ-progress');
+  if (el) el.textContent = integProgressText();
+});
+
+const INTEG_LEVEL = { normal: ['Normal', 'ok'], unusual: ['Unusual', 'new'], very: ['Very unusual', 'bad'] };
+const MOMENT_KIND = { snap: 'Aim without mouse', track: 'Followed through a wall', wallhit: 'Hit through a wall', contact: 'Aimed where they appeared' };
+
+function integrityView() {
+  const st = integrityData();
+  if (!st) return h('div', { class: 'empty' }, spinner(24), h('h2', {}, 'Checking every player’s aim…'),
+    h('div', {}, 'Going through every tick of the match: view angles, mouse movement and who could see whom through the map’s walls. Only the first time for each match: it takes under a minute. ',
+      h('b', { id: 'integ-progress' }, integProgressText())));
+  if (st.error) return h('div', { class: 'empty' }, h('h2', {}, 'Could not check this demo'), h('div', { class: 'err-box' }, st.error));
+
+  const { players } = st.value;
+  if (!players.length) return h('div', { class: 'empty' }, h('h2', {}, 'No players to check'));
+  const sel = players.find(p => p.steamid === state.integPlayer) || players[0];
+  const teamName = p => p.team == null ? '' : p.team === st.value.myTeam ? 'Your team' : 'Opponents';
+  const table = h('table', { class: 'sb integ' },
+    h('thead', {}, h('tr', {},
+      h('th', { class: 'team' }, 'Player'),
+      h('th', { title: 'One very unusual signal, or two unusual ones, make a player very unusual' }, 'Overall'),
+      ...sel.signals.map(c => h('th', { title: `${c.tip}\n\nNormal: ${c.normal}` }, c.label)),
+      h('th', { title: 'Kills and headshot percentage, for context' }, 'K · HS%'))),
+    h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''}`, title: 'Show this player’s moments', onclick: () => { state.integPlayer = p.steamid; renderDetail(); } },
+      h('td', { class: 'name' }, p.name, h('span', { class: 'integ-team' }, teamName(p))),
+      h('td', {}, h('span', { class: `pill ${INTEG_LEVEL[p.level][1]}` }, INTEG_LEVEL[p.level][0])),
+      ...p.signals.map(s => h('td', { class: `integ-${s.level}`, title: `Normal: ${s.normal}` }, s.display)),
+      h('td', {}, `${p.context.kills} · ${p.context.hsPct}%`)))));
+
+  return [
+    h('div', { class: 'section-head' }, h('h3', {}, 'Integrity'), h('span', { class: 'spacer' }),
+      h('span', { class: 'hint' }, 'Red flags read from the demo, not proof. Watch the moments before judging anyone. Hover a column for what it measures.')),
+    st.value.lineOfSight ? null : h('div', { class: 'integ-note' }, 'No map geometry for this map (or it could not be downloaded), so who could see whom comes from the in-game radar, which lags behind quick peeks. The wall-related numbers are rougher than usual.'),
+    h('div', { class: 'sb-wrap' }, table),
+    ...integrityMoments(sel),
+  ];
+}
+
+function integrityMoments(p) {
+  const minor = p.moments.filter(m => m.minor);
+  const showMinor = !!state.integMinor;
+  const list = showMinor ? p.moments : p.moments.filter(m => !m.minor);
+  const row = m => h('div', { class: `integ-moment ${m.strong ? 'strong' : ''}` },
+    h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, m.round), h('div', { class: 'l' }, fmtDur(m.clock))),
+    h('div', { class: 'integ-text' }, h('span', { class: `tag integ-${m.kind}` }, MOMENT_KIND[m.kind]), h('div', {}, m.text)),
+    h('div', { class: 'integ-actions' },
+      h('button', { class: 'btn', title: 'Open the 2D replay 2 s before this moment, viewing the match as this player', onclick: () => showInReplay(p.steamid, m.tick) }, '2D replay'),
+      viewInCs2Button('View in CS2', 'btn', m.kind === 'snap'
+        ? 'Opens the demo in CS2 in this player’s eyes 3 s before the snap and pauses right after it'
+        : 'Opens the demo in CS2 in this player’s eyes 3 s before this moment',
+      () => ({ tick: m.kind === 'snap' ? m.tick + 2 : m.tick, lead: 3, pause: m.kind === 'snap', name: p.name }),
+      m.kind === 'snap' ? 'Paused right after the snap in CS2. Use the demo controls (Shift+F2) to step back and forth.' : 'The demo is playing in the CS2 window.')));
+  return [
+    h('div', { class: 'section-head' },
+      h('h3', {}, `Moments · ${p.name}`),
+      minor.length ? toggle(`Show ${minor.length} weaker moment${minor.length > 1 ? 's' : ''}`, showMinor, v => { state.integMinor = v; renderDetail(); },
+        'Every time the crosshair was already on an unknown enemy as they came into view (good crosshair placement does this too, so one by one they mean little), and snaps onto an enemy without a shot.') : null,
+      h('span', { class: 'spacer' }),
+      p.context.mouselessOther ? h('span', { class: 'hint', title: 'Snaps without mouse movement that were not onto an enemy followed by a shot: turn keys, a controller, lag or the server moving the view. Not counted.' },
+        p.context.mouselessOther >= 20 ? `Often turns without the mouse (${p.context.mouselessOther}×): turn keys or a controller?` : `${p.context.mouselessOther} other snap${p.context.mouselessOther > 1 ? 's' : ''} without mouse (not counted)`) : null),
+    list.length ? h('div', { class: 'integ-moments' }, ...list.map(row))
+      : h('div', { class: 'integ-none' }, 'Nothing stood out for this player.'),
+  ];
+}
+
+// Opens the 2D replay at a tick, viewing the match as that player.
+function showInReplay(steamid, tick) {
+  state.radar.jump = tick;
+  if (state.analysis?.player?.steamid !== steamid) openDemo(state.demo, steamid, 'radar');
+  else { state.tab = 'radar'; renderDetail(); }
 }
 
 // ---------- Radar images (shared by the heatmaps, the Maps page and the 2D replay) ----------
@@ -858,6 +955,7 @@ function replayData() {
         r.data = data;
         r.nade = r.hover = null;
         setRadarRound(1, false);
+        applyRadarJump();
       })
       .catch(e => { r.data = { id: d.id, error: e.message }; })
       .finally(() => { if (r.loading === d.id) r.loading = null; if (state.tab === 'radar') renderDetail(); });
@@ -934,6 +1032,17 @@ function prepareReplay(data) {
   for (const r of data.per.values()) for (const k of Object.keys(r)) r[k].sort((a, b) => a.tick !== undefined ? a.tick - b.tick : (a.throw?.tick ?? a.t0) - (b.throw?.tick ?? b.t0));
 }
 
+// "2D replay" from another tab: R.jump is the tick to show, applied once the replay is loaded.
+function applyRadarJump() {
+  const R = state.radar, data = R.data;
+  if (R.jump == null || !data?.rounds?.length || data.id !== state.demo?.id) return;
+  const tick = R.jump;
+  R.jump = null;
+  const rd = [...data.rounds].reverse().find(r => tick >= r.startTick) || data.rounds[0];
+  setRadarRound(rd.num, false);
+  R.tick = Math.max(rd.startTick, tick - 2 * data.tickrate);
+}
+
 const radarRound = () => state.radar.data.rounds.find(x => x.num === state.radar.round) || state.radar.data.rounds[0];
 const roundStop = (data, r) => Math.min(r.nextStartTick ?? Infinity, r.endTick + 6 * data.tickrate);
 function setRadarRound(num, play = state.radar.playing) {
@@ -1008,6 +1117,7 @@ function radarView() {
   if (data.error) return h('div', { class: 'empty' }, h('h2', {}, 'No replay for this demo'), h('div', { class: 'err-box' }, data.error));
 
   const R = state.radar;
+  applyRadarJump();
   const rd = radarRound();
   const rr = data.per.get(rd.num);
   const floors = info.lowerBelow !== undefined;

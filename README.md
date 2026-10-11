@@ -83,6 +83,26 @@ Each match opens on its scoreboard and has five tabs:
 - **2D Replay**: a 2D replay of each round with players, view directions, health, weapons, smokes, fires,
   flashes, HE grenades, the bomb and a kill feed (Space: play/pause, ←/→: 5 seconds, ↑/↓: round). The
   first time you open a match's replay, its player positions are read, which takes a few seconds.
+- **Integrity**: red flags for cheating, per player, with the moments behind them (each opens in the
+  2D replay or in CS2 in that player's eyes). Not proof: moments worth watching. "Unknown" enemies below
+  are behind a wall, not seen by anyone on the team or on the radar for 2 s, and silent (no footsteps or
+  shots within earshot). It checks:
+  - *No-mouse aim*: the view snaps onto an enemy and the player fires, while the demo's recorded mouse
+    movement can't account for the turn (aim assistance writing view angles directly).
+  - *Tracked through walls*: the crosshair follows an unknown enemy behind a wall.
+  - *Aim behind walls*: how often the crosshair rests on unknown enemies, compared with the lobby.
+  - *Pre-aimed appearances*: how often the crosshair is already on an unknown enemy the moment they come
+    into view, compared with the lobby.
+  - *Wall hits*: hits through walls on unknown enemies.
+
+  Thresholds come from 532 player-matches; about 1 in 70 normal players gets "unusual". Who could see
+  whom is computed against each map's collision mesh from [awpy-data](https://github.com/pnxenopoulos/awpy-data)
+  (57 MB, downloaded once to the app's data folder the first time the tab is opened and checked against
+  the release's sha256; the meshes are derived from Valve's map files). Without it (offline, a map that
+  isn't covered) the game's radar spotting is used instead, which lags behind quick peeks. Smokes and
+  doors are not taken into account. The first time a match's Integrity tab is opened, every tick is
+  read (under a minute). Information-only cheats (a radar hack used to decide where to play) usually
+  don't show in a single match.
 - **Highlights & clips**: the clips to record (see above).
 
 To give a match a name in ClipMaker, double-click it in the list or click the pencil next to its
@@ -185,6 +205,8 @@ src/lib/stats.js         Scoreboard (KAST, ≈Rating 2.0, trades, clutches…) a
 src/lib/heat.js          Heatmap points per player (or everyone), grenades with their throw spot
 src/lib/profile.js       Your per-match summary for the overview and the Maps page
 src/lib/track.js         Sampled player positions for the 2D replay
+src/lib/integrity.js     Aim/visibility anomalies per player (Integrity tab) and their scoring
+src/lib/geometry.js      Map collision meshes (awpy-data download) and line-of-sight ray casts
 src/lib/parser.js        Loads the vendored demo parser (or the npm one)
 src/lib/highlights.js    Multi-kill / clutch / special-kill detection, clip segments
 src/lib/hlae.js          Starting CS2 through HLAE, console port, HLAE updates
