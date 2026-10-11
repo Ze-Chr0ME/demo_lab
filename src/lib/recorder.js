@@ -16,6 +16,17 @@ function fill(template, vars) {
 
 function safeName(s) { return s.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80); }
 
+// playdemo only accepts paths relative to game/csgo, so demos elsewhere get linked/copied in.
+function demoRef(csgoDir, demoPath, tmpDir) {
+  const rel = path.relative(csgoDir, demoPath);
+  if (!rel.startsWith('..') && !path.isAbsolute(rel)) return rel.replace(/\\/g, '/').replace(/\.dem$/i, '');
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const target = path.join(tmpDir, 'current.dem');
+  fs.rmSync(target, { force: true });
+  try { fs.linkSync(demoPath, target); } catch { fs.copyFileSync(demoPath, target); }
+  return `${path.basename(tmpDir)}/current`;
+}
+
 class Recorder {
   constructor({ settings, env, emit }) {
     this.s = settings;
@@ -154,16 +165,7 @@ class Recorder {
     try { fs.rmdirSync(path.join(this.s.outputDir, '_raw')); } catch {}
   }
 
-  // playdemo only accepts paths relative to game/csgo, so demos elsewhere get linked/copied in.
-  demoRef(demoPath, tmpDir) {
-    const rel = path.relative(this.env.csgoDir, demoPath);
-    if (!rel.startsWith('..') && !path.isAbsolute(rel)) return rel.replace(/\\/g, '/').replace(/\.dem$/i, '');
-    fs.mkdirSync(tmpDir, { recursive: true });
-    const target = path.join(tmpDir, 'current.dem');
-    fs.rmSync(target, { force: true });
-    try { fs.linkSync(demoPath, target); } catch { fs.copyFileSync(demoPath, target); }
-    return 'clipmaker_tmp/current';
-  }
+  demoRef(demoPath, tmpDir) { return demoRef(this.env.csgoDir, demoPath, tmpDir); }
 
   async finish(job, segRaws) {
     const out = this.s.outputDir;
@@ -203,4 +205,4 @@ class Recorder {
   }
 }
 
-module.exports = { Recorder, Cancelled };
+module.exports = { Recorder, Cancelled, demoRef };

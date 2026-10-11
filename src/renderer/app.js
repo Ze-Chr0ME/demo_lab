@@ -824,10 +824,20 @@ function drawHeat(canvas, img, v, layers, { dots = false, lines = false } = {}) 
 }
 
 // ---------- Radar (2D replay) ----------
-// Positions come sampled 8 times per second (see lib/track.js) and are interpolated per frame.
+// Positions come sampled 8 times per second (see lib/track.js) and are interpolated per frame; grenade
+// flights, shots, damage and bomb events are exact to the tick.
 const SMOKE_RADIUS = 144, MOLOTOV_RADIUS = 120;
-const SMOKE_TICKS = 18 * 64, MOLOTOV_TICKS = 7 * 64, BURST_TICKS = 32;
-state.radar = { data: null, loading: null, round: 1, tick: 0, playing: false, speed: 2, floor: 'upper', room: 'auto', raf: 0, view: newView() };
+const SMOKE_TICKS = 18 * 64, MOLOTOV_TICKS = 7 * 64, BURST_TICKS = 32, DECOY_TICKS = 15 * 64;
+const PLANT_TICKS = 200, TRACER_TICKS = 8, TRACER_LEN = 1100, DMG_TICKS = 80, EXPLOSION_TICKS = 96, TRAIL_TICKS = 96;
+const NADE_COLOR = { smoke: '#d9dee7', flash: '#fff59a', he: '#ff6b6b', molotov: '#ff9d2e', decoy: '#9aa6b5' };
+const NADE_LABEL = { smoke: 'Smoke', flash: 'Flash', he: 'HE', molotov: 'Molotov', decoy: 'Decoy' };
+const NADE_NAME = { smokegrenade: 'Smoke', flashbang: 'Flashbang', hegrenade: 'HE grenade', molotov: 'Molotov', incgrenade: 'Incendiary', decoy: 'Decoy' };
+const KEY_LETTER = { FORWARD: 'W', LEFT: 'A', BACK: 'S', RIGHT: 'D' };
+const isGun = w => !!w && !/grenade|inferno|molotov|flashbang|decoy|knife|bayonet|world|c4|taser/.test(w);
+state.radar = {
+  data: null, loading: null, round: 1, tick: 0, playing: false, speed: 2, floor: 'upper', room: 'auto', raf: 0, view: newView(),
+  nade: null, hover: null, paths: false, shots: true, list: 'kills',
+};
 
 function replayData() {
   const r = state.radar, d = state.demo;
@@ -840,14 +850,84 @@ function replayData() {
         const bytes = v.track.data;
         data.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         data.names = Object.fromEntries(v.players.map(p => [p.steamid, p.name]));
+        prepareReplay(data);
         r.data = data;
-        // Start on the round of the selected highlight's player… or simply round 1.
+        r.nade = r.hover = null;
         setRadarRound(1, false);
       })
       .catch(e => { r.data = { id: d.id, error: e.message }; })
       .finally(() => { if (r.loading === d.id) r.loading = null; if (state.tab === 'radar') renderDetail(); });
   }
   return null;
+}
+
+// Sorts everything into rounds once, links each shot to the damage it did and each grenade flight to
+// its detonation, so a frame only looks at the current round.
+function prepareReplay(data) {
+  const tr = data.tickrate;
+  data.pidx = new Map(data.track.header.players.map((id, i) => [id, i]));
+  const roundAt = tick => {
+    for (let i = data.rounds.length - 1; i >= 0; i--) {
+      const r = data.rounds[i];
+      if (tick >= r.startTick) return tick < (r.nextStartTick ?? Infinity) ? r.num : null;
+    }
+    return null;
+  };
+  data.per = new Map(data.rounds.map(r => [r.num, { kills: [], shots: [], damage: [], nades: [], blinds: [], bomb: [], grenades: [] }]));
+  const put = (key, tick, item) => { const n = roundAt(tick); if (n != null) data.per.get(n)[key].push(item); };
+
+  for (const k of data.kills) put('kills', k.tick, k);
+  for (const g of data.grenades) put('grenades', g.tick, g);
+  for (const b of data.bomb) put('bomb', b.tick, b);
+  for (const [tick, victim, duration] of data.blinds) if (duration >= 0.3) put('blinds', tick, { tick, victim, end: tick + duration * tr, duration });
+
+  // [tick, attacker, victim, damage, hitgroup, weapon, victim x, victim y]
+  const hits = new Map();
+  for (const d of data.damage) {
+    const dmg = { tick: d[0], attacker: d[1], victim: d[2], dmg: d[3], head: d[4] === 'head', weapon: d[5], x: d[6], y: d[7], gun: isGun(d[5]) };
+    put('damage', dmg.tick, dmg);
+    if (!dmg.gun || !dmg.attacker) continue;
+    const key = `${dmg.tick}|${dmg.attacker}`;
+    if (!hits.has(key)) hits.set(key, []);
+    hits.get(key).push(dmg);
+  }
+  const players = data.track.header.players;
+  for (const [tick, p, x, y, z, yaw] of data.shots || []) {
+    const id = players[p];
+    let hit = null;
+    for (const dt of [0, 1, -1]) {
+      const list = hits.get(`${tick + dt}|${id}`);
+      if (list?.length) { hit = list.shift(); break; }
+    }
+    put('shots', tick, { tick, p, x, y, z, yaw, hit });
+  }
+
+  const effects = data.grenades.filter(g => !g.expire);
+  (data.nades || []).forEach((n, i) => {
+    n.i = i;
+    n.pts = [];
+    for (let k = 0; k < n.path.length; k += 4) n.pts.push([n.t0 + n.path[k], n.path[k + 1], n.path[k + 2], n.path[k + 3]]);
+    n.land = n.pts.at(-1);
+    n.round = roundAt(n.throw?.tick ?? n.t0);
+    // Detonation: same entity, else the same player's same grenade type closest to where the flight ended.
+    n.det = effects.find(g => g.type === n.type && g.entity === n.entity && g.tick >= n.t0 && g.tick <= n.t1 + 20 * tr)
+      || effects.filter(g => g.type === n.type && g.thrower === n.thrower && Math.abs(g.tick - n.t1) <= tr).sort((a, b) => Math.abs(a.tick - n.t1) - Math.abs(b.tick - n.t1))[0]
+      || null;
+    const at = n.det?.tick ?? n.t1;
+    const expire = n.det && data.grenades.find(g => g.expire && g.type === n.type && g.entity === n.det.entity && g.tick >= at);
+    n.effectEnd = expire ? expire.tick
+      : at + (n.type === 'smoke' ? SMOKE_TICKS : n.type === 'molotov' ? MOLOTOV_TICKS : n.type === 'decoy' ? DECOY_TICKS : BURST_TICKS);
+    // Bounces: where the flight turns back horizontally or starts going up again.
+    n.bounces = [];
+    for (let k = 1; k < n.pts.length - 1; k++) {
+      const [, x0, y0, z0] = n.pts[k - 1], [, x1, y1, z1] = n.pts[k], [, x2, y2, z2] = n.pts[k + 1];
+      const back = (x1 - x0) * (x2 - x1) + (y1 - y0) * (y2 - y1) < 0;
+      const up = z1 - z0 < -0.5 && z2 - z1 > 0.5;
+      if (back || up) n.bounces.push(n.pts[k]);
+    }
+    if (n.round != null) data.per.get(n.round).nades.push(n);
+  });
+  for (const r of data.per.values()) for (const k of Object.keys(r)) r[k].sort((a, b) => a.tick !== undefined ? a.tick - b.tick : (a.throw?.tick ?? a.t0) - (b.throw?.tick ?? b.t0));
 }
 
 const radarRound = () => state.radar.data.rounds.find(x => x.num === state.radar.round) || state.radar.data.rounds[0];
@@ -858,6 +938,61 @@ function setRadarRound(num, play = state.radar.playing) {
   const rd = radarRound();
   r.tick = Math.max(rd.startTick, rd.freezeEndTick - 3 * r.data.tickrate);
   r.playing = play;
+  if (r.nade != null && r.data.nades[r.nade]?.round !== rd.num) r.nade = null;
+  r.hover = null;
+}
+
+// Where a grenade is at a (fractional) tick.
+function nadePos(n, t) {
+  const p = n.pts;
+  if (t <= p[0][0]) return p[0];
+  if (t >= n.land[0]) return n.land;
+  let i = 1;
+  while (p[i][0] < t) i++;
+  const a = p[i - 1], b = p[i], f = (t - a[0]) / (b[0] - a[0]);
+  return [t, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, a[3] + (b[3] - a[3]) * f];
+}
+
+// Bomb carrier, dropped bomb, plant, defuse and timer at tick t.
+function bombState(data, rd, t) {
+  const tr = data.tickrate, c4 = (data.timers?.c4 || 40) * tr;
+  const st = { carrier: null, dropped: null, planted: null, ended: null, planting: null, defusing: null, explodeAt: null, c4 };
+  for (const e of data.per.get(rd.num).bomb) {
+    if (e.tick > t) break;
+    if (e.type === 'pickup') { st.carrier = e.player; st.dropped = null; }
+    else if (e.type === 'dropped') { st.carrier = null; st.dropped = e.pos; }
+    else if (e.type === 'beginplant') st.planting = e;
+    else if (e.type === 'planted') Object.assign(st, { planted: e, carrier: null, dropped: null, planting: null, explodeAt: e.tick + c4 });
+    else if (e.type === 'begindefuse') st.defusing = e;
+    else if (e.type === 'defused' || e.type === 'exploded') Object.assign(st, { ended: e, defusing: null });
+  }
+  // A plant or defuse stops early when the player moves away or dies (CS2 has no event for that).
+  const going = (e, len) => {
+    if (!e || t > e.tick + len) return null;
+    const i = data.pidx.get(e.player);
+    const p = i === undefined ? null : playerAt(data, i, t);
+    if (!p?.alive || (e.pos && Math.hypot(p.x - e.pos[0], p.y - e.pos[1]) > 40)) return null;
+    return { ...e, len, frac: (t - e.tick) / len };
+  };
+  st.planting = going(st.planting, PLANT_TICKS);
+  st.defusing = st.planted && !st.ended ? going(st.defusing, (st.defusing?.kit ? 5 : 10) * tr) : null;
+  if (st.defusing && t > st.explodeAt) st.defusing = null;
+  return st;
+}
+
+// The in-game round clock at tick t: freeze time, round time left, or the bomb timer once planted.
+function roundClock(data, rd, t, bs) {
+  const tr = data.tickrate;
+  if (t < rd.freezeEndTick) return { kind: 'freeze', time: (rd.freezeEndTick - t) / tr };
+  if (bs?.planted && !bs.ended) return { kind: 'bomb', time: Math.max(0, (bs.explodeAt - t) / tr) };
+  if (t >= rd.endTick) return { kind: 'end', time: null };
+  return { kind: 'live', time: Math.max(0, (data.timers?.roundTime || 115) - (t - rd.freezeEndTick) / tr) };
+}
+const fmtClock = (s, tenths = false) => (tenths && s < 10 ? s.toFixed(1) : fmtDur(Math.ceil(s - 1e-6)));
+// Round clock as a label for lists ("1:32", "bomb 0:21", "freeze")
+function clockLabel(data, rd, tick) {
+  const c = roundClock(data, rd, tick, bombState(data, rd, tick));
+  return c.kind === 'freeze' ? 'freeze' : c.kind === 'bomb' ? `💣 ${fmtClock(c.time)}` : c.kind === 'end' ? 'after' : fmtClock(c.time);
 }
 
 function radarView() {
@@ -865,11 +1000,12 @@ function radarView() {
   const info = radarInfo(a.map);
   if (info === null) return h('div', { class: 'empty' }, h('h2', {}, 'No radar for this map'), h('div', {}, `There is no radar image for ${mapName(a.map)} yet.`));
   const data = info && replayData();
-  if (!data) return h('div', { class: 'empty' }, h('span', { class: 'spinner', style: { width: '24px', height: '24px' } }), h('h2', {}, 'Reading player positions…'), h('div', {}, 'Only the first time for each match: it takes a few seconds.'));
+  if (!data) return h('div', { class: 'empty' }, h('span', { class: 'spinner', style: { width: '24px', height: '24px' } }), h('h2', {}, 'Reading the replay…'), h('div', {}, 'Player positions, grenade flights, shots and the bomb. Only the first time for each match: it takes about 20 seconds.'));
   if (data.error) return h('div', { class: 'empty' }, h('h2', {}, 'No replay for this demo'), h('div', { class: 'err-box' }, data.error));
 
   const R = state.radar;
   const rd = radarRound();
+  const rr = data.per.get(rd.num);
   const floors = info.lowerBelow !== undefined;
   // Rush rounds each happen in one room: by default show the room where the players start.
   let room = null;
@@ -884,47 +1020,281 @@ function radarView() {
 
   const canvas = h('canvas', { width: 1400, height: 1400, class: 'radar-canvas' });
   if (R.frameSrc !== frame.src) { R.frameSrc = frame.src; resetZoom(R.view); }
-  const slider = h('input', { type: 'range', class: 'radar-slider', min: rd.startTick, max: roundStop(data, rd), step: 1, value: R.tick,
+  const stop = roundStop(data, rd);
+  const slider = h('input', { type: 'range', class: 'radar-slider', min: rd.startTick, max: stop, step: 1, value: R.tick,
     oninput: e => { R.tick = +e.target.value; } });
-  const clock = h('span', { class: 'radar-clock' });
-  const playBtn = h('button', { class: 'icon-btn', title: 'Play / pause (Space)', onclick: () => { R.playing = !R.playing; if (R.tick >= roundStop(data, rd)) setRadarRound(R.round, true); } });
+  const playBtn = h('button', { class: 'icon-btn', title: 'Play / pause (Space)', onclick: () => { R.playing = !R.playing; if (R.tick >= stop) setRadarRound(R.round, true); } });
+  const hud = h('div', { class: 'radar-hud' });
+  const card = h('div', { class: 'nade-card-slot' });
   const feed = h('div', { class: 'radar-feed' });
   const teams = h('div', { class: 'radar-teams' });
-  R.els = { canvas, slider, clock, playBtn, feed, teams, built: null };
+  R.els = { canvas, slider, playBtn, hud, card, feed, teams, built: null, hudKey: null };
 
   const rounds = h('div', { class: 'radar-rounds' }, ...data.rounds.map(x => h('button', {
     class: `rr win-${x.winner} ${x.num === R.round ? 'on' : ''}`, title: `Round ${x.num}: ${x.winner} won (${(x.reason || '').replace(/_/g, ' ')})`,
     onclick: () => { setRadarRound(x.num); renderDetail(); },
   }, x.num)));
 
+  // Timeline marks under the slider: kills, grenades, plant, defuse/explosion. Click one to jump there.
+  const span = stop - rd.startTick;
+  const mark = (tick, cls, title, color, onclick) => h('button', {
+    class: `tl-mark ${cls}`, title, style: { left: `${clamp((tick - rd.startTick) / span, 0, 1) * 100}%`, ...(color ? { '--c': color } : {}) },
+    onclick: onclick || (() => { R.tick = tick - 2 * data.tickrate; }),
+  });
+  const marks = h('div', { class: 'tl-marks' },
+    mark(rd.freezeEndTick, 'freeze', 'Freeze time ends'),
+    ...rr.nades.filter(n => n.throw).map(n => mark(n.throw.tick, `nade ${n.i === R.nade ? 'sel' : ''}`, `${data.names[n.thrower] || '?'}: ${NADE_LABEL[n.type]}`, NADE_COLOR[n.type], () => selectNade(n.i, true))),
+    ...rr.kills.map(k => mark(k.tick, `kill side-${k.victimTeam}`, `${data.names[k.attacker] || 'World'} killed ${data.names[k.victim] || '?'} (${k.weapon})`)),
+    ...rr.bomb.filter(b => ['planted', 'defused', 'exploded'].includes(b.type)).map(b => mark(b.tick, `bomb ${b.type}`, `Bomb ${b.type}${b.player ? ` by ${data.names[b.player] || '?'}` : ''}`)),
+  );
+  const timeline = h('div', { class: 'radar-timeline' }, slider, marks);
+
   const controls = h('div', { class: 'radar-controls' },
-    h('button', { class: 'icon-btn', title: 'Previous round', disabled: R.round <= 1, onclick: () => { setRadarRound(R.round - 1); renderDetail(); } }, icon('<path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2"/>')),
+    h('button', { class: 'icon-btn', title: 'Previous round (↑)', disabled: R.round <= 1, onclick: () => { setRadarRound(R.round - 1); renderDetail(); } }, icon('<path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2"/>')),
     playBtn,
-    h('button', { class: 'icon-btn', title: 'Next round', disabled: R.round >= data.rounds.length, onclick: () => { setRadarRound(R.round + 1); renderDetail(); } }, icon('<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2"/>')),
-    slider, clock,
-    select(String(R.speed), [['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }),
+    h('button', { class: 'icon-btn', title: 'Next round (↓)', disabled: R.round >= data.rounds.length, onclick: () => { setRadarRound(R.round + 1); renderDetail(); } }, icon('<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2"/>')),
+    timeline,
+    select(String(R.speed), [['0.25', '0.25×'], ['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }),
+  );
+  const options = h('div', { class: 'radar-options' },
+    toggle('Shots', R.shots, v => { R.shots = v; }, 'Bullet tracers, hits and damage numbers'),
+    toggle('Grenade paths', R.paths, v => { R.paths = v; }, 'Keep the flight path of every grenade thrown so far this round on the map'),
     floors ? h('div', { class: 'tabs' }, ...[['upper', 'Upper'], ['lower', 'Lower']].map(([k, l]) =>
       h('button', { class: R.floor === k ? 'on' : '', onclick: () => { R.floor = k; renderDetail(); } }, l))) : null,
     roomSelect(info, R.room, v => { R.room = v; renderDetail(); }),
+    h('span', { class: 'spacer' }),
+    h('span', { class: 'hint' }, 'Click a grenade to see how it was thrown'),
   );
 
+  // Clicking a grenade (in flight, its smoke/fire, or its path) opens how it was thrown.
+  const toCanvas = e => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * canvas.width, (e.clientY - r.top) / r.height * canvas.height]; };
+  let down = null;
+  canvas.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+  canvas.addEventListener('click', e => {
+    if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+    const n = nadeAt(...toCanvas(e));
+    if (n || R.nade != null) selectNade(n ? n.i : null);
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (e.buttons) return;
+    const n = nadeAt(...toCanvas(e));
+    R.hover = n ? n.i : null;
+    canvas.style.cursor = n ? 'pointer' : '';
+  });
+  canvas.addEventListener('pointerleave', () => { R.hover = null; });
+
+  const wrap = zoomable(canvas, R.view, () => {});
+  wrap.append(hud);
+  const listTabs = h('div', { class: 'tabs side-tabs' }, ...[['kills', 'Kills'], ['utility', `Utility (${rr.nades.length})`]].map(([k, l]) =>
+    h('button', { class: R.list === k ? 'on' : '', onclick: () => { R.list = k; R.els.built = null; renderSideTabs(); } }, l)));
+  const renderSideTabs = () => listTabs.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', ['kills', 'utility'][i] === R.list));
+  renderNadeCard();
   startRadarLoop();
   return [
-    h('div', { class: 'section-head' }, h('h3', {}, `Round ${R.round}`), h('span', { class: `pill side-${rd.winner}` }, `${rd.winner} win`), h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Space: play/pause · ←/→: 5 s · ↑/↓: round')),
+    h('div', { class: 'section-head' }, h('h3', {}, `Round ${R.round}`), h('span', { class: `pill side-${rd.winner}` }, `${rd.winner} win`), h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Space: play/pause · ←/→: 5 s (Shift: ⅛ s) · ↑/↓: round · Esc: close grenade')),
     rounds,
     controls,
-    h('div', { class: 'radar-layout' }, h('div', { class: 'radar-main' }, zoomable(canvas, R.view, () => {})), h('div', { class: 'radar-side' }, teams, feed)),
+    options,
+    h('div', { class: 'radar-layout' },
+      h('div', { class: 'radar-main' }, wrap),
+      h('div', { class: 'radar-side' }, card, teams, h('div', { class: 'radar-list' }, listTabs, feed))),
   ];
+}
+
+// The grenade under a canvas position, if any: in flight, its smoke/fire while it lasts, its drawn path or throw spot.
+function nadeAt(mx, my) {
+  const R = state.radar, data = R.data, info = R.info, canvas = R.els?.canvas;
+  if (!data?.per || !info || !canvas) return null;
+  const t = R.tick, tr = data.tickrate, v = R.view;
+  const cp = (x, y) => viewPt(canvas, v, ...toPx(info, x, y));
+  const reach = 14 * canvas.width / canvas.getBoundingClientRect().width;
+  const toWorld = viewScale(canvas, v) / info.scale;
+  let best = null, bd = Infinity;
+  const consider = (n, d) => { if (d < bd) { bd = d; best = n; } };
+  const seg = (ax, ay, bx, by) => {
+    const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy;
+    const k = l ? clamp(((mx - ax) * dx + (my - ay) * dy) / l, 0, 1) : 0;
+    return Math.hypot(mx - ax - k * dx, my - ay - k * dy);
+  };
+  for (const n of data.per.get(radarRound().num).nades) {
+    const sel = n.i === R.nade;
+    if (n.t0 > t && !sel) continue;
+    if (t <= n.t1) { const [, x, y] = nadePos(n, t); consider(n, Math.hypot(mx - cp(x, y)[0], my - cp(x, y)[1])); }
+    else if (t <= n.effectEnd) {
+      const [x, y] = cp(n.land[1], n.land[2]);
+      const radius = n.type === 'smoke' ? SMOKE_RADIUS : n.type === 'molotov' ? MOLOTOV_RADIUS : 0;
+      consider(n, Math.max(0, Math.hypot(mx - x, my - y) - radius * toWorld));
+    }
+    if (sel || R.paths || t - n.t1 < TRAIL_TICKS) {
+      const upto = sel ? n.t1 : Math.min(t, n.t1);
+      let prev = null;
+      for (const p of n.pts) {
+        if (p[0] > upto) break;
+        const c = cp(p[1], p[2]);
+        if (prev) consider(n, seg(prev[0], prev[1], c[0], c[1]));
+        prev = c;
+      }
+      if (n.throw && (sel || R.paths)) { const [x, y] = cp(n.throw.pos[0], n.throw.pos[1]); consider(n, Math.hypot(mx - x, my - y)); }
+    }
+  }
+  return bd <= reach ? best : null;
+}
+
+function selectNade(i, jump = false) {
+  const R = state.radar;
+  R.nade = i;
+  if (jump && i != null) { const n = R.data.nades[i]; R.tick = (n.throw?.tick ?? n.t0) - R.data.tickrate; R.playing = false; }
+  R.els.built = null;
+  renderNadeCard();
+  R.els.slider.parentElement.querySelectorAll('.tl-mark.nade').forEach(m => m.classList.remove('sel'));
+}
+
+// Replays one throw on the map: zoomed onto its flight, from 2 s before the throw, at half speed.
+function replayThrow(n) {
+  const R = state.radar, data = R.data, info = R.info, v = R.view;
+  const xy = n.pts.map(p => toPx(info, p[1], p[2]));
+  if (n.throw) xy.push(toPx(info, n.throw.pos[0], n.throw.pos[1]));
+  const xs = xy.map(p => p[0]), ys = xy.map(p => p[1]);
+  const w = Math.max(...xs) - Math.min(...xs), hgt = Math.max(...ys) - Math.min(...ys);
+  v.k = clamp(RADAR_SIZE * 0.6 / Math.max(w, hgt, 60), 1, 5);
+  v.x = (Math.max(...xs) + Math.min(...xs)) / 2 - RADAR_SIZE / v.k / 2;
+  v.y = (Math.max(...ys) + Math.min(...ys)) / 2 - RADAR_SIZE / v.k / 2;
+  clampView(v);
+  R.tick = (n.throw?.tick ?? n.t0) - 2 * data.tickrate;
+  R.speed = 0.5;
+  R.playing = true;
+  R.nade = n.i;
+  renderDetail();
+}
+
+// How a grenade was thrown, in words: movement, mouse buttons, keys.
+function throwTechnique(th) {
+  const keys = (th.keys || []).map(k => KEY_LETTER[k]).join(' + ');
+  const moving = th.speed != null && th.speed >= 10;
+  let move;
+  // The jump key held while already in the air also counts: the jump itself isn't always in the demo.
+  if (th.air && (th.jumpAgo != null ? th.jumpAgo <= 4 : th.jumpKey)) move = moving && keys ? 'Running jump-throw' : 'Jump-throw';
+  else if (th.air) move = th.jumpAgo != null ? `Thrown in the air, ${Math.round(th.jumpAgo / 64 * 1000)} ms after jumping` : 'Thrown while falling';
+  else if (!moving) move = th.duck ? 'Crouching, standing still' : 'Standing still';
+  else if (th.duck) move = 'Crouch-walking';
+  else if (th.walk) move = 'Walking (Shift)';
+  else move = 'Running';
+  const click = th.left && th.right ? 'Left + right click · medium throw' : th.right ? 'Right click · short underhand throw' : 'Left click · full throw';
+  return { move, keys, click };
+}
+
+const setposCmd = th => {
+  const p = th.air && th.jumpPos ? th.jumpPos : th.pos;
+  return `setpos ${p[0]} ${p[1]} ${p[2]}; setang ${th.pitch} ${th.yaw} 0`;
+};
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = h('textarea', {}, text);
+    document.body.append(ta); ta.select(); document.execCommand('copy'); ta.remove();
+  }
+}
+
+function renderNadeCard() {
+  const R = state.radar, els = R.els;
+  if (!els) return;
+  const n = R.nade != null ? R.data.nades[R.nade] : null;
+  els.card.replaceChildren(n ? nadeCard(n) : '');
+}
+
+function nadeCard(n) {
+  const R = state.radar, data = R.data, tr = data.tickrate, rd = radarRound();
+  const th = n.throw;
+  const name = data.names[n.thrower] || 'Unknown player';
+  const pi = data.pidx.get(n.thrower);
+  const side = pi === undefined ? '' : playerAt(data, pi, th?.tick ?? n.t0)?.ct ? 'CT' : 'T';
+  const label = (th && NADE_NAME[th.weapon]) || NADE_LABEL[n.type];
+  const start = th ? th.pos : n.pts[0].slice(1);
+  const dist = Math.round(Math.hypot(n.land[1] - start[0], n.land[2] - start[1]));
+  const flight = (n.t1 - (th?.tick ?? n.t0)) / tr;
+  const tech = th && throwTechnique(th);
+  const fact = (k, v, title) => h('div', { class: 'nc-fact', title }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v));
+
+  const profile = h('canvas', { class: 'nc-profile', width: 560, height: 170 });
+  requestAnimationFrame(() => drawProfile(profile, n));
+
+  const watchBtn = h('button', { class: 'btn nc-btn', title: 'Opens this demo in CS2 (through HLAE) in the thrower\'s eyes, 5 s before the throw, and pauses at the moment the grenade leaves the hand', disabled: !th }, 'Watch in CS2');
+  watchBtn.onclick = async () => {
+    watchBtn.disabled = true;
+    watchBtn.textContent = 'Opening CS2…';
+    toast('Opening the demo in CS2. The first time takes a minute or two (CS2 starts, then loads the demo).');
+    await guard(() => api.watchDemo(state.demo.path, th.tick, name), 'CS2 plays the throw in the CS2 window and pauses when the grenade leaves the hand (type demo_resume in the console to continue).');
+    watchBtn.disabled = false;
+    watchBtn.textContent = 'Watch in CS2';
+  };
+
+  return h('div', { class: 'nade-card', style: { '--c': NADE_COLOR[n.type] } },
+    h('div', { class: 'nc-head' },
+      h('span', { class: 'nc-dot' }),
+      h('div', { class: 'nc-title' },
+        h('div', { class: 'nc-type' }, label),
+        h('div', { class: 'nc-who' }, h('span', { class: `side-${side}` }, name), h('span', { class: 'muted' }, ` · ${clockLabel(data, rd, th?.tick ?? n.t0)}`))),
+      h('button', { class: 'nc-close', title: 'Close (Esc)', onclick: () => selectNade(null) }, icon(ICONS.x))),
+    th ? h('div', { class: 'nc-tech' },
+      h('div', { class: 'nc-move' }, tech.move),
+      h('div', { class: 'nc-click' }, tech.click),
+      tech.keys ? h('div', { class: 'nc-keys' }, 'Holding ', ...tech.keys.split(' + ').map(k => h('kbd', {}, k)), th.speed ? ` · ${th.speed} u/s` : '') : null)
+      : h('div', { class: 'nc-tech muted' }, 'The throw itself is not in the demo.'),
+    h('div', { class: 'nc-facts' },
+      th ? fact('Aim', `${Math.abs(th.pitch).toFixed(1)}° ${th.pitch <= 0 ? 'up' : 'down'}`, `Pitch ${th.pitch}°, yaw ${th.yaw}°`) : null,
+      fact('Flight', `${flight.toFixed(1)} s`, n.type === 'smoke' || n.type === 'decoy' ? 'From the throw until it stopped rolling' : 'From the throw until it went off'),
+      fact('Distance', `${fmtNum(dist)} u`),
+      fact('Bounces', n.bounces.length)),
+    profile,
+    h('div', { class: 'nc-actions' },
+      h('button', { class: 'btn primary nc-btn', onclick: () => replayThrow(n) }, icon(ICONS.play), 'Replay throw'),
+      watchBtn),
+    th ? h('button', { class: 'nc-setpos', title: 'Copy. In a private server with sv_cheats 1, paste it in the console to stand where they threw from, aiming the same way.',
+      onclick: async () => { await copyText(setposCmd(th)); toast('Copied. Paste it in the console of a private server with sv_cheats 1.', 'ok'); } },
+    h('span', { class: 'mono' }, setposCmd(th)), h('span', { class: 'nc-copy' }, 'Copy')) : null,
+  );
+}
+
+// Side view of a grenade's flight: height over the distance travelled, with the bounces.
+function drawProfile(canvas, n) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height, pad = 18;
+  const d = [0];
+  for (let k = 1; k < n.pts.length; k++) d.push(d[k - 1] + Math.hypot(n.pts[k][1] - n.pts[k - 1][1], n.pts[k][2] - n.pts[k - 1][2]));
+  const zs = n.pts.map(p => p[3]);
+  const zMin = Math.min(...zs), zMax = Math.max(...zs), total = Math.max(1, d.at(-1));
+  const sx = (W - 2 * pad) / total, sz = (H - 2 * pad - 14) / Math.max(1, zMax - zMin);
+  const s = Math.min(sx, sz * 3); // keep the arc's shape roughly true to scale
+  const X = i => pad + d[i] * sx, Y = z => H - pad - (z - zMin) * Math.min(sz, s);
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = '#ffffff14'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(pad, Y(zMin)); ctx.lineTo(W - pad, Y(zMin)); ctx.stroke();
+  const c = NADE_COLOR[n.type];
+  ctx.strokeStyle = c; ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.beginPath();
+  n.pts.forEach((p, i) => (i ? ctx.lineTo(X(i), Y(p[3])) : ctx.moveTo(X(i), Y(p[3]))));
+  ctx.stroke();
+  ctx.fillStyle = c;
+  for (const b of n.bounces) { const i = n.pts.indexOf(b); ctx.beginPath(); ctx.arc(X(i), Y(b[3]), 6, 0, Math.PI * 2); ctx.fill(); }
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(X(0), Y(zs[0]), 7, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(X(n.pts.length - 1), Y(zs.at(-1)), 7, 0, Math.PI * 2); ctx.fill();
+  const top = zs.indexOf(zMax);
+  ctx.font = '600 22px "Segoe UI", sans-serif'; ctx.fillStyle = '#8d9ab2'; ctx.textAlign = 'center';
+  if (zMax - zs[0] > 20) ctx.fillText(`+${Math.round(zMax - zs[0])} u`, clamp(X(top), 40, W - 40), Math.max(20, Y(zMax) - 10));
 }
 
 document.addEventListener('keydown', e => {
   if (state.tab !== 'radar' || !state.radar.data?.rounds || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) && e.target.type !== 'range') return;
   const R = state.radar, tr = R.data.tickrate;
+  const step = e.shiftKey ? 8 : 5 * tr;
   if (e.key === ' ') { R.playing = !R.playing; e.preventDefault(); }
-  else if (e.key === 'ArrowRight') { R.tick += 5 * tr; e.preventDefault(); }
-  else if (e.key === 'ArrowLeft') { R.tick -= 5 * tr; e.preventDefault(); }
+  else if (e.key === 'ArrowRight') { R.tick += step; e.preventDefault(); }
+  else if (e.key === 'ArrowLeft') { R.tick -= step; e.preventDefault(); }
   else if (e.key === 'ArrowDown' && R.round < R.data.rounds.length) { setRadarRound(R.round + 1); renderDetail(); e.preventDefault(); }
   else if (e.key === 'ArrowUp' && R.round > 1) { setRadarRound(R.round - 1); renderDetail(); e.preventDefault(); }
+  else if (e.key === 'Escape' && R.nade != null) selectNade(null);
 });
 
 function startRadarLoop() {
@@ -976,7 +1346,7 @@ function playerAt(data, p, tick) {
 function drawRadar() {
   const R = state.radar, data = R.data, info = R.info, els = R.els;
   const ctx = els.canvas.getContext('2d');
-  const t = R.tick, tr = data.tickrate, rd = radarRound();
+  const t = R.tick, tr = data.tickrate, rd = radarRound(), rr = data.per.get(rd.num);
   const lowerView = R.floor === 'lower';
   const fade = z => info.lowerBelow !== undefined && onLower(info, z) !== lowerView;
   // Markers are drawn in units of u canvas pixels, so their sizes below stay readable at any zoom:
@@ -985,14 +1355,18 @@ function drawRadar() {
   const u = canvas.width / RADAR_SIZE * Math.min(1.8, 0.8 + 0.2 * v.k);
   const px = (x, y) => { const [cx, cy] = viewPt(canvas, v, ...toPx(info, x, y)); return [cx / u, cy / u]; };
   const units = w => w / info.scale * viewScale(canvas, v) / u;
+  const circle = (x, y, r) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); };
+  const bs = bombState(data, rd, t);
+  const sel = R.nade != null ? data.nades[R.nade] : null;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (R.image) { applyView(ctx, canvas, v); ctx.drawImage(R.image, 0, 0, RADAR_SIZE, RADAR_SIZE); }
   ctx.setTransform(u, 0, 0, u, 0, 0);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
-  // Grenades: smokes and fires last until their expire event, flashes and HEs are short bursts.
-  const gr = data.grenades.filter(g => g.round === rd.num);
+  // Grenade effects: smokes and fires last until their expire event, flashes and HEs are short bursts.
+  const gr = rr.grenades;
   for (const g of gr) {
     if (g.expire || g.tick > t) continue;
     const end = g.type === 'smoke' || g.type === 'molotov'
@@ -1000,36 +1374,110 @@ function drawRadar() {
       : g.tick + BURST_TICKS;
     if (t > end) continue;
     const [x, y] = px(g.pos[0], g.pos[1]);
-    ctx.globalAlpha = fade(g.pos[2]) ? 0.3 : 1;
+    const life = Math.min(1, (t - g.tick) / 12, (end - t) / 24); // grow in, fade out
+    ctx.globalAlpha = (fade(g.pos[2]) ? 0.3 : 1) * Math.max(0, life);
     if (g.type === 'smoke') {
       ctx.fillStyle = 'rgba(200,206,216,0.75)'; ctx.strokeStyle = g.team === 'CT' ? '#6ea8ff' : '#e9b949'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(x, y, units(SMOKE_RADIUS), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      circle(x, y, units(SMOKE_RADIUS)); ctx.fill(); ctx.stroke();
     } else if (g.type === 'molotov') {
-      ctx.fillStyle = 'rgba(255,110,30,0.45)'; ctx.beginPath(); ctx.arc(x, y, units(MOLOTOV_RADIUS), 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,110,30,0.45)'; ctx.strokeStyle = 'rgba(255,150,60,0.8)'; ctx.lineWidth = 2;
+      circle(x, y, units(MOLOTOV_RADIUS)); ctx.fill(); ctx.stroke();
     } else if (g.type === 'flash' || g.type === 'he') {
       const k = (t - g.tick) / BURST_TICKS;
+      ctx.globalAlpha = fade(g.pos[2]) ? 0.3 : 1;
+      if (g.type === 'flash') { ctx.fillStyle = `rgba(255,255,230,${0.8 * (1 - k)})`; circle(x, y, 10 + 26 * k); ctx.fill(); }
       ctx.strokeStyle = g.type === 'flash' ? `rgba(255,255,255,${1 - k})` : `rgba(255,80,60,${1 - k})`;
-      ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(x, y, 8 + k * (g.type === 'he' ? units(300) : 30), 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = 6; circle(x, y, 8 + k * (g.type === 'he' ? units(350) : 34)); ctx.stroke();
     }
   }
   ctx.globalAlpha = 1;
 
-  // Bomb
-  const bombs = data.bomb.filter(b => b.round === rd.num && b.tick <= t);
-  const planted = bombs.find(b => b.type === 'planted');
-  const ended = bombs.find(b => b.type === 'defused' || b.type === 'exploded');
+  // Grenade paths: each flight while in the air and shortly after, every flight this round with
+  // "Grenade paths" on, and the selected one in full (dashed where it hasn't flown yet).
+  const pathTo = (n, upto) => {
+    ctx.beginPath();
+    let i = 0;
+    for (const p of n.pts) {
+      if (p[0] > upto) break;
+      const [x, y] = px(p[1], p[2]);
+      i++ ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    if (upto > n.t0 && upto < n.t1) { const q = nadePos(n, upto); ctx.lineTo(...px(q[1], q[2])); }
+  };
+  for (const n of rr.nades) {
+    if (n.t0 > t || n === sel) continue;
+    const after = t - n.t1;
+    if (!R.paths && after > TRAIL_TICKS) continue;
+    const hover = R.hover === n.i;
+    ctx.globalAlpha = (fade(n.land[3]) ? 0.3 : 1) * (hover ? 1 : after <= 0 ? 0.85 : R.paths ? 0.5 : 0.85 * (1 - after / TRAIL_TICKS));
+    ctx.strokeStyle = NADE_COLOR[n.type]; ctx.lineWidth = hover ? 4 : 2.5;
+    pathTo(n, Math.min(t, n.t1)); ctx.stroke();
+    if (R.paths && n.throw && after > 0) {
+      const [x, y] = px(n.throw.pos[0], n.throw.pos[1]);
+      ctx.lineWidth = 2; circle(x, y, 5); ctx.stroke();
+    }
+  }
+  if (sel) {
+    const c = NADE_COLOR[sel.type];
+    ctx.globalAlpha = 1; ctx.strokeStyle = c; ctx.shadowColor = c; ctx.shadowBlur = 12;
+    ctx.lineWidth = 4; ctx.setLineDash([2, 9]);
+    pathTo(sel, sel.t1); ctx.stroke();
+    ctx.setLineDash([]);
+    if (t > sel.t0) { ctx.lineWidth = 5; pathTo(sel, Math.min(t, sel.t1)); ctx.stroke(); }
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = c;
+    for (const b of sel.bounces) { const [x, y] = px(b[1], b[2]); circle(x, y, 5); ctx.fill(); }
+    // Landing spot
+    const [lx, ly] = px(sel.land[1], sel.land[2]);
+    ctx.strokeStyle = '#0a0e16'; ctx.lineWidth = 3; circle(lx, ly, 9); ctx.fill(); ctx.stroke();
+    // Throw spot with the direction they aimed
+    if (sel.throw) {
+      const th = sel.throw, [x, y] = px(th.pos[0], th.pos[1]), a = -th.yaw * Math.PI / 180;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
+      circle(x, y, 16); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 16, y + Math.sin(a) * 16); ctx.lineTo(x + Math.cos(a) * 46, y + Math.sin(a) * 46); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.beginPath();
+      ctx.moveTo(x + Math.cos(a) * 54, y + Math.sin(a) * 54);
+      ctx.lineTo(x + Math.cos(a + 0.35) * 40, y + Math.sin(a + 0.35) * 40);
+      ctx.lineTo(x + Math.cos(a - 0.35) * 40, y + Math.sin(a - 0.35) * 40);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // Bomb: dropped, planted with its countdown ring, explosion
+  if (bs.dropped && !bs.planted) {
+    const [x, y] = px(bs.dropped[0], bs.dropped[1]);
+    const pulse = (Math.sin(t / 10) + 1) / 2;
+    ctx.globalAlpha = fade(bs.dropped[2]) ? 0.3 : 1;
+    ctx.strokeStyle = `rgba(255,77,77,${0.3 + 0.5 * pulse})`; ctx.lineWidth = 3; circle(x, y, 13 + 4 * pulse); ctx.stroke();
+    bombIcon(ctx, x, y, 1);
+  }
+  const planted = bs.planted;
   if (planted?.pos) {
     const [x, y] = px(planted.pos[0], planted.pos[1]);
-    const pulse = ended ? 0 : (Math.sin(t / 8) + 1) / 2;
-    ctx.fillStyle = ended?.type === 'defused' ? '#6ea8ff' : '#ff4d4d';
-    ctx.globalAlpha = 0.35 + 0.4 * pulse; ctx.beginPath(); ctx.arc(x, y, 18 + 8 * pulse, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1; ctx.fillRect(x - 7, y - 7, 14, 14);
+    const ended = bs.ended;
+    ctx.globalAlpha = fade(planted.pos[2]) ? 0.4 : 1;
+    if (!ended) {
+      const left = clamp((bs.explodeAt - t) / bs.c4, 0, 1);
+      const pulse = (Math.sin(t / (3 + 9 * left)) + 1) / 2; // beeps faster near the end
+      ctx.fillStyle = `rgba(255,77,77,${0.15 + 0.3 * pulse})`; circle(x, y, 30); ctx.fill();
+      ctx.strokeStyle = '#ffffff22'; ctx.lineWidth = 5; circle(x, y, 26); ctx.stroke();
+      ctx.strokeStyle = left < 0.25 ? '#ff4d4d' : '#ff8a5c'; ctx.beginPath(); ctx.arc(x, y, 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * left); ctx.stroke();
+    }
+    if (ended?.type === 'exploded' && t - ended.tick < EXPLOSION_TICKS) {
+      const k = (t - ended.tick) / EXPLOSION_TICKS;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, units(300 + 900 * k));
+      g.addColorStop(0, `rgba(255,220,120,${0.9 * (1 - k)})`); g.addColorStop(0.5, `rgba(255,90,40,${0.6 * (1 - k)})`); g.addColorStop(1, 'rgba(255,60,30,0)');
+      ctx.fillStyle = g; circle(x, y, units(300 + 900 * k)); ctx.fill();
+    }
+    if (ended?.type !== 'exploded' || t - ended.tick < 8) bombIcon(ctx, x, y, 1.2, ended?.type === 'defused' ? '#6ea8ff' : '#ff4d4d');
   }
+  ctx.globalAlpha = 1;
 
   // Deaths so far this round
-  const kills = data.kills.filter(k => k.round === rd.num);
   ctx.lineWidth = 4;
-  for (const k of kills) {
+  for (const k of rr.kills) {
     if (k.tick > t || !k.victimPos) continue;
     const [x, y] = px(k.victimPos[0], k.victimPos[1]);
     ctx.globalAlpha = fade(k.victimPos[2]) ? 0.25 : 0.8;
@@ -1038,22 +1486,67 @@ function drawRadar() {
   }
   ctx.globalAlpha = 1;
 
+  // Shots: a tracer from the shooter in the direction they fired, ending on the player when it hit.
+  // Tracers stay a little longer at high playback speeds, so they don't vanish between frames.
+  if (R.shots) {
+    const win = TRACER_TICKS * Math.max(1, R.playing ? R.speed / 2 : 1);
+    for (const s of rr.shots) {
+      if (s.tick > t) break;
+      const age = t - s.tick;
+      if (age > win) continue;
+      const k = 1 - age / win;
+      const [x0, y0] = px(s.x, s.y);
+      ctx.globalAlpha = fade(s.z) ? 0.3 : 1;
+      if (s.hit) {
+        const [x1, y1] = px(s.hit.x, s.hit.y);
+        ctx.strokeStyle = `rgba(255,96,80,${k})`; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      } else {
+        const a = s.yaw * Math.PI / 180;
+        const [x1, y1] = px(s.x + Math.cos(a) * TRACER_LEN, s.y + Math.sin(a) * TRACER_LEN);
+        const g = ctx.createLinearGradient(x0, y0, x1, y1);
+        g.addColorStop(0, `rgba(255,228,150,${0.95 * k})`); g.addColorStop(1, 'rgba(255,228,150,0)');
+        ctx.strokeStyle = g; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      }
+      if (age < 4) { ctx.fillStyle = `rgba(255,214,110,${1 - age / 4})`; circle(x0, y0, 15); ctx.fill(); }
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // Players
   const pov = state.analysis?.player?.steamid;
   const players = data.track.header.players.map((id, i) => ({ id, name: data.names[id] || id, s: playerAt(data, i, t) })).filter(p => p.s);
-  ctx.font = '600 20px "Segoe UI", sans-serif';
+  const blind = new Map();
+  for (const b of rr.blinds) if (b.tick <= t && t < b.end) blind.set(b.victim, Math.max(blind.get(b.victim) || 0, (b.end - t) / (b.end - b.tick)));
   ctx.textAlign = 'center';
   for (const p of players) {
     if (!p.s.alive) continue;
     const [x, y] = px(p.s.x, p.s.y);
     const color = p.s.ct ? '#6ea8ff' : '#e9b949';
     ctx.globalAlpha = fade(p.s.z) ? 0.3 : 1;
+    const fl = blind.get(p.id);
+    if (fl) {
+      const g = ctx.createRadialGradient(x, y, 6, x, y, 30);
+      g.addColorStop(0, `rgba(255,255,255,${0.95 * fl})`); g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g; circle(x, y, 30); ctx.fill();
+    }
     const a = -p.s.yaw * Math.PI / 180;
     ctx.strokeStyle = color; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * 30, y + Math.sin(a) * 30); ctx.stroke();
-    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = color; circle(x, y, 11); ctx.fill();
+    if (fl) { ctx.fillStyle = `rgba(255,255,255,${0.8 * fl})`; ctx.fill(); }
     ctx.lineWidth = p.id === pov ? 4 : 2; ctx.strokeStyle = p.id === pov ? '#fff' : '#0a0e16';
     ctx.stroke();
+    // Plant / defuse progress around the player
+    const act = bs.planting?.player === p.id ? [bs.planting.frac, '#ff4d4d'] : bs.defusing?.player === p.id ? [bs.defusing.frac, '#6ea8ff'] : null;
+    if (act) {
+      ctx.strokeStyle = '#0a0e16aa'; ctx.lineWidth = 6; circle(x, y, 19); ctx.stroke();
+      ctx.strokeStyle = act[1]; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(x, y, 19, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * clamp(act[0], 0, 1)); ctx.stroke();
+    }
+    if (bs.carrier === p.id) bombIcon(ctx, x + 13, y + 11, 0.75);
+    ctx.font = '600 20px "Segoe UI", sans-serif';
     ctx.fillStyle = '#0a0e16cc'; const label = p.name.length > 14 ? p.name.slice(0, 13) + '…' : p.name;
     const wdt = ctx.measureText(label).width + 10;
     ctx.fillRect(x - wdt / 2, y - 42, wdt, 24);
@@ -1061,33 +1554,134 @@ function drawRadar() {
   }
   ctx.globalAlpha = 1;
 
-  // Controls, team lists and kill feed (DOM; only touched when something visible changed)
+  // Grenades in the air, on top of everything
+  for (const n of rr.nades) {
+    if (n.t0 > t || t > n.t1) continue;
+    const [, wx, wy, wz] = nadePos(n, t);
+    const [x, y] = px(wx, wy);
+    ctx.globalAlpha = fade(wz) ? 0.35 : 1;
+    // A little bigger the higher it flies above where it was thrown from
+    const r = 6 + clamp((wz - n.pts[0][3]) / 120, 0, 4);
+    ctx.fillStyle = NADE_COLOR[n.type]; ctx.strokeStyle = '#0a0e16'; ctx.lineWidth = 2.5;
+    circle(x, y, r); ctx.fill(); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Damage numbers floating up from whoever got hit
+  if (R.shots) {
+    ctx.font = '800 19px "Segoe UI", sans-serif';
+    ctx.lineWidth = 4; ctx.strokeStyle = '#0a0e16';
+    for (const d of rr.damage) {
+      if (d.tick > t) break;
+      const age = t - d.tick;
+      if (age > DMG_TICKS || /inferno/.test(d.weapon) || !d.dmg) continue;
+      const [x, y] = px(d.x, d.y);
+      ctx.globalAlpha = 1 - age / DMG_TICKS;
+      const yy = y - 54 - age * 0.35;
+      const txt = `-${d.dmg}${d.head ? ' HS' : ''}`;
+      ctx.strokeText(txt, x + 18, yy);
+      ctx.fillStyle = d.head ? '#ff5d5d' : '#ffd0c4'; ctx.fillText(txt, x + 18, yy);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Hover label
+  const hv = R.hover != null && R.hover !== R.nade ? data.nades[R.hover] : null;
+  if (hv) {
+    const at = t >= hv.t0 && t <= hv.t1 ? nadePos(hv, t) : t > hv.t1 ? hv.land : hv.pts[0];
+    const [x, y] = px(at[1], at[2]);
+    const txt = `${NADE_LABEL[hv.type]} · ${data.names[hv.thrower] || '?'} — click for the throw`;
+    ctx.font = '600 18px "Segoe UI", sans-serif'; ctx.textAlign = 'left';
+    const w = ctx.measureText(txt).width + 16;
+    ctx.fillStyle = '#0a0e16e6'; ctx.fillRect(x + 14, y + 10, w, 28);
+    ctx.fillStyle = NADE_COLOR[hv.type]; ctx.fillRect(x + 14, y + 10, 4, 28);
+    ctx.fillStyle = '#e8edf6'; ctx.fillText(txt, x + 24, y + 30);
+    ctx.textAlign = 'center';
+  }
+
+  // Controls, HUD, team lists and side lists (DOM; only touched when something visible changed)
   if (document.activeElement !== els.slider) els.slider.value = t;
-  const since = (t - rd.freezeEndTick) / tr;
-  els.clock.textContent = since < 0 ? `Freeze ${Math.ceil(-since)}s` : fmtDur(since);
   if (els.playing !== R.playing) {
     els.playing = R.playing;
     els.playBtn.replaceChildren(icon(R.playing ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/>' : ICONS.play));
   }
-  const sig = players.map(p => `${p.s.alive ? p.s.hp : 0}${p.s.weapon}`).join() + kills.filter(k => k.tick <= t).length;
+  drawHud(data, rd, t, bs);
+  const sig = players.map(p => `${p.s.alive ? p.s.hp : 0}${p.s.weapon}${blind.has(p.id) ? 'f' : ''}`).join() + bs.carrier + !!bs.planting + !!bs.defusing
+    + rr.kills.filter(k => k.tick <= t).length + '|' + rr.nades.filter(n => (n.throw?.tick ?? n.t0) <= t).length + R.list + R.nade;
   if (els.built !== sig) {
     els.built = sig;
     const side = ct => players.filter(p => p.s.ct === ct).sort((x, y) => x.name.localeCompare(y.name)).map(p =>
       h('div', { class: `rp ${p.s.alive ? '' : 'dead'} ${p.id === pov ? 'me' : ''}` },
-        h('div', { class: 'rp-top' }, h('span', { class: 'rp-name' }, p.name), h('span', { class: 'rp-hp' }, p.s.alive ? p.s.hp : '✕')),
+        h('div', { class: 'rp-top' },
+          h('span', { class: 'rp-name' }, p.name),
+          bs.carrier === p.id ? h('span', { class: 'rp-c4', title: 'Carries the bomb' }, 'C4') : null,
+          blind.has(p.id) ? h('span', { class: 'rp-flash', title: 'Flashed' }, 'flashed') : null,
+          h('span', { class: 'rp-hp' }, p.s.alive ? p.s.hp : '✕')),
         h('div', { class: 'rp-bar' }, h('div', { style: { width: `${p.s.alive ? p.s.hp : 0}%`, background: ct ? 'var(--ct)' : 'var(--t)' } })),
-        h('div', { class: 'rp-w' }, p.s.alive ? p.s.weapon : '')));
+        h('div', { class: 'rp-w' }, !p.s.alive ? '' : bs.planting?.player === p.id ? 'Planting…' : bs.defusing?.player === p.id ? 'Defusing…' : p.s.weapon)));
     els.teams.replaceChildren(h('div', { class: 'rt side-CT' }, 'CT'), ...side(true), h('div', { class: 'rt side-T' }, 'T'), ...side(false));
-    els.feed.replaceChildren(h('div', { class: 'rt' }, 'Kills'), ...kills.map(k => h('div', {
-      class: `rk ${k.tick <= t ? '' : 'future'}`, title: 'Jump to this kill', onclick: () => { R.tick = k.tick - 2 * tr; },
-    },
-    h('span', { class: 'rk-t' }, fmtDur(Math.max(0, (k.tick - rd.freezeEndTick) / tr))),
-    h('span', { class: `side-${k.attackerTeam}` }, data.names[k.attacker] || 'World'),
-    h('span', { class: 'rk-w' }, k.weapon, k.headshot ? ' ◎' : ''),
-    h('span', { class: `side-${k.victimTeam}` }, data.names[k.victim] || '?'))));
+    if (R.list === 'utility') {
+      els.feed.replaceChildren(...(rr.nades.length ? rr.nades.map(n => {
+        const tick = n.throw?.tick ?? n.t0;
+        const tech = n.throw && throwTechnique(n.throw);
+        const team = n.thrower && data.pidx.has(n.thrower) ? (playerAt(data, data.pidx.get(n.thrower), tick)?.ct ? 'CT' : 'T') : '';
+        return h('div', { class: `ru ${tick <= t ? '' : 'future'} ${n.i === R.nade ? 'on' : ''}`, style: { '--c': NADE_COLOR[n.type] }, title: 'Show how it was thrown', onclick: () => selectNade(n.i, true) },
+          h('span', { class: 'rk-t' }, clockLabel(data, rd, tick)),
+          h('span', { class: 'ru-type' }, h('span', { class: 'ru-dot' }), NADE_LABEL[n.type]),
+          h('span', { class: `side-${team}` }, data.names[n.thrower] || '?'),
+          tech ? h('span', { class: 'rk-w' }, tech.move.toLowerCase().replace(/,.*$/, '')) : null);
+      }) : [h('div', { class: 'muted ru-empty' }, 'No grenades this round.')]));
+    } else {
+      els.feed.replaceChildren(...(rr.kills.length ? rr.kills.map(k => h('div', {
+        class: `rk ${k.tick <= t ? '' : 'future'}`, title: 'Jump to this kill', onclick: () => { R.tick = k.tick - 2 * tr; },
+      },
+      h('span', { class: 'rk-t' }, clockLabel(data, rd, k.tick)),
+      h('span', { class: `side-${k.attackerTeam}` }, data.names[k.attacker] || 'World'),
+      h('span', { class: 'rk-w' }, k.weapon, k.headshot ? ' · HS' : '', k.wallbang ? ' · wallbang' : '', k.smoke ? ' · through smoke' : ''),
+      h('span', { class: `side-${k.victimTeam}` }, data.names[k.victim] || '?'))) : [h('div', { class: 'muted ru-empty' }, 'No kills this round.')]));
+    }
   }
 }
 
+// Small bomb marker: a red rounded square with "C4" written on it.
+function bombIcon(ctx, x, y, s = 1, color = '#ff4d4d') {
+  const w = 22 * s, hh = 15 * s;
+  ctx.fillStyle = color; ctx.strokeStyle = '#0a0e16'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.roundRect(x - w / 2, y - hh / 2, w, hh, 3 * s); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#0a0e16'; ctx.font = `800 ${Math.round(11 * s)}px "Segoe UI", sans-serif`; ctx.textAlign = 'center';
+  ctx.fillText('C4', x, y + 4 * s);
+}
+
+// Round clock over the map, and once the bomb is down: its timer, and any plant or defuse in progress.
+function drawHud(data, rd, t, bs) {
+  const els = state.radar.els, tr = data.tickrate;
+  const c = roundClock(data, rd, t, bs);
+  const deadline = bs.defusing ? bs.defusing.tick + bs.defusing.len : 0;
+  const key = [c.kind, c.time == null ? '' : fmtClock(c.time, true), bs.planting?.player, Math.round((bs.planting?.frac || 0) * 50), bs.defusing?.player, Math.round((bs.defusing?.frac || 0) * 50), bs.ended?.type].join('|');
+  if (els.hudKey === key) return;
+  els.hudKey = key;
+  const name = id => state.radar.data.names[id] || '?';
+  const bar = (frac, cls) => h('div', { class: `hud-bar ${cls}` }, h('div', { style: { width: `${clamp(frac, 0, 1) * 100}%` } }));
+  const parts = [];
+  if (c.kind === 'bomb') {
+    parts.push(h('div', { class: `hud-bomb ${c.time < 10 ? 'late' : ''}` },
+      h('span', { class: 'hud-c4' }, 'C4'), h('span', { class: 'hud-time' }, fmtClock(c.time, true)),
+      bar(c.time / (bs.c4 / tr), 'red')));
+    if (bs.defusing) {
+      const inTime = deadline <= bs.explodeAt;
+      parts.push(h('div', { class: 'hud-sub' },
+        h('span', {}, h('b', { class: 'side-CT' }, name(bs.defusing.player)), ` defusing${bs.defusing.kit ? ' with a kit' : ', no kit'} · ${Math.max(0, (deadline - t) / tr).toFixed(1)} s`),
+        h('span', { class: inTime ? 'good' : 'bad' }, inTime ? 'in time' : 'too late'),
+        bar(bs.defusing.frac, 'blue')));
+    }
+  } else {
+    const label = c.kind === 'freeze' ? 'Freeze time' : c.kind === 'end' ? `${rd.winner} win · ${(rd.reason || '').replace(/_/g, ' ')}` : null;
+    parts.push(h('div', { class: `hud-clock ${c.kind}` }, label ? h('span', { class: 'hud-label' }, label) : null, c.time == null ? null : h('span', { class: 'hud-time' }, fmtClock(c.time))));
+    if (bs.ended) parts.push(h('div', { class: 'hud-sub' }, bs.ended.type === 'defused' ? h('span', { class: 'side-CT' }, `Bomb defused by ${name(bs.ended.player)}`) : h('span', { class: 'bad' }, 'Bomb exploded')));
+    if (bs.planting) parts.push(h('div', { class: 'hud-sub' }, h('span', {}, h('b', { class: 'side-T' }, name(bs.planting.player)), ' planting the bomb'), bar(bs.planting.frac, 'red')));
+  }
+  els.hud.replaceChildren(...parts);
+}
 
 // ---------- Overview (dashboard) ----------
 // Everything is added up here from the per-match summaries (api.profile), so filters are instant.
