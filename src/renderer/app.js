@@ -77,9 +77,7 @@ function renderStatus() {
     ['CS2', e.cs2Dir ? (e.cs2Running ? 'ok' : 'warn') : 'bad', e.cs2Dir ? (e.cs2Running ? 'Running' : 'Installed') : 'Not found'],
     ['Steam', e.mySteamId ? 'ok' : 'bad', state.player?.name || e.steamUser?.name || 'Unknown'],
     ['ffmpeg', e.ffmpeg ? 'ok' : 'bad', e.ffmpeg ? (e.encoder || '').replace('h264_', '').replace('lib', '') : 'Missing'],
-    state.settings?.recording.method === 'hlae'
-      ? ['Recorder', e.hlae?.installed ? 'ok' : 'bad', e.hlae?.installed ? `HLAE ${e.hlae.version}` : 'HLAE missing']
-      : ['OBS', state.obsOk === undefined ? '' : state.obsOk ? 'ok' : 'bad', state.obsOk === undefined ? 'Not checked' : state.obsOk ? 'Connected' : 'Offline'],
+    ['Recorder', e.hlae?.installed ? 'ok' : 'bad', e.hlae?.installed ? `HLAE ${e.hlae.version}` : 'HLAE missing'],
   ];
   $('#status').replaceChildren(...rows.map(([k, cls, v]) => h('div', { class: 'status-row' }, h('span', { class: `dot ${cls}` }), k, h('b', { title: v }, v))));
 }
@@ -258,15 +256,12 @@ function highlightCard(hl) {
   );
 }
 
-const isBackground = () => state.settings.recording.method === 'hlae';
-
 function estimateSeconds(hls) {
   const t = state.settings.timing;
   const segs = hls.reduce((n, x) => n + x.segments.length, 0);
   const play = hls.reduce((n, x) => n + x.duration, 0);
-  // Background: CS2 start + demo load + ~1.3x game time (more if CS2 is minimized) + closing CS2.
-  if (isBackground()) return t.startupWait + 40 + 15 + segs * 6 + play * 1.3 + hls.length * 4 + 20;
-  return (state.env.cs2Running ? 0 : t.startupWait + 30) + t.demoLoadWait + segs * (t.seekWait + t.specWait + 3) + play + hls.length * 6;
+  // CS2 start + demo load + ~1.3x game time (more if CS2 is minimized) + closing CS2.
+  return t.startupWait + 40 + 15 + segs * 6 + play * 1.3 + hls.length * 4 + 20;
 }
 
 function actionBar() {
@@ -292,23 +287,15 @@ function closeModal(cb) { $('#overlay').classList.add('hidden'); $('#overlay').r
 
 function confirmRecord(hls) {
   const mins = Math.ceil(estimateSeconds(hls) / 60);
-  const method = state.settings.control.method;
-  const steps = isBackground()
-    ? [
-      h('li', {}, 'CS2 opens ', h('b', {}, 'in a window through HLAE'), '. ', h('b', {}, 'Keep using your PC'), ': put other windows over it or minimize it (it renders a bit slower when minimized).'),
-      state.env.cs2Running ? h('li', {}, h('b', {}, 'Close your running CS2 first'), ' — the recording session needs its own CS2.') : null,
-      h('li', {}, 'CS2 runs with ', h('code', {}, '-insecure'), ' (no VAC servers) and ', h('b', {}, 'is closed automatically'), ' when done. Never join matches from that session.'),
-      h('li', {}, 'Clips are saved to ', h('code', {}, state.env.outputDir)),
-    ]
-    : [
-      h('li', {}, 'Keep ', h('b', {}, 'OBS open'), ' (the app creates its own "CS2 ClipMaker" scene).'),
-      state.env.cs2Running ? null : h('li', {}, h('b', {}, 'CS2 will be started'), ' automatically.'),
-      method === 'keypress' ? h('li', {}, h('b', {}, "Don't touch the mouse or keyboard"), ' while it records — the app sends commands by pressing a key in the CS2 window.') : null,
-      h('li', {}, 'Clips are saved to ', h('code', {}, state.env.outputDir)),
-    ];
+  const steps = [
+    h('li', {}, 'CS2 opens ', h('b', {}, 'in a window through HLAE'), '. ', h('b', {}, 'Keep using your PC'), ': put other windows over it or minimize it (it renders a bit slower when minimized).'),
+    state.env.cs2Running ? h('li', {}, h('b', {}, 'Close your running CS2 first'), ' — the recording session needs its own CS2.') : null,
+    h('li', {}, 'CS2 runs with ', h('code', {}, '-insecure'), ' (no VAC servers) and ', h('b', {}, 'is closed automatically'), ' when done. Never join matches from that session.'),
+    h('li', {}, 'Clips are saved to ', h('code', {}, state.env.outputDir)),
+  ];
   modal([
     h('h2', {}, `Record ${hls.length} clip${hls.length > 1 ? 's' : ''}?`),
-    h('p', {}, `${isBackground() ? 'CS2 will play the demo in the background and HLAE will record each highlight frame by frame.' : 'CS2 will play the demo and OBS will record each highlight.'} This takes about ${mins} minute${mins > 1 ? 's' : ''}.`),
+    h('p', {}, `CS2 will play the demo in the background and HLAE will record each highlight frame by frame. This takes about ${mins} minute${mins > 1 ? 's' : ''}.`),
     h('ul', { class: 'steps' }, ...steps),
     h('div', { class: 'actions' },
       h('button', { class: 'btn', onclick: () => closeModal() }, 'Cancel'),
@@ -317,12 +304,11 @@ function confirmRecord(hls) {
   ]);
 }
 
-async function startRecord(hls, opts = {}) {
+async function startRecord(hls) {
   const items = hls.map(x => ({ demoPath: state.demo.path, highlightId: x.id }));
   const steamid = state.analysis.player?.steamid;
   try {
-    const r = await api.record(items, steamid, opts);
-    if (r.needsBind) return askBind(hls);
+    const r = await api.record(items, steamid);
     state.recording = { total: r.count, log: [] };
     renderRecording({ state: 'running', step: 'Starting…', progress: 0 });
   } catch (e) {
@@ -338,28 +324,12 @@ async function startRecord(hls, opts = {}) {
         toast(`HLAE ${r.version} installed`, 'ok');
         await refreshEnv();
         closeModal();
-        startRecord(hls, opts);
+        startRecord(hls);
       } catch (err) { status.textContent = '✗ ' + err.message; btn.disabled = false; }
     } }, 'Install HLAE') : null;
     modal([h('h2', {}, 'Could not start'), h('div', { class: 'err-box' }, msg), status,
       h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => closeModal() }, 'Close'), install)]);
   }
-}
-
-function askBind(hls) {
-  const key = state.settings.control.key;
-  modal([
-    h('h2', {}, 'CS2 is already running'),
-    h('p', {}, `The app talks to CS2 through a key bind (${key.toUpperCase()}). Since CS2 was started without it, do one of these:`),
-    h('ul', { class: 'steps' },
-      h('li', {}, 'Open the CS2 console (~) and type ', h('code', {}, 'exec clipmaker_init'), ', then click "I did it".'),
-      h('li', {}, 'Or close CS2 and click "Start recording" again — the app will launch CS2 with the bind.'),
-    ),
-    h('div', { class: 'actions' },
-      h('button', { class: 'btn', onclick: () => closeModal() }, 'Cancel'),
-      h('button', { class: 'btn primary', onclick: async () => { await api.cs2MarkBound(); startRecord(hls, { assumeBound: true }); } }, 'I did it'),
-    ),
-  ]);
 }
 
 function renderRecording(u) {
@@ -375,8 +345,7 @@ function renderRecording(u) {
     h('h2', {}, r.state === 'done' ? 'Clips ready 🎬' : r.state === 'error' ? 'Recording failed' : r.state === 'cancelled' ? 'Recording cancelled' : 'Recording highlights…'),
     h('div', { class: 'step' }, r.step || ''),
     h('div', { class: `progress ${r.state === 'running' && !r.progress ? 'indet' : ''}` }, h('div', { style: { width: `${Math.round((r.progress || 0) * 100)}%` } })),
-    r.state === 'running' && !isBackground() && state.settings.control.method === 'keypress' ? h('div', { class: 'warn-box' }, "Hands off the keyboard and mouse — CS2 needs to stay in the foreground. Press Cancel here to stop.") : null,
-    r.state === 'running' && isBackground() ? h('div', { class: 'info-box' }, 'Recording in the background — keep using your PC. CS2 can stay behind other windows or minimized.') : null,
+    r.state === 'running' ? h('div', { class: 'info-box' }, 'Recording in the background — keep using your PC. CS2 can stay behind other windows or minimized.') : null,
     r.error ? h('div', { class: 'err-box' }, r.error) : null,
     r.log.length ? h('div', { class: 'log' }, ...r.log.map(l => h('div', {}, l))) : null,
     h('div', { class: 'actions' },
@@ -615,7 +584,7 @@ function hlaeUpdateCtl() {
       await refreshEnv();
       renderSettings();
     } catch (err) { status.textContent = '✗ ' + err.message; btn.disabled = false; }
-  } }, `Update to ${u.latest}`) : null;
+  } }, `${u.installed ? 'Update to' : 'Install'} HLAE ${u.latest}`) : null;
   return h('div', { class: 'ctl' }, checkBtn, updateBtn, status);
 }
 
@@ -629,9 +598,6 @@ function renderSettings() {
   const st = state.settings, e = state.env;
   const d = st.detection, t = st.timing;
   const SPECIAL_LABELS = { noscope: 'No-scope', wallbang: 'Wallbang', smoke: 'Through smoke', blind: 'While flashed', jumpshot: 'Jumpshot', knife: 'Knife', zeus: 'Zeus', collateral: 'Collateral' };
-
-  const obsResult = h('span', { class: 'hint' });
-  const cs2Result = h('span', { class: 'hint' });
 
   const cards = [
     h('div', { class: 'card' },
@@ -650,52 +616,23 @@ function renderSettings() {
 
     h('div', { class: 'card' },
       h('h3', {}, 'Recording'),
-      h('div', { class: 'desc' }, 'Background mode records through HLAE while you keep using your PC. OBS mode needs CS2 in the foreground.'),
-      row('Method', select(st.recording.method, [['hlae', 'Background — HLAE (recommended)'], ['obs', 'Foreground — OBS']], v => save({ recording: { method: v } }).then(() => { renderSettings(); renderStatus(); }))),
-      ...(st.recording.method === 'hlae' ? [
-        row('HLAE folder', h('div', { class: 'ctl' },
-          h('span', { class: 'mono', style: { flex: 1 } }, e.hlae?.dir || ''),
-          h('span', { class: `pill ${e.hlae?.installed ? 'ok' : 'bad'}` }, e.hlae?.installed ? `HLAE ${e.hlae.version}` : 'Not found'),
-          h('button', { class: 'btn', onclick: async () => { const p = await api.pickFolder('HLAE folder (contains HLAE.exe)'); if (p) { await save({ hlae: { path: p } }); await refreshEnv(); renderSettings(); } } }, 'Browse')),
-          'HLAE must match your CS2 version. After a CS2 update, recording can fail until HLAE is updated.'),
-        row('HLAE updates', hlaeUpdateCtl()),
-        row('Resolution', select(`${st.hlae.width}x${st.hlae.height}`, [['1280x720', '1280 × 720'], ['1920x1080', '1920 × 1080'], ['2560x1440', '2560 × 1440']],
-          v => { const [w, hh] = v.split('x').map(Number); save({ hlae: { width: w, height: hh } }); })),
-        row('Frame rate', select(String(st.hlae.fps), [['30', '30 fps'], ['60', '60 fps'], ['120', '120 fps']], v => save({ hlae: { fps: +v } }))),
-      ] : []),
-    ),
-
-    h('div', { class: 'card' },
-      h('h3', {}, st.recording.method === 'hlae' ? 'OBS Studio (only for foreground mode)' : 'OBS Studio'),
-      h('div', { class: 'desc', html: 'In OBS: <b>Tools → WebSocket Server Settings</b> → tick <b>Enable WebSocket server</b>, then <b>Show Connect Info</b> to copy the password here.' }),
-      row('Host / port', h('div', { class: 'ctl' }, text(st.obs.host, v => save({ obs: { host: v } }), { style: 'flex:0 0 160px' }), num(st.obs.port, v => save({ obs: { port: v } }), { max: 65535 }))),
-      row('Password', h('input', { type: 'password', value: st.obs.password, onchange: ev => save({ obs: { password: ev.target.value } }) })),
-      row('', h('div', { class: 'ctl' },
-        h('button', { class: 'btn', onclick: async () => {
-          obsResult.textContent = 'Connecting…';
-          try { const v = await api.obsTest(); state.obsOk = true; obsResult.textContent = `✓ Connected to OBS ${v.obsVersion} — scene "CS2 ClipMaker" is ready.`; }
-          catch (err) { state.obsOk = false; obsResult.textContent = '✗ ' + err.message; }
-          renderStatus();
-        } }, 'Test & set up scene'), obsResult)),
+      h('div', { class: 'desc' }, 'CS2 runs through HLAE, which records in the background while you keep using your PC.'),
+      row('HLAE folder', h('div', { class: 'ctl' },
+        h('span', { class: 'mono', style: { flex: 1 } }, e.hlae?.dir || ''),
+        h('span', { class: `pill ${e.hlae?.installed ? 'ok' : 'bad'}` }, e.hlae?.installed ? `HLAE ${e.hlae.version}` : 'Not found'),
+        h('button', { class: 'btn', onclick: async () => { const p = await api.pickFolder('HLAE folder (contains HLAE.exe)'); if (p) { await save({ hlae: { path: p } }); await refreshEnv(); renderSettings(); } } }, 'Browse')),
+        'HLAE must match your CS2 version. After a CS2 update, recording can fail until HLAE is updated.'),
+      row('HLAE updates', hlaeUpdateCtl()),
+      row('Resolution', select(`${st.hlae.width}x${st.hlae.height}`, [['1280x720', '1280 × 720'], ['1920x1080', '1920 × 1080'], ['2560x1440', '2560 × 1440']],
+        v => { const [w, hh] = v.split('x').map(Number); save({ hlae: { width: w, height: hh } }); })),
+      row('Frame rate', select(String(st.hlae.fps), [['30', '30 fps'], ['60', '60 fps'], ['120', '120 fps']], v => save({ hlae: { fps: +v } }))),
     ),
 
     h('div', { class: 'card' },
       h('h3', {}, 'Counter-Strike 2'),
-      h('div', { class: 'desc' }, 'How the app controls demo playback.'),
       row('CS2 folder', h('div', { class: 'ctl' }, text(st.cs2Dir || e.cs2Dir || '', v => save({ cs2Dir: v }).then(refreshEnv), { class: 'mono' }),
         h('button', { class: 'btn', onclick: async () => { const p = await api.pickFolder('Counter-Strike Global Offensive folder'); if (p) { await save({ cs2Dir: p }); await refreshEnv(); renderSettings(); } } }, 'Browse'))),
       row('Your SteamID64', text(st.steamId, v => save({ steamId: v }, true).then(refreshEnv), { placeholder: e.steamUser ? `${e.steamUser.steamid} (${e.steamUser.name}, auto)` : '7656119…', class: 'mono' }), 'Leave empty to use the Steam account logged in on this PC.'),
-      row('Control method', select(st.control.method, [['keypress', 'Key press (normal game)'], ['netcon', 'Console port (needs -tools)']], v => save({ control: { method: v } }).then(renderSettings)),
-        st.control.method === 'keypress'
-          ? 'Writes commands to a cfg file and presses the trigger key in CS2. Works with the normal game.'
-          : 'Uses -netconport. On Windows, CS2 must run with -tools (Workshop Tools installed).'),
-      st.control.method === 'keypress'
-        ? row('Trigger key', select(st.control.key, [['scrolllock', 'Scroll Lock'], ['f13', 'F13'], ['insert', 'Insert']], v => save({ control: { key: v } })), "Pick a key you don't use in game.")
-        : row('Console port', num(st.control.netconPort, v => save({ control: { netconPort: v } }), { max: 65535 })),
-      row('', h('div', { class: 'ctl' },
-        h('button', { class: 'btn', onclick: async () => { cs2Result.textContent = 'Launching…'; try { await api.cs2Launch(); cs2Result.textContent = '✓ CS2 is starting with the ClipMaker bind.'; } catch (err) { cs2Result.textContent = '✗ ' + err.message; } refreshEnv(); } }, 'Launch CS2'),
-        h('button', { class: 'btn', onclick: async () => { cs2Result.textContent = 'Sending…'; try { await api.cs2Test(); cs2Result.textContent = '✓ Sent. Did the CS2 console open and close? If yes, control works.'; } catch (err) { cs2Result.textContent = '✗ ' + err.message; } } }, 'Test control'),
-        cs2Result)),
     ),
 
     h('div', { class: 'card' },
@@ -718,21 +655,16 @@ function renderSettings() {
         h('button', { class: 'btn', onclick: async () => { const p = await api.pickFolder('Where to save clips'); if (p) { await save({ outputDir: p }); await refreshEnv(); renderSettings(); } } }, 'Change'))),
       row('Video encoder', select(st.encoder, [['auto', `Auto (using ${e.encoder})`], ['libx264', 'CPU (x264)'], ['h264_nvenc', 'NVIDIA (NVENC)'], ['h264_amf', 'AMD (AMF)'], ['h264_qsv', 'Intel (QuickSync)']], v => save({ encoder: v }).then(refreshEnv))),
       row('Montage fade', h('div', { class: 'ctl' }, num(st.montage.fade, v => save({ montage: { fade: v } }), { max: 2, step: 0.05 }), 'seconds')),
-      row('Keep raw recordings', toggle('Keep', st.keepRaw, v => save({ keepRaw: v })), 'Saves the untrimmed OBS files in a _raw folder.'),
+      row('Keep raw recordings', toggle('Keep', st.keepRaw, v => save({ keepRaw: v })), "Keeps HLAE's separate video and audio files in a _raw folder."),
       row('ffmpeg', h('div', { class: 'ctl' }, h('span', { class: 'mono', style: { flex: 1 } }, e.ffmpeg || 'not found'),
         h('button', { class: 'btn', onclick: async () => { const p = await api.pickFile('ffmpeg.exe', [{ name: 'ffmpeg', extensions: ['exe'] }]); if (p) { await save({ ffmpegPath: p }); await refreshEnv(); renderSettings(); } } }, 'Browse'))),
     ),
 
     h('div', { class: 'card' },
       h('h3', {}, 'Advanced timing & commands'),
-      h('div', { class: 'desc' }, 'Increase the waits if clips start too early or show loading screens. Commands are separated by ";" — {tick}, {accountid} and {name} are filled in.'),
+      h('div', { class: 'desc' }, 'Increase the startup wait if the first clip fails right after CS2 opens. Setup commands run once when CS2 starts, separated by ";".'),
       row('CS2 startup wait', h('div', { class: 'ctl' }, num(t.startupWait, v => save({ timing: { startupWait: v } }), { max: 300 }), 'seconds')),
-      row('Demo load wait', h('div', { class: 'ctl' }, num(t.demoLoadWait, v => save({ timing: { demoLoadWait: v } }), { max: 300 }), 'seconds')),
-      row('Seek wait', h('div', { class: 'ctl' }, num(t.seekWait, v => save({ timing: { seekWait: v } }), { max: 60, step: 0.5 }), 'seconds')),
-      row('Spectate wait', h('div', { class: 'ctl' }, num(t.specWait, v => save({ timing: { specWait: v } }), { max: 30, step: 0.5 }), 'seconds')),
       row('Setup commands', text(st.commands.setup, v => save({ commands: { setup: v } }), { class: 'mono' })),
-      row('Seek command', text(st.commands.seek, v => save({ commands: { seek: v } }), { class: 'mono' })),
-      row('Spectate command', text(st.commands.spectate, v => save({ commands: { spectate: v } }), { class: 'mono' })),
     ),
   ];
   $('#view-settings').replaceChildren(h('div', { class: 'page settings' }, h('div', { class: 'page-head' }, h('h2', {}, 'Settings')), ...cards));

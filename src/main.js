@@ -6,10 +6,8 @@ const { Worker } = require('worker_threads');
 
 const steam = require('./lib/steam');
 const ffmpeg = require('./lib/ffmpeg');
-const cs2 = require('./lib/cs2');
 const { Settings } = require('./lib/settings');
 const { Library } = require('./lib/library');
-const { Obs } = require('./lib/obs');
 const { Recorder, Cancelled } = require('./lib/recorder');
 const { buildHighlights } = require('./lib/highlights');
 const { DATA_VERSION } = require('./lib/demo');
@@ -21,9 +19,7 @@ const hlae = require('./lib/hlae');
 let win;
 let settings;
 let env;
-const obs = new Obs();
 let recorder = null;
-let launchedByApp = false;
 let ffmpegFound = null;
 let encoderReady = Promise.resolve();
 let downloader;
@@ -180,7 +176,7 @@ function handle(name, fn) {
 function registerIpc() {
   handle('env:get', async () => (await encoderReady, {
     ...env, ffmpeg: ffmpegFound, encoder: ffmpeg.encoder,
-    outputDir: outputDir(), mySteamId: mySteamId(), cs2Running: !!cs2.findWindow(), launchedByApp,
+    outputDir: outputDir(), mySteamId: mySteamId(), cs2Running: hlae.cs2Pids().length > 0,
     hlae: { dir: hlaeDir(), installed: hlae.isInstalled(hlaeDir()), version: hlae.hlaeVersion(hlaeDir()) },
   }));
 
@@ -230,35 +226,6 @@ function registerIpc() {
 
   handle('demo:analyze', async (file, steamid) => analysis(file, await parseDemo(file), steamid || mySteamId()));
 
-  handle('obs:test', async () => {
-    await obs.disconnect();
-    const v = await obs.connect(s().obs);
-    await obs.ensureScene();
-    return { obsVersion: v.obsVersion, websocket: v.obsWebSocketVersion };
-  });
-
-  handle('cs2:launch', async () => {
-    if (cs2.findWindow()) throw new Error('CS2 is already running. Close it first so it can be started with the ClipMaker key bind.');
-    if (downloader.checking) throw new Error('Checking Valve for new matches, try again in a few seconds.');
-    const ch = cs2.createChannel(s(), env.csgoDir);
-    ch.writeInit?.();
-    cs2.launch(env.steamPath, ch.launchArgs());
-    launchedByApp = true;
-    return true;
-  });
-
-  handle('cs2:test', async () => {
-    if (!cs2.findWindow()) throw new Error('CS2 is not running.');
-    const ch = cs2.createChannel(s(), env.csgoDir);
-    await ch.send(['toggleconsole', 'echo "[ClipMaker] Hello from CS2 ClipMaker!"']);
-    await new Promise(r => setTimeout(r, 2500));
-    await ch.send(['toggleconsole']);
-    ch.close();
-    return true;
-  });
-
-  handle('cs2:markBound', () => { launchedByApp = true; return true; });
-
   handle('hlae:check', () => checkHlaeUpdate(true));
   handle('hlae:update', async () => {
     if (recorder) throw new Error('Wait until the recording is finished.');
@@ -280,23 +247,19 @@ function registerIpc() {
   });
   handle('community:signOut', async () => { await signOut(); communityState = 'signedOut'; log('signed out of Steam Community (button)'); return true; });
 
-  handle('record:start', async (items, steamid, { assumeBound } = {}) => {
+  handle('record:start', async (items, steamid) => {
     if (recorder) throw new Error('A recording is already running.');
     // Never let CS2 start while the Steam helper is pretending to be CS2.
     while (downloader.checking) await new Promise(r => setTimeout(r, 500));
     if (!env.csgoDir) throw new Error('CS2 installation not found. Set it in Settings.');
     if (!ffmpegFound) throw new Error('ffmpeg not found. Set its path in Settings.');
-    const background = s().recording.method === 'hlae';
-    if (background) {
-      const missing = hlae.missingFiles(hlaeDir());
-      if (missing.length) {
-        let listing = '';
-        try { listing = fs.readdirSync(hlaeDir()).length + ' entries'; } catch (e) { listing = e.code; }
-        log('HLAE check failed in', hlaeDir(), '- missing/unreadable:', missing.join(', '), '- folder:', listing);
-        throw new Error(`HLAE_MISSING: HLAE is incomplete in ${hlaeDir()} (missing or unreadable: ${missing.join(', ')}). An antivirus may have removed or locked it. Click "Install HLAE" to reinstall it, or choose another folder in Settings → Recording.`);
-      }
+    const missing = hlae.missingFiles(hlaeDir());
+    if (missing.length) {
+      let listing = '';
+      try { listing = fs.readdirSync(hlaeDir()).length + ' entries'; } catch (e) { listing = e.code; }
+      log('HLAE check failed in', hlaeDir(), '- missing/unreadable:', missing.join(', '), '- folder:', listing);
+      throw new Error(`HLAE_MISSING: HLAE is not installed or incomplete in ${hlaeDir()} (missing or unreadable: ${missing.join(', ')}). If it was installed before, an antivirus may have removed or locked it. Click "Install HLAE" to download it, or choose another folder in Settings → Recording.`);
     }
-    if (!background && s().control.method === 'keypress' && cs2.findWindow() && !launchedByApp && !assumeBound) return { needsBind: true };
 
     const jobs = [];
     for (const it of items) {
@@ -309,12 +272,12 @@ function registerIpc() {
     if (!jobs.length) throw new Error('Nothing to record.');
 
     recorder = new Recorder({
-      settings: { ...s(), outputDir: outputDir(), hlae: { ...s().hlae, path: hlaeDir() } }, env, obs,
-      emit: u => { if (u.launched) launchedByApp = true; send('record:update', u); },
+      settings: { ...s(), outputDir: outputDir(), hlae: { ...s().hlae, path: hlaeDir() } }, env,
+      emit: u => send('record:update', u),
     });
     const r = recorder;
     send('record:update', { state: 'running', total: jobs.length, step: 'Starting…', progress: 0 });
-    r.run(jobs, { launchedByApp }).then(clips => {
+    r.run(jobs).then(clips => {
       const lib = library();
       clips.forEach(c => lib.add(c));
       send('record:update', { state: 'done', clips: clips.length, progress: 1, step: `Done – ${clips.length} clip${clips.length === 1 ? '' : 's'} saved` });
@@ -378,7 +341,7 @@ function registerIpc() {
 //    helper identifies itself to Steam as CS2, and two CS2 sessions would fight over the GC.
 async function checkMatches(manual) {
   if (!env.cs2Dir) throw new Error('CS2 installation not found. Set it in Settings.');
-  const cs2Open = cs2.isRunning();
+  const cs2Open = hlae.cs2Pids().length > 0;
   const r = await downloader.check({
     autoDownload: s().downloads.auto,
     sources: {

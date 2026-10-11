@@ -10,7 +10,6 @@
   "dependencies": {
     "@laihoe/demoparser2": "^0.42.0",
     "koffi": "^3.3.3",
-    "obs-websocket-js": "^5.0.8",
     "unbzip2-stream": "^1.4.3"
   },
   "devDependencies": {

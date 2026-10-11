@@ -1,14 +1,11 @@
-// Records highlights: drives CS2 demo playback + OBS, then cuts/joins the raw recordings with ffmpeg.
+// Records highlights: CS2 plays the demo through HLAE, which records each segment; ffmpeg then
+// adds the audio and joins the segments into clips.
 const fs = require('fs');
 const path = require('path');
-const cs2 = require('./cs2');
 const ffmpeg = require('./ffmpeg');
 const { HlaeSession, FFMPEG_OPTS } = require('./hlae');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const STEAMID64_BASE = 76561197960265728n;
-const PREROLL_TICKS = 64; // play 1s before the clip start so the seek settles, then cut it off
-const SEND_LATENCY_MS = 110; // time between the key press / socket write and send() resolving
 
 class Cancelled extends Error {}
 
@@ -20,13 +17,11 @@ function fill(template, vars) {
 function safeName(s) { return s.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80); }
 
 class Recorder {
-  constructor({ settings, env, obs, emit }) {
+  constructor({ settings, env, emit }) {
     this.s = settings;
     this.env = env;
-    this.obs = obs;
     this.emit = emit;
     this.cancelled = false;
-    this.recording = false;
   }
 
   cancel() { this.cancelled = true; }
@@ -41,8 +36,8 @@ class Recorder {
    * jobs: [{ demoPath, demoDate, map, player: {steamid, name}, highlight }]
    * Returns the list of created clip entries (not yet in the library).
    */
-  async run(jobs, opts) {
-    const raws = this.s.recording.method === 'hlae' ? await this.recordHlae(jobs) : await this.recordObs(jobs, opts);
+  async run(jobs) {
+    const raws = await this.recordHlae(jobs);
     // --- Cut & join (after recording, so encoding never steals frames from the game)
     const clips = [];
     for (let i = 0; i < raws.length; i++) {
@@ -61,7 +56,7 @@ class Recorder {
     return byDemo;
   }
 
-  // Background recording: CS2 runs through HLAE, everything is scheduled on demo ticks, no focus needed.
+  // CS2 runs through HLAE, everything is scheduled on demo ticks, no focus needed.
   async recordHlae(jobs) {
     const t = this.s.timing;
     const hs = this.s.hlae;
@@ -159,70 +154,6 @@ class Recorder {
     try { fs.rmdirSync(path.join(this.s.outputDir, '_raw')); } catch {}
   }
 
-  // Foreground recording: OBS + key presses/console commands, CS2 must stay in front.
-  async recordObs(jobs, { launchedByApp }) {
-    const t = this.s.timing;
-    const channel = cs2.createChannel(this.s, this.env.csgoDir);
-    const send = async cmds => { this.check(); await channel.send(cmds); };
-    let restoreObs = null;
-    const raws = [];
-    const total = jobs.length;
-    const tmpDir = path.join(this.env.csgoDir, 'clipmaker_tmp');
-
-    try {
-      this.emit({ step: 'Connecting to OBS…', progress: 0 });
-      await this.obs.connect(this.s.obs);
-      restoreObs = await this.obs.prepare();
-
-      // --- Make sure CS2 runs and listens to us
-      let launched = launchedByApp;
-      channel.writeInit?.();
-      if (!cs2.findWindow()) {
-        this.emit({ step: 'Starting CS2…' });
-        cs2.launch(this.env.steamPath, channel.launchArgs());
-        if (!(await cs2.waitForWindow(240000, () => this.cancelled))) { this.check(); throw new Error('CS2 did not start within 4 minutes.'); }
-        this.emit({ step: `Waiting ${t.startupWait}s for CS2 to load…` });
-        await this.wait(t.startupWait);
-        launched = true;
-      }
-      if (this.s.control.method === 'netcon') {
-        let ok = false;
-        for (let i = 0; i < 20 && !ok; i++) { this.check(); ok = await channel.connect(); if (!ok) await sleep(1500); }
-        if (!ok) throw new Error(`Could not connect to the CS2 console on port ${this.s.control.netconPort}. Close CS2 and let the app start it (it adds -tools -netconport).`);
-      }
-      this.emit({ launched });
-
-      // --- Record, grouped by demo so each demo loads once
-      for (const [demoPath, list] of this.groupByDemo(jobs)) {
-        const rel = this.demoRef(demoPath, tmpDir);
-        this.emit({ step: `Loading demo ${path.basename(demoPath)}…` });
-        await send([...fill(this.s.commands.setup, {}), `playdemo "${rel}"`]);
-        await this.wait(t.demoLoadWait);
-        await send(['demo_pause']);
-
-        for (const job of list) {
-          const h = job.highlight;
-          const accountid = (BigInt(job.player.steamid) - STEAMID64_BASE).toString();
-          const segRaws = [];
-          for (let si = 0; si < h.segments.length; si++) {
-            const seg = h.segments[si];
-            this.emit({ step: `Recording ${job.index + 1}/${total}: Round ${h.round} – ${h.title}` + (h.segments.length > 1 ? ` (part ${si + 1}/${h.segments.length})` : ''), progress: job.index / total });
-            segRaws.push(await this.recordSegment(seg, { send, accountid, name: job.player.name }));
-          }
-          raws.push({ job, segRaws });
-        }
-      }
-      await send(['demo_pause', 'disconnect']).catch(() => {});
-    } finally {
-      if (this.recording) await this.obs.stopRecord().catch(() => {});
-      if (restoreObs) await restoreObs().catch(() => {});
-      channel.close();
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-      if (this.cancelled) for (const r of raws) for (const s of r.segRaws) if (!this.s.keepRaw) fs.rmSync(s.file, { force: true });
-    }
-    return raws;
-  }
-
   // playdemo only accepts paths relative to game/csgo, so demos elsewhere get linked/copied in.
   demoRef(demoPath, tmpDir) {
     const rel = path.relative(this.env.csgoDir, demoPath);
@@ -232,28 +163,6 @@ class Recorder {
     fs.rmSync(target, { force: true });
     try { fs.linkSync(demoPath, target); } catch { fs.copyFileSync(demoPath, target); }
     return 'clipmaker_tmp/current';
-  }
-
-  async recordSegment(seg, { send, accountid, name }) {
-    const t = this.s.timing;
-    const seekTick = Math.max(0, seg.start - PREROLL_TICKS);
-    const vars = { tick: seekTick, accountid, name: name.replace(/[";]/g, '') };
-    await send(fill(this.s.commands.seek, vars));
-    await this.wait(t.seekWait);
-    await send([...fill(this.s.commands.spectate, vars), 'demo_pause']);
-    await this.wait(t.specWait);
-
-    const t0 = await this.obs.startRecord();
-    this.recording = true;
-    await sleep(400);
-    await send(['demo_resume']);
-    const tResume = Date.now() - SEND_LATENCY_MS;
-    await this.wait((seg.end - seekTick) / 64 + 0.6);
-    await send(['demo_pause']).catch(() => {});
-    const file = await this.obs.stopRecord();
-    this.recording = false;
-    if (!file || !fs.existsSync(file)) throw new Error('OBS did not report where it saved the recording.');
-    return { file, start: (tResume - t0) / 1000 + (seg.start - seekTick) / 64, duration: (seg.end - seg.start) / 64 };
   }
 
   async finish(job, segRaws) {
@@ -268,25 +177,14 @@ class Recorder {
     const parts = [];
     for (let i = 0; i < segRaws.length; i++) {
       const p = `${file}.part${i}.mp4`;
-      const r = segRaws[i];
-      // HLAE segments are already frame-exact: just add the audio. OBS ones are cut out of a longer recording.
-      if (r.video) await ffmpeg.mux(r.video, r.audio, p);
-      else await ffmpeg.trim(r.file, Math.max(0, r.start), r.duration, p);
+      // HLAE segments are already frame-exact: just add the audio.
+      await ffmpeg.mux(segRaws[i].video, segRaws[i].audio, p);
       parts.push(p);
     }
     await ffmpeg.concat(parts, file);
     parts.forEach(p => fs.rmSync(p, { force: true }));
 
-    for (const r of segRaws) {
-      if (r.dir) {
-        if (!this.s.keepRaw) fs.rmSync(r.dir, { recursive: true, force: true });
-      } else if (this.s.keepRaw) {
-        const rawDir = path.join(out, '_raw');
-        fs.mkdirSync(rawDir, { recursive: true });
-        const dest = path.join(rawDir, path.basename(r.file));
-        try { fs.renameSync(r.file, dest); } catch { fs.copyFileSync(r.file, dest); fs.rmSync(r.file, { force: true }); }
-      } else fs.rmSync(r.file, { force: true });
-    }
+    if (!this.s.keepRaw) for (const r of segRaws) fs.rmSync(r.dir, { recursive: true, force: true });
 
     const thumbDir = path.join(out, '.thumbs');
     fs.mkdirSync(thumbDir, { recursive: true });
