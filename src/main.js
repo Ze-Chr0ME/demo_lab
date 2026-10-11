@@ -1,7 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 const { Worker } = require('worker_threads');
 
 const steam = require('./lib/steam');
@@ -9,8 +8,12 @@ const ffmpeg = require('./lib/ffmpeg');
 const { Settings } = require('./lib/settings');
 const { Library } = require('./lib/library');
 const { Recorder, Cancelled } = require('./lib/recorder');
-const { buildHighlights } = require('./lib/highlights');
+const { buildHighlights, weaponName } = require('./lib/highlights');
 const { DATA_VERSION } = require('./lib/demo');
+const { DemoStore } = require('./lib/store');
+const { buildMatchStats } = require('./lib/stats');
+const { heatPoints } = require('./lib/heat');
+const { unpackTrack } = require('./lib/track');
 const { MatchDownloader, fetchGcMatches } = require('./lib/matches');
 const { decode } = require('./lib/proto');
 const { Community, signIn, signOut, watchCookies, loginCookieSummary } = require('./lib/community');
@@ -25,9 +28,7 @@ let encoderReady = Promise.resolve();
 let downloader;
 const community = new Community();
 let communityState = 'unknown'; // 'ok' | 'signedOut' | 'unknown' (not checked yet)
-const cacheDir = () => path.join(app.getPath('userData'), 'demo-cache');
-const memCache = new Map();
-const failCache = new Map(); // demos the parser rejected: key -> { map }
+let store; // DemoStore: parsed data, failures and custom names, keyed by demo content
 
 // Diagnostics: crashes, unexpected quits and sign-in steps go to <userData>/clipmaker.log.
 function log(...parts) {
@@ -64,7 +65,8 @@ function createWindow() {
     width: 1380, height: 880, minWidth: 1000, minHeight: 640,
     backgroundColor: '#0d0f12',
     title: 'CS2 ClipMaker',
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+    // The screenshot dev aid (below) needs painting to continue while the window is in the background.
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: !process.env.CLIPMAKER_SCREENSHOT },
   });
   win.on('closed', () => log('main window closed'));
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -107,48 +109,97 @@ function matchDate(file, st) {
   return downloader?.matchTime(path.basename(file, path.extname(file))) || st.mtimeMs;
 }
 
-function cacheFile(file) { return path.join(cacheDir(), crypto.createHash('sha1').update(file.toLowerCase()).digest('hex') + '.json'); }
-
+// Core data of a demo that was already parsed (by any path), or null.
 function readCache(file) {
-  const st = fs.statSync(file);
-  const key = `${file}|${st.size}|${st.mtimeMs}`;
-  if (memCache.has(key)) return memCache.get(key);
-  try {
-    const c = JSON.parse(fs.readFileSync(cacheFile(file), 'utf8'));
-    if (c.key === key && c.data.version === DATA_VERSION) { memCache.set(key, c.data); return c.data; }
-  } catch {}
-  return null;
+  return store.readCore(store.idOf(file));
 }
 
+function failMessage(f) {
+  return /^rush/i.test(f.map || '')
+    ? `This Rush match (${f.map}) could not be read (${f.error}), so its highlights can't be found.`
+    : `Could not read this demo: ${f.error}`;
+}
+
+// Parses each demo at most once: results (and failures) are stored under the demo's content id.
+// Demos are parsed one at a time so a full rescan never runs several parsers at once.
 let parseQueue = Promise.resolve();
+const parsing = new Map(); // id -> pending job, so two callers share one parse
 function parseDemo(file) {
-  const cached = readCache(file);
+  const id = store.idOf(file);
+  const cached = store.readCore(id);
   if (cached) return Promise.resolve(cached);
+  const failed = store.failure(id);
+  if (failed) return Promise.reject(new Error(failMessage(failed)));
+  if (parsing.has(id)) return parsing.get(id);
   const job = parseQueue.then(() => new Promise((resolve, reject) => {
-    const again = readCache(file);
-    if (again) return resolve(again);
     const w = new Worker(path.join(__dirname, 'lib', 'parseWorker.js'), { workerData: { file } });
     w.once('message', msg => {
       w.terminate();
       if (!msg.ok) {
-        const st = fs.statSync(file);
-        failCache.set(`${file}|${st.size}|${st.mtimeMs}`, { map: msg.map });
-        const rush = /^rush/i.test(msg.map || '');
-        return reject(new Error(rush
-          ? `This Rush match (${msg.map}) could not be read (${msg.error}), so its highlights can't be found.`
-          : `Could not read this demo: ${msg.error}`));
+        const f = { map: msg.map, error: msg.error };
+        store.setFailure(id, f);
+        log('parse failed', path.basename(file), msg.map || '', msg.error);
+        return reject(new Error(failMessage(f)));
       }
-      const st = fs.statSync(file);
-      const key = `${file}|${st.size}|${st.mtimeMs}`;
-      fs.mkdirSync(cacheDir(), { recursive: true });
-      fs.writeFileSync(cacheFile(file), JSON.stringify({ key, data: msg.data }));
-      memCache.set(key, msg.data);
-      resolve(msg.data);
+      store.write(id, msg.data);
+      resolve(msg.data.core);
     });
     w.once('error', reject);
-  }));
+  })).finally(() => parsing.delete(id));
+  parsing.set(id, job);
   parseQueue = job.catch(() => {});
   return job;
+}
+
+// Player positions for the 2D replay: built once per demo (in the same one-at-a-time queue as
+// parsing), then read from <id>.track.bin.
+const tracking = new Map();
+async function demoTrack(file) {
+  const core = await parseDemo(file);
+  const id = store.idOf(file);
+  const trackFile = store.trackFile(id);
+  try { const t = unpackTrack(fs.readFileSync(trackFile)); if (t) return t; } catch {}
+  if (!tracking.has(id)) {
+    const job = parseQueue.then(() => new Promise((resolve, reject) => {
+      const w = new Worker(path.join(__dirname, 'lib', 'parseWorker.js'), { workerData: { file, mode: 'track', core } });
+      w.once('message', msg => {
+        w.terminate();
+        if (!msg.ok) return reject(new Error(`Could not read player positions: ${msg.error}`));
+        const buf = Buffer.from(msg.data.buffer, msg.data.byteOffset, msg.data.byteLength);
+        fs.writeFileSync(trackFile, buf);
+        resolve(unpackTrack(buf));
+      });
+      w.once('error', reject);
+    })).finally(() => tracking.delete(id));
+    tracking.set(id, job);
+    parseQueue = job.catch(() => {});
+  }
+  return tracking.get(id);
+}
+
+async function demoData(file) {
+  let core = await parseDemo(file);
+  let events = store.readEvents(store.idOf(file));
+  if (!events) {
+    // Only the events file is gone (deleted by hand?): read the demo again.
+    store.forget(store.idOf(file));
+    core = await parseDemo(file);
+    events = store.readEvents(store.idOf(file));
+  }
+  return { core, events };
+}
+
+// Heatmap points per demo and player, kept in memory: the "all matches on this map" view reuses them.
+const heatCache = new Map();
+function heatOf(id, steamid) {
+  const key = id + '|' + steamid;
+  if (heatCache.has(key)) return heatCache.get(key);
+  const core = store.readCore(id), events = store.readEvents(id);
+  if (!core || !events) return null;
+  const pts = heatPoints(core, events, steamid);
+  heatCache.set(key, pts);
+  if (heatCache.size > 200) heatCache.delete(heatCache.keys().next().value);
+  return pts;
 }
 
 function highlightOpts() {
@@ -211,20 +262,66 @@ function registerIpc() {
         let st;
         try { st = fs.statSync(file); } catch { continue; }
         if (!st.isFile()) continue;
-        const data = readCache(file);
+        let data = null;
+        try { data = readCache(file); } catch { continue; }
         let summary = null;
         if (data) {
           const a = analysis(file, data, mySteamId());
           summary = { map: data.map, highlights: a.highlights?.length ?? null, best: a.highlights?.reduce((m, h) => Math.max(m, h.score), 0) ?? 0, score: a.score || null, stats: a.stats || null };
         }
-        const failure = failCache.get(`${file}|${st.size}|${st.mtimeMs}`) || null;
-        out.push({ path: file, name, folder: dir, size: st.size, mtime: st.mtimeMs, date: matchDate(file, st), summary, failure });
+        const id = store.idOf(file, st);
+        const failure = store.failure(id);
+        out.push({ id, path: file, name, customName: store.name(id), folder: dir, size: st.size, mtime: st.mtimeMs, date: matchDate(file, st), summary, failure: failure && { map: failure.map } });
       }
     }
     return out.sort((a, b) => b.date - a.date);
   });
 
   handle('demo:analyze', async (file, steamid) => analysis(file, await parseDemo(file), steamid || mySteamId()));
+  handle('demo:stats', async file => {
+    const { core, events } = await demoData(file);
+    return buildMatchStats(core, events, mySteamId());
+  });
+  // Heatmap points for a player in this demo, or in every already-analyzed demo of the same map
+  // (scope 'map'; demos not parsed yet are skipped rather than parsed now).
+  handle('demo:heat', async (file, steamid, scope) => {
+    const core = await parseDemo(file);
+    const ids = new Set([store.idOf(file)]);
+    if (scope === 'map') {
+      for (const dir of demoFolders()) {
+        for (const name of fs.readdirSync(dir)) {
+          if (!/\.dem$/i.test(name)) continue;
+          try {
+            const id = store.idOf(path.join(dir, name));
+            if (store.readCore(id)?.map === core.map) ids.add(id);
+          } catch {}
+        }
+      }
+    }
+    const points = [];
+    let matches = 0;
+    for (const id of ids) {
+      const pts = heatOf(id, steamid);
+      if (!pts) continue;
+      if (pts.length) matches++;
+      for (const p of pts) points.push(p);
+    }
+    return { map: core.map, matches, points };
+  });
+  // Everything the 2D replay needs: sampled positions plus kills, grenades and bomb events.
+  handle('demo:replay', async file => {
+    const { core, events } = await demoData(file);
+    const track = await demoTrack(file);
+    return {
+      map: core.map, tickrate: core.tickrate, players: core.players,
+      rounds: core.rounds.map(({ roster, ...r }) => r),
+      kills: core.kills.map(k => ({ tick: k.tick, round: k.round, attacker: k.attacker, victim: k.victim, attackerTeam: k.attackerTeam, victimTeam: k.victimTeam, weapon: weaponName(k.weapon), headshot: k.headshot, victimPos: k.victimPos })),
+      grenades: events.grenades, bomb: events.bomb,
+      track: { header: track.header, data: new Uint8Array(track.data.buffer, track.data.byteOffset, track.data.byteLength) },
+    };
+  });
+  handle('radar:maps', () => JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'radar', 'maps.json'), 'utf8')));
+  handle('demo:rename', (file, name) => { const id = store.idOf(file); store.setName(id, name); return store.name(id); });
 
   handle('hlae:check', () => checkHlaeUpdate(true));
   handle('hlae:update', async () => {
@@ -418,6 +515,7 @@ function findExisting(m) {
 
 app.whenReady().then(() => {
   settings = new Settings(app.getPath('userData'));
+  store = new DemoStore(app.getPath('userData'), DATA_VERSION);
   refreshEnv();
   ffmpegFound = ffmpeg.resolve(settings.get().ffmpegPath);
   encoderReady = ffmpeg.pickEncoder(settings.get().encoder);
@@ -440,4 +538,4 @@ app.whenReady().then(() => {
   scheduleAutoCheck();
 });
 
-app.on('window-all-closed', () => { recorder?.cancel(); app.quit(); });
+app.on('window-all-closed', () => { recorder?.cancel(); store?.flush(); app.quit(); });

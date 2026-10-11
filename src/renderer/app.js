@@ -8,7 +8,7 @@ function h(tag, attrs = {}, ...children) {
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v === undefined || v === null || v === false) continue;
     if (k === 'class') el.className = v;
-    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+    else if (k === 'style' && typeof v === 'object') for (const [p, val] of Object.entries(v)) p.startsWith('--') ? el.style.setProperty(p, val) : (el.style[p] = val);
     else if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'html') el.innerHTML = v;
     else el.setAttribute(k, v === true ? '' : v);
@@ -94,6 +94,9 @@ $('#refreshDemos').addEventListener('click', () => loadDemos());
 async function loadDemos() {
   $('#demoListSub').textContent = 'Scanning…';
   state.demos = await guard(() => api.listDemos()) || [];
+  // Demos the parser already rejected stay rejected (until the app's parser changes): don't retry them.
+  for (const d of state.demos) if (d.failure) d.failed = true;
+  if (state.demo) state.demo = state.demos.find(d => d.path === state.demo.path) || state.demo;
   renderDemoList();
   backgroundAnalyze();
 }
@@ -120,11 +123,44 @@ async function backgroundAnalyze() {
   } finally { bgRunning = false; renderDemoList(); }
 }
 
+// The name shown for a demo: the user's custom name, else the map (once known), else the file name.
+function demoTitle(d) {
+  if (d.customName) return d.customName;
+  if (d.summary) return mapName(d.summary.map);
+  if (isRush(d)) return 'Rush match';
+  return /^match730_/.test(d.name) ? 'Premier / MM match' : d.name.replace(/.dem$/i, '');
+}
+
+// Swaps a title element for a text box; Enter or leaving the box saves, Escape cancels.
+function editName(d, el) {
+  const input = h('input', { type: 'text', class: 'name-edit', value: d.customName || '', placeholder: d.summary ? mapName(d.summary.map) : d.name.replace(/.dem$/i, ''), maxlength: 80 });
+  let done = false;
+  const finish = async save => {
+    if (done) return;
+    done = true;
+    if (save && input.value.trim() !== (d.customName || '')) {
+      const name = await guard(() => api.renameDemo(d.path, input.value));
+      if (name !== undefined) for (const x of state.demos) if (x.id === d.id) x.customName = name;
+      d.customName = name ?? d.customName;
+    }
+    renderDemoList();
+    if (state.demo?.id === d.id) renderDetail();
+  };
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); e.stopPropagation(); });
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('click', e => e.stopPropagation());
+  el.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+const PENCIL = '<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>';
+
 const isRush = d => /^rush/i.test(d?.failure?.map || '') || /Rush match/.test(d === state.demo ? state.analysisError || '' : '');
 
 function renderDemoList() {
   const q = state.search;
-  const list = state.demos.filter(d => !q || d.name.toLowerCase().includes(q) || mapName(d.summary?.map).toLowerCase().includes(q));
+  const list = state.demos.filter(d => !q || d.name.toLowerCase().includes(q) || mapName(d.summary?.map).toLowerCase().includes(q) || (d.customName || '').toLowerCase().includes(q));
   const pending = state.demos.filter(d => !d.summary && !d.failed).length;
   const total = state.demos.reduce((s, d) => s + (d.summary?.highlights || 0), 0);
   $('#demoListSub').replaceChildren(
@@ -136,11 +172,13 @@ function renderDemoList() {
     const sc = s?.score;
     const res = sc ? (sc.mine > sc.enemy ? 'w' : sc.mine < sc.enemy ? 'l' : 'd') : null;
     const isMM = /^match730_/.test(d.name);
+    const title = h('div', { class: 'demo-title', title: 'Double-click to rename', ondblclick: e => { e.stopPropagation(); editName(d, title); } }, demoTitle(d));
+    const where = isRush(d) ? 'could not be read' : isMM ? 'Valve match' : d.name.replace(/\.dem$/i, '');
     return h('div', { class: `demo ${state.demo?.path === d.path ? 'active' : ''}`, onclick: () => openDemo(d) },
       h('div', { class: 'map-thumb', style: { background: s ? `linear-gradient(135deg, ${mapColor(s.map)}, #20242c)` : 'var(--panel-3)' } }, s ? mapName(s.map).slice(0, 3).toUpperCase() : isRush(d) ? 'RSH' : d.failed ? '!' : '…'),
       h('div', { style: { minWidth: 0 } },
-        h('div', { class: 'demo-title' }, s ? mapName(s.map) : isRush(d) ? 'Rush match' : (isMM ? 'Premier / MM match' : d.name.replace(/\.dem$/i, ''))),
-        h('div', { class: 'demo-meta', title: d.path }, `${fmtDate(d.date)} · ${isRush(d) ? 'could not be read' : isMM ? 'Valve match' : d.name.replace(/\.dem$/i, '')}`),
+        title,
+        h('div', { class: 'demo-meta', title: d.path }, `${fmtDate(d.date)} · ${d.customName && s ? mapName(s.map) : where}`),
       ),
       h('div', { class: 'demo-right' },
         sc ? h('div', { class: `score-${res}` }, `${sc.mine}–${sc.enemy}`) : h('div', { class: 'score-d' }, s ? '—' : ''),
@@ -149,7 +187,8 @@ function renderDemoList() {
   }));
 }
 
-async function openDemo(d, player) {
+async function openDemo(d, player, tab) {
+  if (state.demo?.id !== d.id) { state.stats = null; state.tab = tab || 'highlights'; }
   state.demo = d;
   state.selected.clear();
   state.analyzing = true;
@@ -198,8 +237,10 @@ function renderDetail() {
   const hero = h('div', { class: 'hero', style: { '--hero': `linear-gradient(120deg, ${mapColor(a.map)}, transparent)` } },
     h('div', { class: 'hero-top' },
       h('div', {},
-        h('h1', {}, mapName(a.map)),
-        h('div', { class: 'sub' }, `${fmtDate(d.date)} · ${a.rounds} rounds · ${fmtSize(d.size)}`),
+        h('div', { class: 'title-row' },
+          h('h1', {}, d.customName || mapName(a.map)),
+          h('button', { class: 'icon-btn rename', title: 'Rename this match (only in ClipMaker, the file keeps its name)', onclick: e => editName(d, e.currentTarget.previousSibling) }, icon(PENCIL))),
+        h('div', { class: 'sub' }, `${d.customName ? mapName(a.map) + ' · ' : ''}${fmtDate(d.date)} · ${a.rounds} rounds · ${fmtSize(d.size)}`),
       ),
       a.playerFound ? h('div', { class: 'stat-row' },
         h('div', { class: 'stat' }, h('div', { class: 'k' }, 'Score'), h('div', { class: `v score-${res}` }, `${a.score.mine} – ${a.score.enemy}`)),
@@ -211,27 +252,604 @@ function renderDetail() {
     h('div', { class: 'player-pick' }, 'Point of view', playerSelect),
   );
 
+  const tab = state.tab;
+  const tabs = h('div', { class: 'tabs match-tabs' }, ...MATCH_TABS.map(([k, l]) =>
+    h('button', { class: tab === k ? 'on' : '', onclick: () => { state.tab = k; renderDetail(); } }, l)));
+  const body = tab === 'scoreboard' ? scoreboardView()
+    : tab === 'duels' ? duelsView()
+      : tab === 'heatmap' ? heatmapView()
+        : tab === 'radar' ? radarView()
+          : highlightsView(a);
+  el.replaceChildren(
+    h('div', { class: 'detail-scroll' }, hero, tabs, ...[body].flat()),
+    ...(tab === 'highlights' ? [actionBar()] : []),
+  );
+}
+
+const MATCH_TABS = [['highlights', 'Highlights'], ['scoreboard', 'Scoreboard'], ['duels', 'Duels'], ['heatmap', 'Heatmap'], ['radar', 'Radar']];
+state.tab = 'highlights';
+
+function highlightsView(a) {
   const hls = a.highlights || [];
   const list = !a.playerFound
     ? [h('div', { class: 'empty' }, h('h2', {}, 'You are not in this demo'), h('div', {}, 'Pick the player whose highlights you want above.'))]
     : !hls.length
       ? [h('div', { class: 'empty' }, h('h2', {}, 'No highlights in this match'), h('div', {}, 'No multi-kills, clutches or special kills with the current rules. You can loosen them in Settings.'))]
       : hls.map(hl => highlightCard(hl));
-
   const allOn = hls.length && hls.every(x => state.selected.has(x.id));
-  el.replaceChildren(
-    h('div', { class: 'detail-scroll' },
-      hero,
-      hls.length ? h('div', { class: 'section-head' },
-        h('h3', {}, 'Highlights'),
-        h('span', { class: 'spacer' }),
-        h('button', { class: 'link-btn', onclick: () => { allOn ? state.selected.clear() : hls.forEach(x => state.selected.add(x.id)); renderDetail(); } }, allOn ? 'Select none' : 'Select all'),
-      ) : null,
-      ...list,
-    ),
-    actionBar(),
-  );
+  return [
+    hls.length ? h('div', { class: 'section-head' },
+      h('h3', {}, 'Highlights'),
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'link-btn', onclick: () => { allOn ? state.selected.clear() : hls.forEach(x => state.selected.add(x.id)); renderDetail(); } }, allOn ? 'Select none' : 'Select all'),
+    ) : null,
+    ...list,
+  ];
 }
+
+// ---------- Match stats (scoreboard, duels) ----------
+// Loaded once per demo when a stats tab is first shown; computed in the main process from cached data.
+function matchStats() {
+  const d = state.demo;
+  if (state.stats?.id === d.id) return state.stats;
+  if (state.statsLoading !== d.id) {
+    state.statsLoading = d.id;
+    api.stats(d.path)
+      .then(v => { state.stats = { id: d.id, value: v }; })
+      .catch(e => { state.stats = { id: d.id, error: e.message }; })
+      .finally(() => { state.statsLoading = null; if (state.demo?.id === d.id) renderDetail(); });
+  }
+  return null;
+}
+
+function statsPending() {
+  const st = matchStats();
+  if (!st) return h('div', { class: 'empty' }, h('span', { class: 'spinner', style: { width: '24px', height: '24px' } }), h('h2', {}, 'Computing stats…'));
+  if (st.error) return h('div', { class: 'empty' }, h('h2', {}, 'No stats for this demo'), h('div', { class: 'err-box' }, st.error));
+  return null;
+}
+
+const teamLabel = t => t.mine ? 'Your team' : 'Opponents';
+const pick = steamid => () => { if (state.analysis?.player?.steamid !== steamid) openDemo(state.demo, steamid); };
+const ratingClass = r => r == null ? '' : r >= 1.15 ? 'good' : r < 0.85 ? 'bad' : '';
+
+// [header, tooltip, sort value, display (optional), cell class (optional)]
+// The compact view shows the first SB_BASIC columns plus Rating.
+const SB_COLS = [
+  ['K', 'Kills', p => p.kills],
+  ['D', 'Deaths', p => p.deaths],
+  ['A', 'Assists (flash assists are counted separately, see FA)', p => p.assists],
+  ['+/-', 'Kills minus deaths', p => p.diff, p => (p.diff > 0 ? '+' : '') + p.diff, p => p.diff > 0 ? 'good' : p.diff < 0 ? 'bad' : ''],
+  ['K/D', 'Kills per death', p => p.kd, p => p.kd.toFixed(2)],
+  ['ADR', 'Average damage per round', p => p.adr, p => p.adr.toFixed(1)],
+  ['HS%', 'Share of kills that were headshots', p => p.hsPct, p => p.hsPct + '%'],
+  ['KAST', 'Rounds with a Kill, Assist, Survival or Trade', p => p.kast, p => p.kast.toFixed(0) + '%'],
+  ['Rating', 'Approximation of HLTV Rating 2.0 (HLTV does not publish its formula; usually within ±0.02)', p => p.rating ?? 0, p => p.rating == null ? '—' : '≈' + p.rating.toFixed(2), p => ratingClass(p.rating)],
+  ['FK', 'First kills (opening duels won)', p => p.firstKills],
+  ['FD', 'First deaths (opening duels lost)', p => p.firstDeaths],
+  ['Multi', 'Rounds with 2 / 3 / 4 / 5 kills', p => p.multi[2] + 2 * p.multi[3] + 4 * p.multi[4] + 8 * p.multi[5], p => [2, 3, 4, 5].map(n => p.multi[n]).join(' / ')],
+  ['Clutch', 'Clutches won / played (last player alive on the team)', p => p.clutches.won * 10 + p.clutches.best, p => `${p.clutches.won} / ${p.clutches.played}`],
+  ['Trades', 'Trade kills: killing an enemy who had just killed a teammate', p => p.tradeKills],
+  ['UD', 'Utility damage (HE and molotov/incendiary)', p => p.utilityDamage],
+  ['EF', 'Enemies flashed (for at least 0.5 s)', p => p.enemiesFlashed],
+  ['FA', 'Flash assists', p => p.flashAssists],
+];
+const SB_BASIC = 9; // K … Rating
+
+function scoreboardView() {
+  const pending = statsPending();
+  if (pending) return pending;
+  const st = state.stats.value;
+  const sort = state.sbSort || { col: 'Rating', dir: -1 };
+  const col = SB_COLS.find(c => c[0] === sort.col) || SB_COLS.at(-1);
+  const me = state.analysis?.player?.steamid;
+  const detailed = !!state.sbDetailed;
+  const cols = detailed ? SB_COLS : SB_COLS.slice(0, SB_BASIC);
+  const table = t => {
+    const other = st.teams.find(o => o !== t);
+    const rows = [...t.players].sort((x, y) => sort.dir * (col[2](x) - col[2](y)) || x.name.localeCompare(y.name));
+    return h('table', { class: 'sb' },
+      h('thead', {}, h('tr', {},
+        h('th', { class: 'team' },
+          h('span', { class: `team-score score-${t.score > other.score ? 'w' : t.score < other.score ? 'l' : 'd'}` }, t.score),
+          teamLabel(t), h('span', { class: `side side-${t.startSide}` }, `started ${t.startSide}`)),
+        ...cols.map(([k, tip]) => h('th', {
+          title: tip, class: sort.col === k ? 'sorted' : '',
+          onclick: () => { state.sbSort = { col: k, dir: sort.col === k ? -sort.dir : -1 }; renderDetail(); },
+        }, k, sort.col === k ? (sort.dir < 0 ? ' ▾' : ' ▴') : '')))),
+      h('tbody', {}, ...rows.map(p => h('tr', { class: p.steamid === me ? 'me' : '', title: `Show ${p.name}'s highlights`, onclick: pick(p.steamid) },
+        h('td', { class: 'name' }, p.name),
+        ...cols.map(([, , val, fmt, cls]) => h('td', { class: cls ? cls(p) : '' }, fmt ? fmt(p) : val(p)))))),
+    );
+  };
+  return [
+    h('div', { class: 'section-head' }, h('h3', {}, 'Scoreboard'),
+      h('div', { class: 'tabs' }, ...[[false, 'Compact'], [true, 'Detailed']].map(([v, l]) =>
+        h('button', { class: detailed === v ? 'on' : '', onclick: () => { state.sbDetailed = v; renderDetail(); } }, l))),
+      h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Click a column to sort, a player to see their highlights. Hover a column for its meaning.')),
+    ...st.teams.map(t => h('div', { class: 'sb-wrap' }, table(t))),
+  ];
+}
+
+function duelsView() {
+  const pending = statsPending();
+  if (pending) return pending;
+  const st = state.stats.value;
+  const mode = state.duelMode || 'all';
+  const m = mode === 'opening' ? st.openings : st.duels;
+  const [rowsT, colsT] = st.teams;
+  const n = (a, b) => m[a]?.[b] || 0;
+  const me = state.analysis?.player?.steamid;
+  const verdict = (k, d) => !k && !d ? 'none' : k > d ? 'good' : k < d ? 'bad' : 'even';
+  const cell = (a, b) => {
+    const k = n(a.steamid, b.steamid), d = n(b.steamid, a.steamid);
+    return h('td', { class: `duel ${verdict(k, d)}`, title: `${a.name} killed ${b.name} ${k}×, died to them ${d}×` }, k || d ? `${k}–${d}` : '·');
+  };
+  const total = a => {
+    let k = 0, d = 0;
+    for (const b of colsT.players) { k += n(a.steamid, b.steamid); d += n(b.steamid, a.steamid); }
+    return h('td', { class: `duel total ${verdict(k, d)}` }, `${k}–${d}`);
+  };
+  return [
+    h('div', { class: 'section-head' },
+      h('h3', {}, 'Duels'),
+      h('div', { class: 'tabs' }, ...[['all', 'All kills'], ['opening', 'Opening duels']].map(([k, l]) =>
+        h('button', { class: mode === k ? 'on' : '', onclick: () => { state.duelMode = k; renderDetail(); } }, l))),
+      h('span', { class: 'spacer' }),
+      h('span', { class: 'hint' }, `Row player's kills on the column player – deaths to them${mode === 'opening' ? ', first kill of each round only' : ''}.`)),
+    h('div', { class: 'sb-wrap' }, h('table', { class: 'sb duels' },
+      h('thead', {}, h('tr', {},
+        h('th', { class: 'team' }, `${teamLabel(rowsT)} ↓  vs  ${teamLabel(colsT)} →`),
+        ...colsT.players.map(b => h('th', { class: 'vert', title: b.name }, h('span', {}, b.name))),
+        h('th', {}, 'Total'))),
+      h('tbody', {}, ...rowsT.players.map(a => h('tr', { class: a.steamid === me ? 'me' : '', onclick: pick(a.steamid) },
+        h('td', { class: 'name' }, a.name),
+        ...colsT.players.map(b => cell(a, b)),
+        total(a)))))),
+  ];
+}
+
+// ---------- Radar images (shared by the heatmap and the 2D replay) ----------
+// Bundled in radar/ by scripts/extract-radars.js: 1024 px images plus, per map, the world position of
+// the image's upper-left corner and the world units per pixel. Two-floor maps have a _lower image.
+const RADAR_SIZE = 1024;
+let radarMaps = null;
+const radarImages = new Map();
+function radarInfo(map) {
+  if (!radarMaps) {
+    radarMaps = {};
+    api.radarMaps().then(m => { radarMaps = m; renderDetail(); }).catch(() => {});
+    return undefined; // still loading
+  }
+  return radarMaps[map] || radarMaps[(map || '').replace(/_(night|v\d)$/, '')] || null;
+}
+function radarImage(src) {
+  if (!radarImages.has(src)) {
+    const img = new Image();
+    radarImages.set(src, new Promise(r => { img.onload = () => r(img); img.onerror = () => r(null); }));
+    img.src = src;
+  }
+  return radarImages.get(src);
+}
+const radarName = (info, map) => Object.keys(radarMaps).find(k => radarMaps[k] === info) || map;
+const toPx = (info, x, y) => [(x - info.x) / info.scale, (info.y - y) / info.scale];
+// What one canvas shows: the whole map (optionally its lower floor) or, on Rush, one room's close-up.
+function radarFrame(info, map, { room = null, lower = false } = {}) {
+  const base = radarName(info, map);
+  if (room && info.rooms?.[room]) return { ...info.rooms[room], src: `radar/${base}_${room}.png` };
+  return { x: info.x, y: info.y, scale: info.scale, lowerBelow: info.lowerBelow, src: `radar/${base}${lower ? '_lower' : ''}.png` };
+}
+// The Rush room whose image covers the most of these world positions ([x, y] pairs).
+function bestRoom(info, xy) {
+  let best = null, most = 0;
+  for (const [name, v] of Object.entries(info.rooms || {})) {
+    const x1 = v.x + RADAR_SIZE * v.scale, y0 = v.y - RADAR_SIZE * v.scale;
+    const n = xy.filter(([x, y]) => x >= v.x && x <= x1 && y >= y0 && y <= v.y).length;
+    if (n > most) { most = n; best = name; }
+  }
+  return best;
+}
+const roomLabel = r => r === 'roomparty' ? 'Party room' : r === 'convoy' ? 'Convoy' : r.replace(/^room/, 'Room ');
+function roomSelect(info, value, onchange, counts) {
+  if (!info.rooms) return null;
+  const rooms = Object.keys(info.rooms).filter(r => !counts || counts[r]).sort();
+  return select(value, [['auto', 'Room: automatic'], ['overview', 'Whole hotel'], ...rooms.map(r => [r, roomLabel(r) + (counts ? ` (${counts[r]})` : '')])], onchange);
+}
+const onLower = (info, z) => info.lowerBelow !== undefined && z < info.lowerBelow;
+
+// ---------- Heatmap ----------
+const HEAT_LAYERS = [
+  ['kill', 'Kill locations', '#3ee08f'],
+  ['death', 'Death locations', '#ff3d5e'],
+  ['shot', 'Shots', '#ffd23f'],
+  ['dealt', 'Damage dealt', '#4cc9ff'],
+  ['taken', 'Damage taken', '#ff8a3d'],
+  ['smoke', 'Smokes', '#d9dee7'],
+  ['flash', 'Flashes', '#fff59a'],
+  ['he', 'HE grenades', '#ff6b6b'],
+  ['molotov', 'Molotovs', '#ff9d2e'],
+];
+const WEAPON_KINDS = new Set([0, 2, 3]); // kill, shot, dealt: the weapon filter means "your weapon"
+state.heat = { layers: new Set(['kill', 'death']), scope: 'match', weapon: 'all', floor: 'upper', room: 'auto', data: null, loading: null };
+
+function heatData() {
+  const steamid = state.analysis?.player?.steamid;
+  const key = `${state.demo.id}|${steamid}|${state.heat.scope}`;
+  const hs = state.heat;
+  if (hs.data?.key === key) return hs.data;
+  if (hs.loading !== key) {
+    hs.loading = key;
+    api.heat(state.demo.path, steamid, hs.scope)
+      .then(v => { hs.data = { key, ...v }; })
+      .catch(e => { hs.data = { key, error: e.message }; })
+      .finally(() => { if (hs.loading === key) hs.loading = null; if (state.tab === 'heatmap') renderDetail(); });
+  }
+  return null;
+}
+
+function heatmapView() {
+  const a = state.analysis;
+  if (!a.playerFound) return h('div', { class: 'empty' }, h('h2', {}, 'Pick a player'), h('div', {}, 'Choose whose heatmap to show in "Point of view" above.'));
+  const info = radarInfo(a.map);
+  if (info === null) return h('div', { class: 'empty' }, h('h2', {}, 'No radar for this map'), h('div', {}, `There is no radar image for ${mapName(a.map)} yet. Run scripts/extract-radars.js after a CS2 update to add new maps.`));
+  const data = info && heatData();
+  if (!data) return h('div', { class: 'empty' }, h('span', { class: 'spinner', style: { width: '24px', height: '24px' } }), h('h2', {}, 'Loading heatmap…'));
+  if (data.error) return h('div', { class: 'empty' }, h('h2', {}, 'No heatmap for this demo'), h('div', { class: 'err-box' }, data.error));
+
+  const hs = state.heat;
+  const weapons = [...new Set(data.points.filter(p => WEAPON_KINDS.has(p[0]) && p[2]).map(p => p[2]))].sort();
+  if (hs.weapon !== 'all' && !weapons.includes(hs.weapon)) hs.weapon = 'all';
+  const floors = info.lowerBelow !== undefined;
+  const pts = data.points.filter(p =>
+    (hs.weapon === 'all' || !WEAPON_KINDS.has(p[0]) || p[2] === hs.weapon) &&
+    (!floors || onLower(info, p[5]) === (hs.floor === 'lower')));
+  const count = k => pts.filter(p => HEAT_LAYERS[p[0]][0] === k).length;
+  // Rush: show the room with the most points (or the one picked), points per room in the picker.
+  let room = null, roomCounts = null;
+  if (info.rooms) {
+    const shown = pts.filter(p => hs.layers.has(HEAT_LAYERS[p[0]][0]));
+    roomCounts = {};
+    for (const p of shown) { const r = bestRoom(info, [[p[3], p[4]]]); if (r) roomCounts[r] = (roomCounts[r] || 0) + 1; }
+    room = hs.room === 'auto' ? Object.entries(roomCounts).sort((x, y) => y[1] - x[1])[0]?.[0] || null : hs.room === 'overview' ? null : hs.room;
+  }
+  const frame = radarFrame(info, a.map, { room, lower: floors && hs.floor === 'lower' });
+
+  const controls = h('div', { class: 'heat-controls' },
+    h('div', { class: 'tabs' }, ...[['match', 'This match'], ['map', `All my ${mapName(a.map)} matches`]].map(([k, l]) =>
+      h('button', { class: hs.scope === k ? 'on' : '', onclick: () => { hs.scope = k; renderDetail(); } }, l))),
+    select(hs.weapon, [['all', 'All weapons'], ...weapons.map(w => [w, w])], v => { hs.weapon = v; renderDetail(); }),
+    floors ? h('div', { class: 'tabs' }, ...[['upper', 'Upper floor'], ['lower', 'Lower floor']].map(([k, l]) =>
+      h('button', { class: hs.floor === k ? 'on' : '', onclick: () => { hs.floor = k; renderDetail(); } }, l))) : null,
+    roomSelect(info, hs.room, v => { hs.room = v; renderDetail(); }, roomCounts),
+    h('span', { class: 'spacer' }),
+    hs.scope === 'map' ? h('span', { class: 'hint' }, `${data.matches} analyzed match${data.matches === 1 ? '' : 'es'} with ${a.player.name}`) : null,
+  );
+  const layers = h('div', { class: 'chips heat-layers' }, ...HEAT_LAYERS.map(([k, l, color]) => {
+    const on = hs.layers.has(k);
+    return h('button', { class: `chip-toggle heat-chip ${on ? 'on' : ''}`, style: { '--c': color }, onclick: () => { on ? hs.layers.delete(k) : hs.layers.add(k); renderDetail(); } },
+      h('span', { class: 'swatch' }), l, h('span', { class: 'n' }, count(k)));
+  }));
+
+  const maps = h('div', { class: 'heat-maps' }, ...[['T', 0], ['CT', 1]].map(([side, si]) => {
+    const canvas = h('canvas', { width: RADAR_SIZE, height: RADAR_SIZE });
+    const sidePts = pts.filter(p => p[1] === si);
+    radarImage(frame.src).then(img => paintHeatmap(canvas, img, frame, sidePts, hs.layers));
+    return h('div', { class: 'heat-map' }, h('div', { class: `heat-side side-${side}` }, `${side} side`, h('span', {}, ` · ${a.player.name}`)), canvas);
+  }));
+  return [h('div', { class: 'section-head' }, h('h3', {}, 'Heatmap')), controls, layers, maps];
+}
+
+// Each layer is a density grid (points splatted with a Gaussian), drawn as a colored, mostly
+// transparent blob over the radar; with few points the individual positions are dotted as well.
+const HEAT_GRID = 256, HEAT_SIGMA = 2.6, HEAT_R = 7;
+const HEAT_KERNEL = (() => {
+  const k = [];
+  for (let dy = -HEAT_R; dy <= HEAT_R; dy++) for (let dx = -HEAT_R; dx <= HEAT_R; dx++) {
+    const v = Math.exp(-(dx * dx + dy * dy) / (2 * HEAT_SIGMA * HEAT_SIGMA));
+    if (v > 0.02) k.push([dx, dy, v]);
+  }
+  return k;
+})();
+
+function paintHeatmap(canvas, img, info, pts, layers) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, RADAR_SIZE, RADAR_SIZE);
+  if (img) { ctx.globalAlpha = 0.85; ctx.drawImage(img, 0, 0, RADAR_SIZE, RADAR_SIZE); ctx.globalAlpha = 1; }
+  const cell = RADAR_SIZE / HEAT_GRID;
+  const tmp = document.createElement('canvas');
+  tmp.width = tmp.height = HEAT_GRID;
+  const tctx = tmp.getContext('2d');
+  HEAT_LAYERS.forEach(([k, , color], idx) => {
+    if (!layers.has(k)) return;
+    const mine = pts.filter(p => p[0] === idx).map(p => toPx(info, p[3], p[4]));
+    if (!mine.length) return;
+    const grid = new Float32Array(HEAT_GRID * HEAT_GRID);
+    for (const [px, py] of mine) {
+      const cx = Math.round(px / cell), cy = Math.round(py / cell);
+      for (const [dx, dy, v] of HEAT_KERNEL) {
+        const x = cx + dx, y = cy + dy;
+        if (x >= 0 && y >= 0 && x < HEAT_GRID && y < HEAT_GRID) grid[y * HEAT_GRID + x] += v;
+      }
+    }
+    let max = 0;
+    for (const v of grid) if (v > max) max = v;
+    const norm = Math.max(1, max * 0.75);
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16));
+    const imgData = tctx.createImageData(HEAT_GRID, HEAT_GRID);
+    for (let i = 0; i < grid.length; i++) {
+      const a = Math.min(1, grid[i] / norm);
+      if (a < 0.05) continue;
+      imgData.data[i * 4] = r; imgData.data[i * 4 + 1] = g; imgData.data[i * 4 + 2] = b;
+      imgData.data[i * 4 + 3] = Math.round(255 * Math.min(0.9, 0.25 + 0.7 * Math.pow(a, 0.8)));
+    }
+    tctx.putImageData(imgData, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(tmp, 0, 0, RADAR_SIZE, RADAR_SIZE);
+    if (mine.length <= 400) {
+      ctx.fillStyle = color;
+      for (const [px, py] of mine) { ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill(); }
+    }
+  });
+}
+
+// ---------- Radar (2D replay) ----------
+// Positions come sampled 8 times per second (see lib/track.js) and are interpolated per frame.
+const SMOKE_RADIUS = 144, MOLOTOV_RADIUS = 120;
+const SMOKE_TICKS = 18 * 64, MOLOTOV_TICKS = 7 * 64, BURST_TICKS = 32;
+state.radar = { data: null, loading: null, round: 1, tick: 0, playing: false, speed: 2, floor: 'upper', room: 'auto', raf: 0 };
+
+function replayData() {
+  const r = state.radar, d = state.demo;
+  if (r.data?.id === d.id) return r.data;
+  if (r.loading !== d.id) {
+    r.loading = d.id;
+    api.replay(d.path)
+      .then(v => {
+        const data = { id: d.id, ...v };
+        const bytes = v.track.data;
+        data.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        data.names = Object.fromEntries(v.players.map(p => [p.steamid, p.name]));
+        r.data = data;
+        // Start on the round of the selected highlight's player… or simply round 1.
+        setRadarRound(1, false);
+      })
+      .catch(e => { r.data = { id: d.id, error: e.message }; })
+      .finally(() => { if (r.loading === d.id) r.loading = null; if (state.tab === 'radar') renderDetail(); });
+  }
+  return null;
+}
+
+const radarRound = () => state.radar.data.rounds.find(x => x.num === state.radar.round) || state.radar.data.rounds[0];
+const roundStop = (data, r) => Math.min(r.nextStartTick ?? Infinity, r.endTick + 6 * data.tickrate);
+function setRadarRound(num, play = state.radar.playing) {
+  const r = state.radar;
+  r.round = num;
+  const rd = radarRound();
+  r.tick = Math.max(rd.startTick, rd.freezeEndTick - 3 * r.data.tickrate);
+  r.playing = play;
+}
+
+function radarView() {
+  const a = state.analysis;
+  const info = radarInfo(a.map);
+  if (info === null) return h('div', { class: 'empty' }, h('h2', {}, 'No radar for this map'), h('div', {}, `There is no radar image for ${mapName(a.map)} yet.`));
+  const data = info && replayData();
+  if (!data) return h('div', { class: 'empty' }, h('span', { class: 'spinner', style: { width: '24px', height: '24px' } }), h('h2', {}, 'Reading player positions…'), h('div', {}, 'Only the first time for each match: it takes a few seconds.'));
+  if (data.error) return h('div', { class: 'empty' }, h('h2', {}, 'No replay for this demo'), h('div', { class: 'err-box' }, data.error));
+
+  const R = state.radar;
+  const rd = radarRound();
+  const floors = info.lowerBelow !== undefined;
+  // Rush rounds each happen in one room: by default show the room where the players start.
+  let room = null;
+  if (info.rooms) {
+    const start = data.track.header.players.map((id, i) => playerAt(data, i, rd.freezeEndTick)).filter(p => p?.alive).map(p => [p.x, p.y]);
+    room = R.room === 'auto' ? bestRoom(info, start) : R.room === 'overview' ? null : R.room;
+  }
+  const frame = radarFrame(info, a.map, { room, lower: floors && R.floor === 'lower' });
+  R.info = frame;
+  R.image = null;
+  radarImage(frame.src).then(img => { if (R.info === frame) R.image = img; });
+
+  const canvas = h('canvas', { width: RADAR_SIZE, height: RADAR_SIZE, class: 'radar-canvas' });
+  const slider = h('input', { type: 'range', class: 'radar-slider', min: rd.startTick, max: roundStop(data, rd), step: 1, value: R.tick,
+    oninput: e => { R.tick = +e.target.value; } });
+  const clock = h('span', { class: 'radar-clock' });
+  const playBtn = h('button', { class: 'icon-btn', title: 'Play / pause (Space)', onclick: () => { R.playing = !R.playing; if (R.tick >= roundStop(data, rd)) setRadarRound(R.round, true); } });
+  const feed = h('div', { class: 'radar-feed' });
+  const teams = h('div', { class: 'radar-teams' });
+  R.els = { canvas, slider, clock, playBtn, feed, teams, built: null };
+
+  const rounds = h('div', { class: 'radar-rounds' }, ...data.rounds.map(x => h('button', {
+    class: `rr win-${x.winner} ${x.num === R.round ? 'on' : ''}`, title: `Round ${x.num}: ${x.winner} won (${(x.reason || '').replace(/_/g, ' ')})`,
+    onclick: () => { setRadarRound(x.num); renderDetail(); },
+  }, x.num)));
+
+  const controls = h('div', { class: 'radar-controls' },
+    h('button', { class: 'icon-btn', title: 'Previous round', disabled: R.round <= 1, onclick: () => { setRadarRound(R.round - 1); renderDetail(); } }, icon('<path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2"/>')),
+    playBtn,
+    h('button', { class: 'icon-btn', title: 'Next round', disabled: R.round >= data.rounds.length, onclick: () => { setRadarRound(R.round + 1); renderDetail(); } }, icon('<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2"/>')),
+    slider, clock,
+    select(String(R.speed), [['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }),
+    floors ? h('div', { class: 'tabs' }, ...[['upper', 'Upper'], ['lower', 'Lower']].map(([k, l]) =>
+      h('button', { class: R.floor === k ? 'on' : '', onclick: () => { R.floor = k; renderDetail(); } }, l))) : null,
+    roomSelect(info, R.room, v => { R.room = v; renderDetail(); }),
+  );
+
+  startRadarLoop();
+  return [
+    h('div', { class: 'section-head' }, h('h3', {}, `Round ${R.round}`), h('span', { class: `pill side-${rd.winner}` }, `${rd.winner} win`), h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Space: play/pause · ←/→: 5 s · ↑/↓: round')),
+    rounds,
+    controls,
+    h('div', { class: 'radar-layout' }, h('div', { class: 'radar-main' }, canvas), h('div', { class: 'radar-side' }, teams, feed)),
+  ];
+}
+
+document.addEventListener('keydown', e => {
+  if (state.tab !== 'radar' || !state.radar.data?.rounds || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) && e.target.type !== 'range') return;
+  const R = state.radar, tr = R.data.tickrate;
+  if (e.key === ' ') { R.playing = !R.playing; e.preventDefault(); }
+  else if (e.key === 'ArrowRight') { R.tick += 5 * tr; e.preventDefault(); }
+  else if (e.key === 'ArrowLeft') { R.tick -= 5 * tr; e.preventDefault(); }
+  else if (e.key === 'ArrowDown' && R.round < R.data.rounds.length) { setRadarRound(R.round + 1); renderDetail(); e.preventDefault(); }
+  else if (e.key === 'ArrowUp' && R.round > 1) { setRadarRound(R.round - 1); renderDetail(); e.preventDefault(); }
+});
+
+function startRadarLoop() {
+  const R = state.radar;
+  if (R.raf) return;
+  let last = performance.now();
+  const frame = now => {
+    const dt = Math.min(100, now - last);
+    last = now;
+    if (state.tab !== 'radar' || !R.els?.canvas.isConnected || R.data?.id !== state.demo?.id) { R.raf = 0; R.playing = false; return; }
+    const rd = radarRound(), stop = roundStop(R.data, rd);
+    if (R.playing) R.tick += dt / 1000 * R.data.tickrate * R.speed;
+    R.tick = Math.max(rd.startTick, Math.min(stop, R.tick));
+    if (R.tick >= stop) R.playing = false;
+    drawRadar();
+    R.raf = requestAnimationFrame(frame);
+  };
+  R.raf = requestAnimationFrame(frame);
+}
+
+// One player's state at a (fractional) tick, interpolated between the two surrounding samples.
+function playerAt(data, p, tick) {
+  const { header } = data.track, v = data.view, P = header.players.length;
+  const s = (tick - header.firstTick) / header.step;
+  const s0 = Math.max(0, Math.min(header.samples - 1, Math.floor(s)));
+  const s1 = Math.min(header.samples - 1, s0 + 1);
+  const f = Math.max(0, Math.min(1, s - s0));
+  const o0 = (s0 * P + p) * header.rec, o1 = (s1 * P + p) * header.rec;
+  const flags = v.getUint8(o0 + 9);
+  if (!(flags & 1)) return null;
+  const lerp = (a, b) => a + (b - a) * f;
+  const pres1 = v.getUint8(o1 + 9) & 1;
+  const g = (o, k) => v.getInt16(o + k, true);
+  let yaw0 = v.getUint8(o0 + 6), yaw1 = pres1 ? v.getUint8(o1 + 6) : yaw0;
+  if (yaw1 - yaw0 > 128) yaw1 -= 256; else if (yaw0 - yaw1 > 128) yaw1 += 256;
+  const w = v.getUint8(o0 + 8);
+  return {
+    x: pres1 ? lerp(g(o0, 0), g(o1, 0)) : g(o0, 0),
+    y: pres1 ? lerp(g(o0, 2), g(o1, 2)) : g(o0, 2),
+    z: g(o0, 4),
+    yaw: lerp(yaw0, yaw1) / 256 * 360,
+    hp: v.getUint8(o0 + 7),
+    weapon: w === 255 ? '' : header.weapons[w],
+    alive: !!(flags & 2),
+    ct: !!(flags & 4),
+  };
+}
+
+function drawRadar() {
+  const R = state.radar, data = R.data, info = R.info, els = R.els;
+  const ctx = els.canvas.getContext('2d');
+  const t = R.tick, tr = data.tickrate, rd = radarRound();
+  const lowerView = R.floor === 'lower';
+  const px = (x, y) => toPx(info, x, y);
+  const fade = z => info.lowerBelow !== undefined && onLower(info, z) !== lowerView;
+  const units = u => u / info.scale;
+
+  ctx.clearRect(0, 0, RADAR_SIZE, RADAR_SIZE);
+  if (R.image) ctx.drawImage(R.image, 0, 0, RADAR_SIZE, RADAR_SIZE);
+
+  // Grenades: smokes and fires last until their expire event, flashes and HEs are short bursts.
+  const gr = data.grenades.filter(g => g.round === rd.num);
+  for (const g of gr) {
+    if (g.expire || g.tick > t) continue;
+    const end = g.type === 'smoke' || g.type === 'molotov'
+      ? (gr.find(x => x.expire && x.type === g.type && x.entity === g.entity && x.tick >= g.tick)?.tick ?? g.tick + (g.type === 'smoke' ? SMOKE_TICKS : MOLOTOV_TICKS))
+      : g.tick + BURST_TICKS;
+    if (t > end) continue;
+    const [x, y] = px(g.pos[0], g.pos[1]);
+    ctx.globalAlpha = fade(g.pos[2]) ? 0.3 : 1;
+    if (g.type === 'smoke') {
+      ctx.fillStyle = 'rgba(200,206,216,0.75)'; ctx.strokeStyle = g.team === 'CT' ? '#6ea8ff' : '#e9b949'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(x, y, units(SMOKE_RADIUS), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    } else if (g.type === 'molotov') {
+      ctx.fillStyle = 'rgba(255,110,30,0.45)'; ctx.beginPath(); ctx.arc(x, y, units(MOLOTOV_RADIUS), 0, Math.PI * 2); ctx.fill();
+    } else if (g.type === 'flash' || g.type === 'he') {
+      const k = (t - g.tick) / BURST_TICKS;
+      ctx.strokeStyle = g.type === 'flash' ? `rgba(255,255,255,${1 - k})` : `rgba(255,80,60,${1 - k})`;
+      ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(x, y, 8 + k * (g.type === 'he' ? units(300) : 30), 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // Bomb
+  const bombs = data.bomb.filter(b => b.round === rd.num && b.tick <= t);
+  const planted = bombs.find(b => b.type === 'planted');
+  const ended = bombs.find(b => b.type === 'defused' || b.type === 'exploded');
+  if (planted?.pos) {
+    const [x, y] = px(planted.pos[0], planted.pos[1]);
+    const pulse = ended ? 0 : (Math.sin(t / 8) + 1) / 2;
+    ctx.fillStyle = ended?.type === 'defused' ? '#6ea8ff' : '#ff4d4d';
+    ctx.globalAlpha = 0.35 + 0.4 * pulse; ctx.beginPath(); ctx.arc(x, y, 18 + 8 * pulse, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1; ctx.fillRect(x - 7, y - 7, 14, 14);
+  }
+
+  // Deaths so far this round
+  const kills = data.kills.filter(k => k.round === rd.num);
+  ctx.lineWidth = 4;
+  for (const k of kills) {
+    if (k.tick > t || !k.victimPos) continue;
+    const [x, y] = px(k.victimPos[0], k.victimPos[1]);
+    ctx.globalAlpha = fade(k.victimPos[2]) ? 0.25 : 0.8;
+    ctx.strokeStyle = k.victimTeam === 'CT' ? '#6ea8ff' : '#e9b949';
+    ctx.beginPath(); ctx.moveTo(x - 9, y - 9); ctx.lineTo(x + 9, y + 9); ctx.moveTo(x + 9, y - 9); ctx.lineTo(x - 9, y + 9); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Players
+  const pov = state.analysis?.player?.steamid;
+  const players = data.track.header.players.map((id, i) => ({ id, name: data.names[id] || id, s: playerAt(data, i, t) })).filter(p => p.s);
+  ctx.font = '600 20px "Segoe UI", sans-serif';
+  ctx.textAlign = 'center';
+  for (const p of players) {
+    if (!p.s.alive) continue;
+    const [x, y] = px(p.s.x, p.s.y);
+    const color = p.s.ct ? '#6ea8ff' : '#e9b949';
+    ctx.globalAlpha = fade(p.s.z) ? 0.3 : 1;
+    const a = -p.s.yaw * Math.PI / 180;
+    ctx.strokeStyle = color; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * 30, y + Math.sin(a) * 30); ctx.stroke();
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = p.id === pov ? 4 : 2; ctx.strokeStyle = p.id === pov ? '#fff' : '#0d0f12';
+    ctx.stroke();
+    ctx.fillStyle = '#0d0f12cc'; const label = p.name.length > 14 ? p.name.slice(0, 13) + '…' : p.name;
+    const wdt = ctx.measureText(label).width + 10;
+    ctx.fillRect(x - wdt / 2, y - 42, wdt, 24);
+    ctx.fillStyle = p.id === pov ? '#fff' : color; ctx.fillText(label, x, y - 23);
+  }
+  ctx.globalAlpha = 1;
+
+  // Controls, team lists and kill feed (DOM; only touched when something visible changed)
+  if (document.activeElement !== els.slider) els.slider.value = t;
+  const since = (t - rd.freezeEndTick) / tr;
+  els.clock.textContent = since < 0 ? `Freeze ${Math.ceil(-since)}s` : fmtDur(since);
+  if (els.playing !== R.playing) {
+    els.playing = R.playing;
+    els.playBtn.replaceChildren(icon(R.playing ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/>' : ICONS.play));
+  }
+  const sig = players.map(p => `${p.s.alive ? p.s.hp : 0}${p.s.weapon}`).join() + kills.filter(k => k.tick <= t).length;
+  if (els.built !== sig) {
+    els.built = sig;
+    const side = ct => players.filter(p => p.s.ct === ct).sort((x, y) => x.name.localeCompare(y.name)).map(p =>
+      h('div', { class: `rp ${p.s.alive ? '' : 'dead'} ${p.id === pov ? 'me' : ''}` },
+        h('div', { class: 'rp-top' }, h('span', { class: 'rp-name' }, p.name), h('span', { class: 'rp-hp' }, p.s.alive ? p.s.hp : '✕')),
+        h('div', { class: 'rp-bar' }, h('div', { style: { width: `${p.s.alive ? p.s.hp : 0}%`, background: ct ? 'var(--ct)' : 'var(--t)' } })),
+        h('div', { class: 'rp-w' }, p.s.alive ? p.s.weapon : '')));
+    els.teams.replaceChildren(h('div', { class: 'rt side-CT' }, 'CT'), ...side(true), h('div', { class: 'rt side-T' }, 'T'), ...side(false));
+    els.feed.replaceChildren(h('div', { class: 'rt' }, 'Kills'), ...kills.map(k => h('div', {
+      class: `rk ${k.tick <= t ? '' : 'future'}`, title: 'Jump to this kill', onclick: () => { R.tick = k.tick - 2 * tr; },
+    },
+    h('span', { class: 'rk-t' }, fmtDur(Math.max(0, (k.tick - rd.freezeEndTick) / tr))),
+    h('span', { class: `side-${k.attackerTeam}` }, data.names[k.attacker] || 'World'),
+    h('span', { class: 'rk-w' }, k.weapon, k.headshot ? ' ◎' : ''),
+    h('span', { class: `side-${k.victimTeam}` }, data.names[k.victim] || '?'))));
+  }
+}
+
 
 function highlightCard(hl) {
   const sel = state.selected.has(hl.id);

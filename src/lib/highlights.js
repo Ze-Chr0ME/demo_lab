@@ -146,4 +146,4 @@ function buildSegments(anchors, { before, after, gap, min }) {
   return out.map(s => ({ start: Math.round(s.start), end: Math.round(s.end) }));
 }
 
-module.exports = { buildHighlights, SPECIALS };
+module.exports = { buildHighlights, SPECIALS, weaponName };
