@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Worker } = require('worker_threads');
@@ -13,6 +13,7 @@ const { DATA_VERSION } = require('./lib/demo');
 const { DemoStore } = require('./lib/store');
 const { buildMatchStats } = require('./lib/stats');
 const { heatPoints } = require('./lib/heat');
+const { matchSummary, PROFILE_VERSION } = require('./lib/profile');
 const { unpackTrack } = require('./lib/track');
 const { MatchDownloader, fetchGcMatches } = require('./lib/matches');
 const { decode } = require('./lib/proto');
@@ -61,13 +62,17 @@ function send(channel, payload) { if (win && !win.isDestroyed()) win.webContents
 
 function createWindow() {
   Menu.setApplicationMenu(null);
+  // Most of the screen: the dashboard and the maps are made for 1080p and 1440p.
+  const area = screen.getPrimaryDisplay().workAreaSize;
   win = new BrowserWindow({
-    width: 1380, height: 880, minWidth: 1000, minHeight: 640,
-    backgroundColor: '#0d0f12',
+    width: Math.max(1100, Math.round(area.width * 0.88)), height: Math.max(700, Math.round(area.height * 0.9)), minWidth: 1100, minHeight: 680,
+    backgroundColor: '#0a0e16',
     title: 'CS2 ClipMaker',
     // The screenshot dev aid (below) needs painting to continue while the window is in the background.
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: !process.env.CLIPMAKER_SCREENSHOT },
   });
+  // Dev aid: CLIPMAKER_SIZE=2560x1440 sets the window's content size (layout checks for other monitors).
+  if (process.env.CLIPMAKER_SIZE) win.setContentSize(...process.env.CLIPMAKER_SIZE.split('x').map(Number));
   win.on('closed', () => log('main window closed'));
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
@@ -189,10 +194,11 @@ async function demoData(file) {
   return { core, events };
 }
 
-// Heatmap points per demo and player, kept in memory: the "all matches on this map" view reuses them.
+// Heatmap points per demo and player (null = everyone), kept in memory: the "all matches on this map"
+// view and the Maps page reuse them.
 const heatCache = new Map();
 function heatOf(id, steamid) {
-  const key = id + '|' + steamid;
+  const key = id + '|' + (steamid || 'all');
   if (heatCache.has(key)) return heatCache.get(key);
   const core = store.readCore(id), events = store.readEvents(id);
   if (!core || !events) return null;
@@ -200,6 +206,39 @@ function heatOf(id, steamid) {
   heatCache.set(key, pts);
   if (heatCache.size > 200) heatCache.delete(heatCache.keys().next().value);
   return pts;
+}
+
+// Every .dem in the demo folders, with its content id (one entry per file, so a copied demo appears twice).
+function scanDemos() {
+  const out = [];
+  const seen = new Set();
+  for (const dir of demoFolders()) {
+    for (const name of fs.readdirSync(dir)) {
+      if (!/\.dem$/i.test(name)) continue;
+      const file = path.join(dir, name);
+      if (seen.has(file.toLowerCase())) continue;
+      seen.add(file.toLowerCase());
+      let st;
+      try { st = fs.statSync(file); } catch { continue; }
+      if (!st.isFile()) continue;
+      let id;
+      try { id = store.idOf(file, st); } catch { continue; }
+      out.push({ id, path: file, name, folder: dir, size: st.size, mtime: st.mtimeMs, date: matchDate(file, st), customName: store.name(id) });
+    }
+  }
+  return out.sort((a, b) => b.date - a.date);
+}
+
+// My numbers in one demo, computed once from the stored facts and kept in derived.json.
+function summaryOf(id, steamid) {
+  const key = id + '|' + steamid;
+  const cached = store.derived(key, PROFILE_VERSION);
+  if (cached !== undefined) return cached;
+  const core = store.readCore(id), events = core && store.readEvents(id);
+  if (!core || !events) return undefined; // not parsed yet
+  const value = matchSummary(core, events, steamid);
+  store.setDerived(key, PROFILE_VERSION, value);
+  return value;
 }
 
 function highlightOpts() {
@@ -250,31 +289,47 @@ function registerIpc() {
     return r.canceled ? null : r.filePaths[0];
   });
 
-  handle('demos:list', () => {
-    const out = [];
-    const seen = new Set();
-    for (const dir of demoFolders()) {
-      for (const name of fs.readdirSync(dir)) {
-        if (!/\.dem$/i.test(name)) continue;
-        const file = path.join(dir, name);
-        if (seen.has(file.toLowerCase())) continue;
-        seen.add(file.toLowerCase());
-        let st;
-        try { st = fs.statSync(file); } catch { continue; }
-        if (!st.isFile()) continue;
-        let data = null;
-        try { data = readCache(file); } catch { continue; }
-        let summary = null;
-        if (data) {
-          const a = analysis(file, data, mySteamId());
-          summary = { map: data.map, highlights: a.highlights?.length ?? null, best: a.highlights?.reduce((m, h) => Math.max(m, h.score), 0) ?? 0, score: a.score || null, stats: a.stats || null };
-        }
-        const id = store.idOf(file, st);
-        const failure = store.failure(id);
-        out.push({ id, path: file, name, customName: store.name(id), folder: dir, size: st.size, mtime: st.mtimeMs, date: matchDate(file, st), summary, failure: failure && { map: failure.map } });
-      }
+  handle('demos:list', () => scanDemos().map(d => {
+    const data = store.readCore(d.id);
+    let summary = null;
+    if (data) {
+      const a = analysis(d.path, data, mySteamId());
+      summary = { map: data.map, highlights: a.highlights?.length ?? null, best: a.highlights?.reduce((m, h) => Math.max(m, h.score), 0) ?? 0, score: a.score || null, stats: a.stats || null };
     }
-    return out.sort((a, b) => b.date - a.date);
+    const failure = store.failure(d.id);
+    return { ...d, summary, failure: failure && { map: failure.map } };
+  }));
+
+  // The overview dashboard: my summary for every parsed demo I played in (each demo once, even if copied).
+  // Demos that aren't parsed yet are skipped; the renderer asks again as the background parsing goes on.
+  handle('profile:get', () => {
+    const me = mySteamId();
+    const matches = [];
+    const seen = new Set();
+    for (const d of scanDemos()) {
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
+      const sum = me ? summaryOf(d.id, me) : null;
+      if (sum) matches.push({ id: d.id, path: d.path, date: d.date, customName: d.customName, ...sum });
+    }
+    return { steamid: me, name: matches[0]?.name || env.steamUser?.name || '', matches };
+  });
+
+  // Heatmap points of every parsed demo on one map, for me (who = steamid) or for everyone (who = 'all').
+  handle('map:heat', (map, who) => {
+    const steamid = who === 'all' ? null : who || mySteamId();
+    const points = [];
+    const seen = new Set();
+    let matches = 0;
+    for (const d of scanDemos()) {
+      if (seen.has(d.id) || store.readCore(d.id)?.map !== map) continue;
+      seen.add(d.id);
+      const pts = heatOf(d.id, steamid);
+      if (!pts?.length) continue;
+      matches++;
+      for (const p of pts) points.push(p);
+    }
+    return { map, matches, points };
   });
 
   handle('demo:analyze', async (file, steamid) => analysis(file, await parseDemo(file), steamid || mySteamId()));
@@ -287,17 +342,7 @@ function registerIpc() {
   handle('demo:heat', async (file, steamid, scope) => {
     const core = await parseDemo(file);
     const ids = new Set([store.idOf(file)]);
-    if (scope === 'map') {
-      for (const dir of demoFolders()) {
-        for (const name of fs.readdirSync(dir)) {
-          if (!/\.dem$/i.test(name)) continue;
-          try {
-            const id = store.idOf(path.join(dir, name));
-            if (store.readCore(id)?.map === core.map) ids.add(id);
-          } catch {}
-        }
-      }
-    }
+    if (scope === 'map') for (const d of scanDemos()) if (store.readCore(d.id)?.map === core.map) ids.add(d.id);
     const points = [];
     let matches = 0;
     for (const id of ids) {

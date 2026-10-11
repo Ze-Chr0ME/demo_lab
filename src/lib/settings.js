@@ -27,6 +27,7 @@ const DEFAULTS = {
   },
   montage: { fade: 0.25 },
   downloads: { auto: true, intervalMin: 30 },
+  uiScale: 0,                // 0 = automatic (bigger on 1440p and up), else a zoom factor like 1.1
 };
 
 function merge(base, over) {

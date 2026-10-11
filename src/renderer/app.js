@@ -49,6 +49,11 @@ const fmtDate = ms => new Date(ms).toLocaleString(undefined, { day: '2-digit', m
 const fmtDur = s => { s = Math.round(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const fmtSize = b => `${(b / 1048576).toFixed(0)} MB`;
 const stars = score => '★'.repeat(Math.max(1, Math.min(5, Math.round(score / 25)))) ;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
+const fmtNum = n => Math.round(n).toLocaleString();
+const resultOf = (mine, enemy) => (mine > enemy ? 'w' : mine < enemy ? 'l' : 'd');
+const spinner = (px = 24) => h('span', { class: 'spinner', style: { width: `${px}px`, height: `${px}px` } });
 
 // ---------- State ----------
 const state = {
@@ -56,7 +61,7 @@ const state = {
   demo: null, analysis: null, analyzing: false, player: null,
   selected: new Set(),
   clips: [], clipFilter: 'all', montageSel: [],
-  recording: null,
+  recording: null, view: 'overview',
 };
 
 // ---------- Navigation ----------
@@ -64,22 +69,60 @@ document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', (
 function showView(v) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === `view-${v}`));
+  state.view = v;
+  if (v === 'overview') renderOverview();
+  if (v === 'maps') renderMaps();
+  if (v === 'matches' && !state.demo && state.demos[0]) openDemo(state.demos[0]);
   if (v === 'clips') loadClips();
   if (v === 'downloads') loadDownloads();
   if (v === 'settings') renderSettings();
-  state.view = v;
 }
+
+// Repaints whatever page is showing (e.g. once the radar images' positions are known).
+function rerender() {
+  if (state.view === 'overview') renderOverview();
+  if (state.view === 'maps') renderMaps();
+  if (state.view === 'matches') { renderDemoList(); renderDetail(); }
+}
+
+// ---------- UI scale ----------
+// The layout is designed at 1920 px wide. Wider windows (1440p and up) get a matching zoom so text and
+// charts don't shrink; Settings → Display can force a scale instead.
+function autoScale() {
+  const dipWidth = window.innerWidth * api.getZoom();
+  return clamp(Math.round(dipWidth / 2100 * 20) / 20, 1, 1.25);
+}
+function applyScale() {
+  const want = state.settings?.uiScale || autoScale();
+  if (Math.abs(api.getZoom() - want) > 0.001) api.setZoom(want);
+}
+let scaleTimer = 0;
+window.addEventListener('resize', () => { clearTimeout(scaleTimer); scaleTimer = setTimeout(applyScale, 150); });
 
 // ---------- Status ----------
 function renderStatus() {
   const e = state.env;
   const rows = [
     ['CS2', e.cs2Dir ? (e.cs2Running ? 'ok' : 'warn') : 'bad', e.cs2Dir ? (e.cs2Running ? 'Running' : 'Installed') : 'Not found'],
-    ['Steam', e.mySteamId ? 'ok' : 'bad', state.player?.name || e.steamUser?.name || 'Unknown'],
     ['ffmpeg', e.ffmpeg ? 'ok' : 'bad', e.ffmpeg ? (e.encoder || '').replace('h264_', '').replace('lib', '') : 'Missing'],
     ['Recorder', e.hlae?.installed ? 'ok' : 'bad', e.hlae?.installed ? `HLAE ${e.hlae.version}` : 'HLAE missing'],
   ];
   $('#status').replaceChildren(...rows.map(([k, cls, v]) => h('div', { class: 'status-row' }, h('span', { class: `dot ${cls}` }), k, h('b', { title: v }, v))));
+  renderMeCard();
+}
+
+// The signed-in player at the top of the sidebar.
+function renderMeCard() {
+  const e = state.env;
+  const name = state.profile?.name || e?.steamUser?.name || 'Unknown player';
+  const n = state.profile?.matches.length;
+  $('#meCard').replaceChildren(
+    h('div', { class: 'avatar' }, (name.replace(/[^\p{L}\p{N}]/gu, '')[0] || '?').toUpperCase()),
+    h('div', { class: 'me-text' },
+      h('div', { class: 'me-name', title: name }, name),
+      h('div', { class: 'me-sub' }, e?.mySteamId ? (n != null ? `${n} match${n === 1 ? '' : 'es'} analyzed` : 'Steam account') : 'Set your SteamID in Settings')),
+    h('span', { class: `dot ${e?.mySteamId ? 'ok' : 'bad'}`, title: e?.mySteamId ? `SteamID ${e.mySteamId}` : 'No Steam account found' }),
+  );
 }
 
 async function refreshEnv() {
@@ -98,8 +141,20 @@ async function loadDemos() {
   for (const d of state.demos) if (d.failure) d.failed = true;
   if (state.demo) state.demo = state.demos.find(d => d.path === state.demo.path) || state.demo;
   renderDemoList();
+  loadProfile();
   backgroundAnalyze();
 }
+
+// My per-match numbers (overview, maps). Reloaded as background parsing adds matches.
+async function loadProfile() {
+  const p = await api.profile().catch(e => ({ error: e.message, matches: [] }));
+  state.profile = p;
+  renderMeCard();
+  if (state.view === 'overview') renderOverview();
+  if (state.view === 'maps' && !state.mp.map) renderMaps();
+}
+let profileTimer = 0;
+const reloadProfileSoon = () => { clearTimeout(profileTimer); profileTimer = setTimeout(loadProfile, 1500); };
 
 // Parses demos one by one in the background so the list can show map + highlight counts.
 let bgRunning = false;
@@ -113,6 +168,7 @@ async function backgroundAnalyze() {
       try {
         const a = await api.analyze(next.path);
         next.summary = { map: a.map, highlights: a.highlights?.length ?? null, best: Math.max(0, ...(a.highlights || []).map(x => x.score)), score: a.score, stats: a.stats };
+        reloadProfileSoon();
       } catch (e) {
         next.failed = true;
         const m = /Rush match \((\w+)\)/.exec(e.message);
@@ -162,33 +218,46 @@ function renderDemoList() {
   const q = state.search;
   const list = state.demos.filter(d => !q || d.name.toLowerCase().includes(q) || mapName(d.summary?.map).toLowerCase().includes(q) || (d.customName || '').toLowerCase().includes(q));
   const pending = state.demos.filter(d => !d.summary && !d.failed).length;
-  const total = state.demos.reduce((s, d) => s + (d.summary?.highlights || 0), 0);
+  $('#matchCount').textContent = state.demos.length || '';
   $('#demoListSub').replaceChildren(
-    `${state.demos.length} demos · ${total} highlights`,
+    `${state.demos.length} match${state.demos.length === 1 ? '' : 'es'}`,
     pending ? h('span', {}, ' · ', h('span', { class: 'spinner', style: { width: '11px', height: '11px', borderWidth: '2px' } }), ` analyzing ${pending}…`) : '',
   );
+  const mine = new Map((state.profile?.matches || []).map(m => [m.id, m]));
   $('#demos').replaceChildren(...list.map(d => {
     const s = d.summary;
     const sc = s?.score;
-    const res = sc ? (sc.mine > sc.enemy ? 'w' : sc.mine < sc.enemy ? 'l' : 'd') : null;
+    const res = sc ? resultOf(sc.mine, sc.enemy) : null;
     const isMM = /^match730_/.test(d.name);
+    const me = mine.get(d.id);
     const title = h('div', { class: 'demo-title', title: 'Double-click to rename', ondblclick: e => { e.stopPropagation(); editName(d, title); } }, demoTitle(d));
     const where = isRush(d) ? 'could not be read' : isMM ? 'Valve match' : d.name.replace(/\.dem$/i, '');
-    return h('div', { class: `demo ${state.demo?.path === d.path ? 'active' : ''}`, onclick: () => openDemo(d) },
-      h('div', { class: 'map-thumb', style: { background: s ? `linear-gradient(135deg, ${mapColor(s.map)}, #20242c)` : 'var(--panel-3)' } }, s ? mapName(s.map).slice(0, 3).toUpperCase() : isRush(d) ? 'RSH' : d.failed ? '!' : '…'),
+    return h('div', { class: `demo res-${res || 'none'} ${state.demo?.path === d.path ? 'active' : ''}`, onclick: () => openDemo(d) },
+      mapThumb(s?.map, s ? null : isRush(d) ? 'RSH' : d.failed ? '!' : '…'),
       h('div', { style: { minWidth: 0 } },
         title,
         h('div', { class: 'demo-meta', title: d.path }, `${fmtDate(d.date)} · ${d.customName && s ? mapName(s.map) : where}`),
       ),
       h('div', { class: 'demo-right' },
-        sc ? h('div', { class: `score-${res}` }, `${sc.mine}–${sc.enemy}`) : h('div', { class: 'score-d' }, s ? '—' : ''),
-        s && s.highlights !== null ? h('span', { class: `hl-badge ${s.highlights ? '' : 'zero'}` }, `${s.highlights} ★`) : null,
+        sc ? h('div', { class: `demo-score score-${res}` }, `${sc.mine}:${sc.enemy}`) : h('div', { class: 'demo-score score-d' }, s ? '—' : ''),
+        me ? h('div', { class: 'demo-kd' }, `${me.kills}–${me.deaths}`, me.rating != null ? h('span', { class: `rtg ${ratingClass(me.rating)}` }, me.rating.toFixed(2)) : null)
+          : s?.stats ? h('div', { class: 'demo-kd' }, `${s.stats.kills}–${s.stats.deaths}`) : null,
       ));
   }));
 }
 
+// Small square map badge: the radar image when there is one, else the map's color.
+function mapThumb(map, fallback) {
+  const info = map && radarMaps ? radarInfo(map) : null;
+  const src = info ? `radar/${radarName(info, map)}.png` : null;
+  return h('div', { class: 'map-thumb', style: { '--c': mapColor(map), backgroundImage: src ? `url("${src}")` : null } },
+    h('span', {}, map ? mapName(map).slice(0, 3).toUpperCase() : fallback));
+}
+
 async function openDemo(d, player, tab) {
-  if (state.demo?.id !== d.id) { state.stats = null; state.tab = tab || 'highlights'; }
+  if (state.demo?.id !== d.id) { state.stats = null; state.tab = tab || 'scoreboard'; resetZoom(state.heat.view); resetZoom(state.radar.view); }
+  else if (tab) state.tab = tab;
+  if (state.view !== 'matches') showView('matches');
   state.demo = d;
   state.selected.clear();
   state.analyzing = true;
@@ -215,7 +284,7 @@ function renderDetail() {
     return;
   }
   if (state.analyzing) {
-    el.replaceChildren(h('div', { class: 'empty' }, h('span', { class: 'spinner', style: { width: '28px', height: '28px' } }), h('h2', {}, 'Reading demo…'), h('div', {}, 'Looking for multi-kills, clutches and special kills.')));
+    el.replaceChildren(h('div', { class: 'empty' }, h('span', { class: 'spinner', style: { width: '28px', height: '28px' } }), h('h2', {}, 'Reading demo…'), h('div', {}, 'Reading rounds, kills and stats. Each demo is only read once.')));
     return;
   }
   const a = state.analysis;
@@ -233,28 +302,36 @@ function renderDetail() {
     ...[...a.players].sort((x, y) => x.name.localeCompare(y.name)).map(p => h('option', { value: p.steamid, selected: a.player?.steamid === p.steamid }, p.name)));
   if (!a.playerFound) playerSelect.prepend(h('option', { value: '', selected: true, disabled: true }, 'Choose a player…'));
 
-  const res = a.score ? (a.score.mine > a.score.enemy ? 'w' : a.score.mine < a.score.enemy ? 'l' : 'd') : 'd';
-  const hero = h('div', { class: 'hero', style: { '--hero': `linear-gradient(120deg, ${mapColor(a.map)}, transparent)` } },
+  const res = a.score ? resultOf(a.score.mine, a.score.enemy) : 'd';
+  // Numbers of the point-of-view player: from the scoreboard once it's loaded (it has ADR and rating).
+  const sb = matchStats()?.value?.teams.flatMap(t => t.players).find(p => p.steamid === a.player?.steamid);
+  const info = radarInfo(a.map);
+  const stat = (k, v, cls = '') => h('div', { class: 'stat' }, h('div', { class: 'k' }, k), h('div', { class: `v ${cls}` }, v));
+  const hero = h('div', { class: 'hero', style: { '--hero-c': mapColor(a.map), '--hero-img': info ? `url("radar/${radarName(info, a.map)}.png")` : 'none' } },
     h('div', { class: 'hero-top' },
-      h('div', {},
+      h('div', { class: 'hero-title' },
+        h('div', { class: 'hero-kicker' }, mapName(a.map), a.playerFound ? h('span', { class: `result-pill r-${res}` }, res === 'w' ? 'Win' : res === 'l' ? 'Loss' : 'Draw') : null),
         h('div', { class: 'title-row' },
           h('h1', {}, d.customName || mapName(a.map)),
           h('button', { class: 'icon-btn rename', title: 'Rename this match (only in ClipMaker, the file keeps its name)', onclick: e => editName(d, e.currentTarget.previousSibling) }, icon(PENCIL))),
-        h('div', { class: 'sub' }, `${d.customName ? mapName(a.map) + ' · ' : ''}${fmtDate(d.date)} · ${a.rounds} rounds · ${fmtSize(d.size)}`),
+        h('div', { class: 'sub' }, `${fmtDate(d.date)} · ${a.rounds} rounds · ${fmtSize(d.size)}`),
       ),
       a.playerFound ? h('div', { class: 'stat-row' },
-        h('div', { class: 'stat' }, h('div', { class: 'k' }, 'Score'), h('div', { class: `v score-${res}` }, `${a.score.mine} – ${a.score.enemy}`)),
-        h('div', { class: 'stat' }, h('div', { class: 'k' }, 'K / D'), h('div', { class: 'v' }, `${a.stats.kills} / ${a.stats.deaths}`)),
-        h('div', { class: 'stat' }, h('div', { class: 'k' }, 'HS %'), h('div', { class: 'v' }, `${a.stats.hsPct}%`)),
-        h('div', { class: 'stat' }, h('div', { class: 'k' }, 'Highlights'), h('div', { class: 'v', style: { color: 'var(--accent-2)' } }, a.highlights.length)),
+        stat('Score', `${a.score.mine} : ${a.score.enemy}`, `score-${res}`),
+        stat('K – D', sb ? `${sb.kills} – ${sb.deaths}` : `${a.stats.kills} – ${a.stats.deaths}`),
+        sb ? stat('ADR', sb.adr.toFixed(0)) : null,
+        stat('HS %', `${sb ? sb.hsPct : a.stats.hsPct}%`),
+        sb ? stat('Rating', sb.rating == null ? '—' : sb.rating.toFixed(2), ratingClass(sb.rating)) : null,
       ) : null,
     ),
-    h('div', { class: 'player-pick' }, 'Point of view', playerSelect),
+    h('div', { class: 'player-pick' }, icon('<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8"/>'), 'Point of view', playerSelect),
   );
 
   const tab = state.tab;
-  const tabs = h('div', { class: 'tabs match-tabs' }, ...MATCH_TABS.map(([k, l]) =>
-    h('button', { class: tab === k ? 'on' : '', onclick: () => { state.tab = k; renderDetail(); } }, l)));
+  const nHl = a.highlights?.length || 0;
+  const tabs = h('div', { class: 'match-tabs' }, ...MATCH_TABS.map(([k, l]) =>
+    h('button', { class: tab === k ? 'on' : '', onclick: () => { state.tab = k; renderDetail(); } }, l,
+      k === 'highlights' && nHl ? h('span', { class: 'tab-count' }, nHl) : null)));
   const body = tab === 'scoreboard' ? scoreboardView()
     : tab === 'duels' ? duelsView()
       : tab === 'heatmap' ? heatmapView()
@@ -266,8 +343,8 @@ function renderDetail() {
   );
 }
 
-const MATCH_TABS = [['highlights', 'Highlights'], ['scoreboard', 'Scoreboard'], ['duels', 'Duels'], ['heatmap', 'Heatmap'], ['radar', 'Radar']];
-state.tab = 'highlights';
+const MATCH_TABS = [['scoreboard', 'Scoreboard'], ['duels', 'Duels'], ['heatmap', 'Heatmap'], ['radar', '2D Replay'], ['highlights', 'Highlights & clips']];
+state.tab = 'scoreboard';
 
 function highlightsView(a) {
   const hls = a.highlights || [];
@@ -357,7 +434,7 @@ function scoreboardView() {
           title: tip, class: sort.col === k ? 'sorted' : '',
           onclick: () => { state.sbSort = { col: k, dir: sort.col === k ? -sort.dir : -1 }; renderDetail(); },
         }, k, sort.col === k ? (sort.dir < 0 ? ' ▾' : ' ▴') : '')))),
-      h('tbody', {}, ...rows.map(p => h('tr', { class: p.steamid === me ? 'me' : '', title: `Show ${p.name}'s highlights`, onclick: pick(p.steamid) },
+      h('tbody', {}, ...rows.map(p => h('tr', { class: p.steamid === me ? 'me' : '', title: `View the match as ${p.name}`, onclick: pick(p.steamid) },
         h('td', { class: 'name' }, p.name),
         ...cols.map(([, , val, fmt, cls]) => h('td', { class: cls ? cls(p) : '' }, fmt ? fmt(p) : val(p)))))),
     );
@@ -366,7 +443,7 @@ function scoreboardView() {
     h('div', { class: 'section-head' }, h('h3', {}, 'Scoreboard'),
       h('div', { class: 'tabs' }, ...[[false, 'Compact'], [true, 'Detailed']].map(([v, l]) =>
         h('button', { class: detailed === v ? 'on' : '', onclick: () => { state.sbDetailed = v; renderDetail(); } }, l))),
-      h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Click a column to sort, a player to see their highlights. Hover a column for its meaning.')),
+      h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Click a column to sort it, a player to view the match as them. Hover a column for its meaning.')),
     ...st.teams.map(t => h('div', { class: 'sb-wrap' }, table(t))),
   ];
 }
@@ -409,7 +486,7 @@ function duelsView() {
   ];
 }
 
-// ---------- Radar images (shared by the heatmap and the 2D replay) ----------
+// ---------- Radar images (shared by the heatmaps, the Maps page and the 2D replay) ----------
 // Bundled in radar/ by scripts/extract-radars.js: 1024 px images plus, per map, the world position of
 // the image's upper-left corner and the world units per pixel. Two-floor maps have a _lower image.
 const RADAR_SIZE = 1024;
@@ -418,7 +495,7 @@ const radarImages = new Map();
 function radarInfo(map) {
   if (!radarMaps) {
     radarMaps = {};
-    api.radarMaps().then(m => { radarMaps = m; renderDetail(); }).catch(() => {});
+    api.radarMaps().then(m => { radarMaps = m; rerender(); }).catch(() => {});
     return undefined; // still loading
   }
   return radarMaps[map] || radarMaps[(map || '').replace(/_(night|v\d)$/, '')] || null;
@@ -457,7 +534,77 @@ function roomSelect(info, value, onchange, counts) {
 }
 const onLower = (info, z) => info.lowerBelow !== undefined && z < info.lowerBelow;
 
-// ---------- Heatmap ----------
+// ---------- Zoom & pan (heatmaps, Maps page, 2D replay) ----------
+// Canvases draw in radar pixels (0…1024). A view is the zoom k plus the radar pixel (x, y) shown at the
+// canvas' upper-left corner. The wheel zooms towards the cursor, dragging pans, double-click resets.
+const MAX_ZOOM = 12;
+const newView = () => ({ k: 1, x: 0, y: 0 });
+const resetZoom = v => Object.assign(v, newView());
+function clampView(v) {
+  v.k = clamp(v.k, 1, MAX_ZOOM);
+  const span = RADAR_SIZE - RADAR_SIZE / v.k;
+  v.x = clamp(v.x, 0, span);
+  v.y = clamp(v.y, 0, span);
+}
+// Zooms by f keeping the radar pixel under (mx, my) — canvas position in 0…1024 — where it is.
+function zoomAt(v, mx, my, f) {
+  const wx = v.x + mx / v.k, wy = v.y + my / v.k;
+  v.k = clamp(v.k * f, 1, MAX_ZOOM);
+  v.x = wx - mx / v.k;
+  v.y = wy - my / v.k;
+  clampView(v);
+}
+const viewScale = (canvas, v) => canvas.width / RADAR_SIZE * v.k;
+// Canvas pixel where a radar pixel is drawn, and the 2D-context transform doing the same.
+const viewPt = (canvas, v, x, y) => { const s = viewScale(canvas, v); return [(x - v.x) * s, (y - v.y) * s]; };
+function applyView(ctx, canvas, v) { const s = viewScale(canvas, v); ctx.setTransform(s, 0, 0, s, -v.x * s, -v.y * s); }
+
+// Makes a canvas zoomable and returns it wrapped with +/−/reset buttons. Several canvases can share
+// one view (the heatmap's T and CT maps zoom together); redraw has to repaint all of them.
+function zoomable(canvas, v, redraw) {
+  const level = h('span', { class: 'zoom-level' });
+  v.labels = [...(v.labels || []).filter(l => l.isConnected), level];
+  const sync = () => {
+    redraw();
+    for (const l of v.labels) l.textContent = v.k > 1.01 ? `${v.k.toFixed(1)}×` : '';
+    for (const c of document.querySelectorAll('canvas.zoomable')) if (c.zoomView === v) c.classList.toggle('zoomed', v.k > 1.01);
+  };
+  canvas.zoomView = v;
+  canvas.classList.add('zoomable');
+  canvas.classList.toggle('zoomed', v.k > 1.01);
+  level.textContent = v.k > 1.01 ? `${v.k.toFixed(1)}×` : '';
+  const at = e => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * RADAR_SIZE, (e.clientY - r.top) / r.height * RADAR_SIZE]; };
+  canvas.addEventListener('wheel', e => { e.preventDefault(); const [mx, my] = at(e); zoomAt(v, mx, my, Math.exp(-e.deltaY * 0.0018)); sync(); }, { passive: false });
+  let drag = null;
+  canvas.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || v.k <= 1.01) return;
+    drag = { x: e.clientX, y: e.clientY };
+    canvas.setPointerCapture(e.pointerId);
+    canvas.classList.add('dragging');
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const r = canvas.getBoundingClientRect();
+    v.x -= (e.clientX - drag.x) / r.width * RADAR_SIZE / v.k;
+    v.y -= (e.clientY - drag.y) / r.height * RADAR_SIZE / v.k;
+    drag = { x: e.clientX, y: e.clientY };
+    clampView(v);
+    sync();
+  });
+  const end = () => { drag = null; canvas.classList.remove('dragging'); };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('dblclick', () => { resetZoom(v); sync(); });
+  const btn = (title, d, fn) => h('button', { title, onclick: e => { e.stopPropagation(); fn(); sync(); } }, icon(d));
+  return h('div', { class: 'zoom-wrap' }, canvas,
+    h('div', { class: 'zoom-ctl' },
+      btn('Zoom in (mouse wheel)', '<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>', () => zoomAt(v, RADAR_SIZE / 2, RADAR_SIZE / 2, 1.5)),
+      btn('Zoom out', '<path d="M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>', () => zoomAt(v, RADAR_SIZE / 2, RADAR_SIZE / 2, 1 / 1.5)),
+      btn('Whole map (double-click)', '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>', () => resetZoom(v)),
+      level));
+}
+
+// ---------- Heatmaps ----------
 const HEAT_LAYERS = [
   ['kill', 'Kill locations', '#3ee08f'],
   ['death', 'Death locations', '#ff3d5e'],
@@ -469,8 +616,9 @@ const HEAT_LAYERS = [
   ['he', 'HE grenades', '#ff6b6b'],
   ['molotov', 'Molotovs', '#ff9d2e'],
 ];
+const GRENADE_KINDS = new Set(['smoke', 'flash', 'he', 'molotov']);
 const WEAPON_KINDS = new Set([0, 2, 3]); // kill, shot, dealt: the weapon filter means "your weapon"
-state.heat = { layers: new Set(['kill', 'death']), scope: 'match', weapon: 'all', floor: 'upper', room: 'auto', data: null, loading: null };
+state.heat = { layers: new Set(['kill', 'death']), scope: 'match', weapon: 'all', floor: 'upper', room: 'auto', display: 'heat', lines: true, data: null, loading: null, view: newView() };
 
 function heatData() {
   const steamid = state.analysis?.player?.steamid;
@@ -487,13 +635,34 @@ function heatData() {
   return null;
 }
 
+// Display controls shared by the match heatmap and the Maps page: blobs or dots, grenade throw lines.
+function heatDisplayControls(hs, rerender) {
+  const grenades = [...hs.layers].some(k => GRENADE_KINDS.has(k));
+  return [
+    h('div', { class: 'tabs' }, ...[['heat', 'Heat'], ['dots', 'Dots']].map(([k, l]) =>
+      h('button', { class: hs.display === k ? 'on' : '', onclick: () => { hs.display = k; rerender(); } }, l))),
+    grenades ? toggle('Throw lines', hs.lines, v => { hs.lines = v; rerender(); }, 'Draw a line from where each grenade was thrown to where it landed') : null,
+  ];
+}
+
+// Layer toggles with the number of points each one has.
+function heatLayerChips(hs, pts, rerender, available = () => true) {
+  return h('div', { class: 'chips heat-layers' }, ...HEAT_LAYERS.map(([k, l, color], idx) => {
+    if (!available(k)) return null;
+    const on = hs.layers.has(k);
+    const n = pts.reduce((s, p) => s + (p[0] === idx), 0);
+    return h('button', { class: `chip-toggle heat-chip ${on ? 'on' : ''}`, style: { '--c': color }, onclick: () => { on ? hs.layers.delete(k) : hs.layers.add(k); rerender(); } },
+      h('span', { class: 'swatch' }), l, h('span', { class: 'n' }, fmtNum(n)));
+  }));
+}
+
 function heatmapView() {
   const a = state.analysis;
   if (!a.playerFound) return h('div', { class: 'empty' }, h('h2', {}, 'Pick a player'), h('div', {}, 'Choose whose heatmap to show in "Point of view" above.'));
   const info = radarInfo(a.map);
   if (info === null) return h('div', { class: 'empty' }, h('h2', {}, 'No radar for this map'), h('div', {}, `There is no radar image for ${mapName(a.map)} yet. Run scripts/extract-radars.js after a CS2 update to add new maps.`));
   const data = info && heatData();
-  if (!data) return h('div', { class: 'empty' }, h('span', { class: 'spinner', style: { width: '24px', height: '24px' } }), h('h2', {}, 'Loading heatmap…'));
+  if (!data) return h('div', { class: 'empty' }, spinner(), h('h2', {}, 'Loading heatmap…'));
   if (data.error) return h('div', { class: 'empty' }, h('h2', {}, 'No heatmap for this demo'), h('div', { class: 'err-box' }, data.error));
 
   const hs = state.heat;
@@ -503,7 +672,6 @@ function heatmapView() {
   const pts = data.points.filter(p =>
     (hs.weapon === 'all' || !WEAPON_KINDS.has(p[0]) || p[2] === hs.weapon) &&
     (!floors || onLower(info, p[5]) === (hs.floor === 'lower')));
-  const count = k => pts.filter(p => HEAT_LAYERS[p[0]][0] === k).length;
   // Rush: show the room with the most points (or the one picked), points per room in the picker.
   let room = null, roomCounts = null;
   if (info.rooms) {
@@ -513,6 +681,7 @@ function heatmapView() {
     room = hs.room === 'auto' ? Object.entries(roomCounts).sort((x, y) => y[1] - x[1])[0]?.[0] || null : hs.room === 'overview' ? null : hs.room;
   }
   const frame = radarFrame(info, a.map, { room, lower: floors && hs.floor === 'lower' });
+  if (hs.frameSrc !== frame.src) { hs.frameSrc = frame.src; resetZoom(hs.view); }
 
   const controls = h('div', { class: 'heat-controls' },
     h('div', { class: 'tabs' }, ...[['match', 'This match'], ['map', `All my ${mapName(a.map)} matches`]].map(([k, l]) =>
@@ -521,26 +690,27 @@ function heatmapView() {
     floors ? h('div', { class: 'tabs' }, ...[['upper', 'Upper floor'], ['lower', 'Lower floor']].map(([k, l]) =>
       h('button', { class: hs.floor === k ? 'on' : '', onclick: () => { hs.floor = k; renderDetail(); } }, l))) : null,
     roomSelect(info, hs.room, v => { hs.room = v; renderDetail(); }, roomCounts),
+    ...heatDisplayControls(hs, renderDetail),
     h('span', { class: 'spacer' }),
     hs.scope === 'map' ? h('span', { class: 'hint' }, `${data.matches} analyzed match${data.matches === 1 ? '' : 'es'} with ${a.player.name}`) : null,
   );
-  const layers = h('div', { class: 'chips heat-layers' }, ...HEAT_LAYERS.map(([k, l, color]) => {
-    const on = hs.layers.has(k);
-    return h('button', { class: `chip-toggle heat-chip ${on ? 'on' : ''}`, style: { '--c': color }, onclick: () => { on ? hs.layers.delete(k) : hs.layers.add(k); renderDetail(); } },
-      h('span', { class: 'swatch' }), l, h('span', { class: 'n' }, count(k)));
-  }));
+  const layers = heatLayerChips(hs, pts, renderDetail);
 
+  // T and CT side next to each other, zooming together.
+  const v = hs.view, opts = { dots: hs.display === 'dots', lines: hs.lines };
+  const painted = [];
+  const redraw = () => painted.forEach(p => p && drawHeat(p.canvas, p.img, v, p.layers, opts));
   const maps = h('div', { class: 'heat-maps' }, ...[['T', 0], ['CT', 1]].map(([side, si]) => {
-    const canvas = h('canvas', { width: RADAR_SIZE, height: RADAR_SIZE });
-    const sidePts = pts.filter(p => p[1] === si);
-    radarImage(frame.src).then(img => paintHeatmap(canvas, img, frame, sidePts, hs.layers));
-    return h('div', { class: 'heat-map' }, h('div', { class: `heat-side side-${side}` }, `${side} side`, h('span', {}, ` · ${a.player.name}`)), canvas);
+    const canvas = h('canvas', { width: 1280, height: 1280 });
+    const prepared = prepareHeat(frame, pts.filter(p => p[1] === si), hs.layers);
+    radarImage(frame.src).then(img => { painted[si] = { canvas, img, layers: prepared }; drawHeat(canvas, img, v, prepared, opts); });
+    return h('div', { class: 'heat-map' }, h('div', { class: `heat-side side-${side}` }, `${side} side`, h('span', {}, ` · ${a.player.name}`)), zoomable(canvas, v, redraw));
   }));
-  return [h('div', { class: 'section-head' }, h('h3', {}, 'Heatmap')), controls, layers, maps];
+  return [h('div', { class: 'section-head' }, h('h3', {}, 'Heatmap'), h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Scroll to zoom · drag to move · double-click for the whole map')), controls, layers, maps];
 }
 
 // Each layer is a density grid (points splatted with a Gaussian), drawn as a colored, mostly
-// transparent blob over the radar; with few points the individual positions are dotted as well.
+// transparent blob over the radar; with few points (or in dot mode) every position is drawn as a dot.
 const HEAT_GRID = 256, HEAT_SIGMA = 2.6, HEAT_R = 7;
 const HEAT_KERNEL = (() => {
   const k = [];
@@ -551,52 +721,113 @@ const HEAT_KERNEL = (() => {
   return k;
 })();
 
-function paintHeatmap(canvas, img, info, pts, layers) {
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, RADAR_SIZE, RADAR_SIZE);
-  if (img) { ctx.globalAlpha = 0.85; ctx.drawImage(img, 0, 0, RADAR_SIZE, RADAR_SIZE); ctx.globalAlpha = 1; }
+// Radar-pixel positions and density image of every visible layer; done once, redrawn on every zoom.
+function prepareHeat(frame, pts, layers) {
+  const out = [];
+  HEAT_LAYERS.forEach(([k, , color], idx) => {
+    if (!layers.has(k)) return;
+    const px = [];
+    for (const p of pts) {
+      if (p[0] !== idx) continue;
+      const [x, y] = toPx(frame, p[3], p[4]);
+      px.push(p.length > 6 ? [x, y, ...toPx(frame, p[6], p[7])] : [x, y]);
+    }
+    if (px.length) out.push({ kind: k, color, px, density: null });
+  });
+  return out;
+}
+
+function densityImage(px, color) {
   const cell = RADAR_SIZE / HEAT_GRID;
+  const grid = new Float32Array(HEAT_GRID * HEAT_GRID);
+  for (const [x0, y0] of px) {
+    const cx = Math.round(x0 / cell), cy = Math.round(y0 / cell);
+    for (const [dx, dy, v] of HEAT_KERNEL) {
+      const x = cx + dx, y = cy + dy;
+      if (x >= 0 && y >= 0 && x < HEAT_GRID && y < HEAT_GRID) grid[y * HEAT_GRID + x] += v;
+    }
+  }
+  let max = 0;
+  for (const v of grid) if (v > max) max = v;
+  const norm = Math.max(1, max * 0.75);
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16));
   const tmp = document.createElement('canvas');
   tmp.width = tmp.height = HEAT_GRID;
   const tctx = tmp.getContext('2d');
-  HEAT_LAYERS.forEach(([k, , color], idx) => {
-    if (!layers.has(k)) return;
-    const mine = pts.filter(p => p[0] === idx).map(p => toPx(info, p[3], p[4]));
-    if (!mine.length) return;
-    const grid = new Float32Array(HEAT_GRID * HEAT_GRID);
-    for (const [px, py] of mine) {
-      const cx = Math.round(px / cell), cy = Math.round(py / cell);
-      for (const [dx, dy, v] of HEAT_KERNEL) {
-        const x = cx + dx, y = cy + dy;
-        if (x >= 0 && y >= 0 && x < HEAT_GRID && y < HEAT_GRID) grid[y * HEAT_GRID + x] += v;
+  const img = tctx.createImageData(HEAT_GRID, HEAT_GRID);
+  for (let i = 0; i < grid.length; i++) {
+    const a = Math.min(1, grid[i] / norm);
+    if (a < 0.05) continue;
+    img.data[i * 4] = r; img.data[i * 4 + 1] = g; img.data[i * 4 + 2] = b;
+    img.data[i * 4 + 3] = Math.round(255 * Math.min(0.9, 0.25 + 0.7 * Math.pow(a, 0.8)));
+  }
+  tctx.putImageData(img, 0, 0);
+  return tmp;
+}
+
+function drawHeat(canvas, img, v, layers, { dots = false, lines = false } = {}) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, W, W);
+  applyView(ctx, canvas, v);
+  if (img) { ctx.globalAlpha = 0.85; ctx.drawImage(img, 0, 0, RADAR_SIZE, RADAR_SIZE); ctx.globalAlpha = 1; }
+  ctx.imageSmoothingEnabled = true;
+  if (!dots) for (const l of layers) ctx.drawImage(l.density ||= densityImage(l.px, l.color), 0, 0, RADAR_SIZE, RADAR_SIZE);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  // Dots and lines are drawn in canvas pixels so they stay sharp (and grow only a little) when zoomed.
+  const base = W / RADAR_SIZE;
+  const grow = Math.min(2.2, 0.8 + v.k * 0.2);
+  const r = base * (dots ? 3.2 : 4) * grow;
+  const pt = (x, y) => viewPt(canvas, v, x, y);
+  const inside = (x, y) => x > -20 && y > -20 && x < W + 20 && y < W + 20;
+  for (const l of layers) {
+    if (!dots && l.px.length > 400) continue;
+    if (lines && GRENADE_KINDS.has(l.kind)) {
+      ctx.strokeStyle = l.color;
+      ctx.lineWidth = Math.max(1, base * 1.3 * grow * 0.7);
+      ctx.globalAlpha = 0.4;
+      ctx.beginPath();
+      for (const p of l.px) {
+        if (p.length < 4) continue;
+        const [x0, y0] = pt(p[2], p[3]), [x1, y1] = pt(p[0], p[1]);
+        if (!inside(x0, y0) && !inside(x1, y1)) continue;
+        ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
       }
+      ctx.stroke();
+      // Throw spots: small rings
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      for (const p of l.px) {
+        if (p.length < 4) continue;
+        const [x0, y0] = pt(p[2], p[3]);
+        if (!inside(x0, y0)) continue;
+        ctx.moveTo(x0 + r * 0.8, y0); ctx.arc(x0, y0, r * 0.8, 0, Math.PI * 2);
+      }
+      ctx.stroke();
     }
-    let max = 0;
-    for (const v of grid) if (v > max) max = v;
-    const norm = Math.max(1, max * 0.75);
-    const [r, g, b] = [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16));
-    const imgData = tctx.createImageData(HEAT_GRID, HEAT_GRID);
-    for (let i = 0; i < grid.length; i++) {
-      const a = Math.min(1, grid[i] / norm);
-      if (a < 0.05) continue;
-      imgData.data[i * 4] = r; imgData.data[i * 4 + 1] = g; imgData.data[i * 4 + 2] = b;
-      imgData.data[i * 4 + 3] = Math.round(255 * Math.min(0.9, 0.25 + 0.7 * Math.pow(a, 0.8)));
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = l.color;
+    ctx.strokeStyle = 'rgba(5,8,14,.75)';
+    ctx.lineWidth = Math.max(1, base);
+    ctx.beginPath();
+    for (const p of l.px) {
+      const [x, y] = pt(p[0], p[1]);
+      if (!inside(x, y)) continue;
+      ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI * 2);
     }
-    tctx.putImageData(imgData, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(tmp, 0, 0, RADAR_SIZE, RADAR_SIZE);
-    if (mine.length <= 400) {
-      ctx.fillStyle = color;
-      for (const [px, py] of mine) { ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill(); }
-    }
-  });
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 }
 
 // ---------- Radar (2D replay) ----------
 // Positions come sampled 8 times per second (see lib/track.js) and are interpolated per frame.
 const SMOKE_RADIUS = 144, MOLOTOV_RADIUS = 120;
 const SMOKE_TICKS = 18 * 64, MOLOTOV_TICKS = 7 * 64, BURST_TICKS = 32;
-state.radar = { data: null, loading: null, round: 1, tick: 0, playing: false, speed: 2, floor: 'upper', room: 'auto', raf: 0 };
+state.radar = { data: null, loading: null, round: 1, tick: 0, playing: false, speed: 2, floor: 'upper', room: 'auto', raf: 0, view: newView() };
 
 function replayData() {
   const r = state.radar, d = state.demo;
@@ -651,7 +882,8 @@ function radarView() {
   R.image = null;
   radarImage(frame.src).then(img => { if (R.info === frame) R.image = img; });
 
-  const canvas = h('canvas', { width: RADAR_SIZE, height: RADAR_SIZE, class: 'radar-canvas' });
+  const canvas = h('canvas', { width: 1400, height: 1400, class: 'radar-canvas' });
+  if (R.frameSrc !== frame.src) { R.frameSrc = frame.src; resetZoom(R.view); }
   const slider = h('input', { type: 'range', class: 'radar-slider', min: rd.startTick, max: roundStop(data, rd), step: 1, value: R.tick,
     oninput: e => { R.tick = +e.target.value; } });
   const clock = h('span', { class: 'radar-clock' });
@@ -681,7 +913,7 @@ function radarView() {
     h('div', { class: 'section-head' }, h('h3', {}, `Round ${R.round}`), h('span', { class: `pill side-${rd.winner}` }, `${rd.winner} win`), h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Space: play/pause · ←/→: 5 s · ↑/↓: round')),
     rounds,
     controls,
-    h('div', { class: 'radar-layout' }, h('div', { class: 'radar-main' }, canvas), h('div', { class: 'radar-side' }, teams, feed)),
+    h('div', { class: 'radar-layout' }, h('div', { class: 'radar-main' }, zoomable(canvas, R.view, () => {})), h('div', { class: 'radar-side' }, teams, feed)),
   ];
 }
 
@@ -746,12 +978,18 @@ function drawRadar() {
   const ctx = els.canvas.getContext('2d');
   const t = R.tick, tr = data.tickrate, rd = radarRound();
   const lowerView = R.floor === 'lower';
-  const px = (x, y) => toPx(info, x, y);
   const fade = z => info.lowerBelow !== undefined && onLower(info, z) !== lowerView;
-  const units = u => u / info.scale;
+  // Markers are drawn in units of u canvas pixels, so their sizes below stay readable at any zoom:
+  // they grow a little when zoomed in, while smokes and fires keep their real size.
+  const canvas = els.canvas, v = R.view;
+  const u = canvas.width / RADAR_SIZE * Math.min(1.8, 0.8 + 0.2 * v.k);
+  const px = (x, y) => { const [cx, cy] = viewPt(canvas, v, ...toPx(info, x, y)); return [cx / u, cy / u]; };
+  const units = w => w / info.scale * viewScale(canvas, v) / u;
 
-  ctx.clearRect(0, 0, RADAR_SIZE, RADAR_SIZE);
-  if (R.image) ctx.drawImage(R.image, 0, 0, RADAR_SIZE, RADAR_SIZE);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (R.image) { applyView(ctx, canvas, v); ctx.drawImage(R.image, 0, 0, RADAR_SIZE, RADAR_SIZE); }
+  ctx.setTransform(u, 0, 0, u, 0, 0);
 
   // Grenades: smokes and fires last until their expire event, flashes and HEs are short bursts.
   const gr = data.grenades.filter(g => g.round === rd.num);
@@ -814,9 +1052,9 @@ function drawRadar() {
     ctx.strokeStyle = color; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * 30, y + Math.sin(a) * 30); ctx.stroke();
     ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.fill();
-    ctx.lineWidth = p.id === pov ? 4 : 2; ctx.strokeStyle = p.id === pov ? '#fff' : '#0d0f12';
+    ctx.lineWidth = p.id === pov ? 4 : 2; ctx.strokeStyle = p.id === pov ? '#fff' : '#0a0e16';
     ctx.stroke();
-    ctx.fillStyle = '#0d0f12cc'; const label = p.name.length > 14 ? p.name.slice(0, 13) + '…' : p.name;
+    ctx.fillStyle = '#0a0e16cc'; const label = p.name.length > 14 ? p.name.slice(0, 13) + '…' : p.name;
     const wdt = ctx.measureText(label).width + 10;
     ctx.fillRect(x - wdt / 2, y - 42, wdt, 24);
     ctx.fillStyle = p.id === pov ? '#fff' : color; ctx.fillText(label, x, y - 23);
@@ -851,6 +1089,424 @@ function drawRadar() {
 }
 
 
+// ---------- Overview (dashboard) ----------
+// Everything is added up here from the per-match summaries (api.profile), so filters are instant.
+state.ov = { mode: 'all', map: 'all', period: 'all' };
+const PERIODS = [['all', 'All time'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['90d', 'Last 90 days'], ['20', 'Last 20 matches'], ['10', 'Last 10 matches']];
+
+function filteredMatches(f = state.ov) {
+  let list = (state.profile?.matches || []).filter(m => (f.mode === 'all' || m.mode === f.mode) && (f.map === 'all' || m.map === f.map));
+  list.sort((a, b) => b.date - a.date);
+  if (/d$/.test(f.period)) { const since = Date.now() - parseInt(f.period, 10) * 86400000; list = list.filter(m => m.date >= since); }
+  else if (f.period !== 'all') list = list.slice(0, +f.period);
+  return list;
+}
+
+function aggregate(list) {
+  const side = () => ({ rounds: 0, won: 0, fk: 0, fd: 0 });
+  const t = {
+    played: list.length, won: 0, lost: 0, tied: 0, rounds: 0, kills: 0, deaths: 0, assists: 0, hs: 0, damage: 0, kastRounds: 0,
+    ratingSum: 0, ratingRounds: 0, fk: 0, fd: 0, side: { T: side(), CT: side() },
+    clutch: { 1: [0, 0], 2: [0, 0], 3: [0, 0], 4: [0, 0], 5: [0, 0] }, multi: { 2: 0, 3: 0, 4: 0, 5: 0 },
+    trades: 0, utility: 0, flashed: 0, flashAssists: 0, weapons: {}, maps: {}, mates: {},
+  };
+  for (const m of list) {
+    t[m.result === 'W' ? 'won' : m.result === 'L' ? 'lost' : 'tied']++;
+    t.rounds += m.rounds; t.kills += m.kills; t.deaths += m.deaths; t.assists += m.assists; t.hs += m.hsKills;
+    t.damage += m.damage; t.kastRounds += m.kastRounds; t.fk += m.firstKills; t.fd += m.firstDeaths;
+    t.trades += m.tradeKills; t.utility += m.utilityDamage; t.flashed += m.enemiesFlashed; t.flashAssists += m.flashAssists;
+    if (m.rating != null) { t.ratingSum += m.rating * m.rounds; t.ratingRounds += m.rounds; }
+    for (const s of ['T', 'CT']) for (const k of ['rounds', 'won', 'fk', 'fd']) t.side[s][k] += m.side?.[s]?.[k] || 0;
+    for (const n of [1, 2, 3, 4, 5]) { t.clutch[n][0] += m.clutches.vs?.[n]?.[0] || 0; t.clutch[n][1] += m.clutches.vs?.[n]?.[1] || 0; }
+    for (const n of [2, 3, 4, 5]) t.multi[n] += m.multi[n] || 0;
+    for (const [w, [k, hs]] of Object.entries(m.weapons)) { const r = t.weapons[w] ||= [0, 0]; r[0] += k; r[1] += hs; }
+    const mp = t.maps[m.map] ||= { map: m.map, played: 0, won: 0, lost: 0, rounds: 0, kills: 0, deaths: 0, damage: 0, ratingSum: 0, ratingRounds: 0, side: { T: side(), CT: side() } };
+    mp.played++; if (m.result === 'W') mp.won++; if (m.result === 'L') mp.lost++;
+    mp.rounds += m.rounds; mp.kills += m.kills; mp.deaths += m.deaths; mp.damage += m.damage;
+    if (m.rating != null) { mp.ratingSum += m.rating * m.rounds; mp.ratingRounds += m.rounds; }
+    for (const s of ['T', 'CT']) for (const k of ['rounds', 'won']) mp.side[s][k] += m.side?.[s]?.[k] || 0;
+    for (const [id, name] of m.mates || []) {
+      const x = t.mates[id] ||= { id, name, played: 0, won: 0, lost: 0 };
+      x.name = name; x.played++; if (m.result === 'W') x.won++; if (m.result === 'L') x.lost++;
+    }
+  }
+  t.kd = t.deaths ? t.kills / t.deaths : t.kills;
+  t.adr = t.rounds ? t.damage / t.rounds : 0;
+  t.rating = t.ratingRounds ? t.ratingSum / t.ratingRounds : null;
+  t.clutchWon = Object.values(t.clutch).reduce((s, c) => s + c[0], 0);
+  t.clutchPlayed = Object.values(t.clutch).reduce((s, c) => s + c[1], 0);
+  return t;
+}
+
+// Small building blocks
+function card(title, body, { span = 1, extra = null, cls = '' } = {}) {
+  return h('section', { class: `dcard span-${span} ${cls}` },
+    title ? h('div', { class: 'dcard-head' }, h('h4', {}, title), h('span', { class: 'spacer' }), extra) : null,
+    ...[body].flat());
+}
+// Circular gauge: frac of the circle filled, the value in the middle.
+function ring(frac, value, cls, sub) {
+  const r = 54, c = 2 * Math.PI * r;
+  return h('div', { class: `ring ${cls}` },
+    h('div', { class: 'ring-svg', html: `<svg viewBox="0 0 128 128"><circle cx="64" cy="64" r="${r}" class="ring-bg"/><circle cx="64" cy="64" r="${r}" class="ring-fg" stroke-dasharray="${(c * clamp(frac, 0, 1)).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 64 64)"/></svg>` }),
+    h('div', { class: 'ring-v' }, value, sub ? h('div', { class: 'ring-sub' }, sub) : null));
+}
+const pie = (frac, cls = '') => h('div', { class: `pie ${cls}`, style: { '--p': `${(clamp(frac || 0, 0, 1) * 100).toFixed(1)}%` } });
+const qualityClass = (v, good, bad) => (v >= good ? 'good' : v < bad ? 'bad' : 'mid');
+function trend(now, before, digits = 2, suffix = '') {
+  if (before == null || now == null || !Number.isFinite(before)) return null;
+  const d = now - before;
+  const cls = Math.abs(d) < 10 ** -digits ? 'flat' : d > 0 ? 'up' : 'down';
+  return h('span', { class: `trend ${cls}`, title: 'Last 10 matches compared to the whole selection' }, cls === 'up' ? '▲ ' : cls === 'down' ? '▼ ' : '', `last 10: ${now.toFixed(digits)}${suffix}`);
+}
+function kv(rows) {
+  return h('div', { class: 'kv' }, ...rows.map(([k, v, cls]) => h('div', { class: 'kv-row' }, h('span', {}, k), h('b', { class: cls || '' }, v))));
+}
+function barList(rows, { empty = 'Nothing yet' } = {}) {
+  if (!rows.length) return h('div', { class: 'muted-note' }, empty);
+  return h('div', { class: 'bars' }, ...rows.map(r => h('div', { class: `bar-row ${r.onclick ? 'clickable' : ''}`, onclick: r.onclick, title: r.title },
+    h('div', { class: 'bar-top' }, r.lead || null, h('span', { class: 'bar-label' }, r.label), h('span', { class: 'spacer' }), h('b', { class: r.cls || '' }, r.value)),
+    h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${r.fillCls || ''}`, style: { width: `${clamp(r.frac, 0, 1) * 100}%` } })))));
+}
+const ICON = {
+  trophy: '<path d="M7 4h10v4a5 5 0 0 1-10 0zM7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3M12 13v4M8 20h8M9.5 17h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
+  head: '<circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" stroke-width="1.7"/>',
+  burst: '<path d="M12 3l2 5 5-2-2 5 4 3-5 1 1 5-5-3-4 4v-5l-5-1 4-3-2-5 5 2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
+};
+
+function renderOverview() {
+  const view = $('#view-overview');
+  const p = state.profile;
+  const page = (...body) => view.replaceChildren(h('div', { class: 'page dash-page' }, ...body));
+  if (!p) return page(h('div', { class: 'empty' }, spinner(28), h('h2', {}, 'Loading your stats…')));
+  if (!p.steamid) return page(h('div', { class: 'empty' }, h('h2', {}, 'Which player are you?'), h('div', {}, 'No Steam account was found on this PC. Enter your SteamID64 in Settings → Counter-Strike 2.'),
+    h('button', { class: 'btn primary', style: { marginTop: '14px' }, onclick: () => showView('settings') }, 'Open Settings')));
+  const pending = state.demos.filter(d => !d.summary && !d.failed).length;
+  if (!p.matches.length) {
+    return page(h('div', { class: 'empty' }, pending ? spinner(28) : icon(ICONS.demo, 'class="big"'),
+      h('h2', {}, pending ? `Reading your demos… ${pending} left` : 'No matches with you yet'),
+      h('div', {}, pending ? 'Your stats appear here as soon as the first demos are read. Each demo is only read once.' : 'Download your matches in CS2 (Watch → Your Matches) or in the Downloads tab, and they show up here.')));
+  }
+
+  const f = state.ov;
+  const all = p.matches;
+  const modes = [...new Set(all.map(m => m.mode))];
+  const maps = [...new Set(all.map(m => m.map))].sort((a, b) => mapName(a).localeCompare(mapName(b)));
+  if (f.map !== 'all' && !maps.includes(f.map)) f.map = 'all';
+  const list = filteredMatches();
+  const t = aggregate(list);
+  const last10 = aggregate(list.slice(0, 10));
+  const rerender = () => renderOverview();
+
+  const head = h('div', { class: 'dash-head' },
+    h('div', { class: 'dash-title' },
+      h('h2', {}, p.name || 'Your stats'),
+      h('div', { class: 'sub' }, `${t.played} match${t.played === 1 ? '' : 'es'} · ${fmtNum(t.rounds)} rounds`,
+        pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null)),
+    h('span', { class: 'spacer' }),
+    h('div', { class: 'filters' },
+      modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], v => { f.mode = v; rerender(); }) : null,
+      select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], v => { f.map = v; rerender(); }),
+      select(f.period, PERIODS, v => { f.period = v; rerender(); })),
+  );
+  if (!list.length) return page(head, h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.')));
+
+  const kdCls = qualityClass(t.kd, 1.05, 0.95);
+  const rtCls = t.rating == null ? '' : qualityClass(t.rating, 1.05, 0.95);
+  const cards = [
+    card('K/D', ring(t.kd / 2, t.kd.toFixed(2), kdCls, list.length > 10 ? trend(last10.kd, t.kd) : null), { cls: 'center' }),
+    card('Rating', ring((t.rating ?? 0) / 2, t.rating == null ? '—' : t.rating.toFixed(2), rtCls, list.length > 10 ? trend(last10.rating, t.rating) : null),
+      { cls: 'center', extra: h('span', { class: 'hint', title: 'Approximation of HLTV Rating 2.0 (HLTV does not publish its formula; usually within ±0.02)' }, '≈ HLTV 2.0') }),
+    clutchCard(t),
+    recentCard(list),
+    overallCard(t),
+    entryCard(t),
+    mapsCard(t),
+    trendCard(list),
+    weaponCard('Most kills', Object.entries(t.weapons).sort((a, b) => b[1][0] - a[1][0]).slice(0, 6), ([, [k]], max) => [fmtNum(k), k / max]),
+    weaponCard('Headshot %', Object.entries(t.weapons).filter(([, [k]]) => k >= Math.max(10, t.kills * 0.02)).sort((a, b) => b[1][1] / b[1][0] - a[1][1] / a[1][0]).slice(0, 6),
+      ([, [k, hs]]) => [`${pct(hs, k)}%`, hs / k], 'Weapons with at least 10 kills'),
+    multiCard(t),
+    sidesCard(t),
+    matesCard(t),
+  ];
+  page(head, h('div', { class: 'dash' }, ...cards));
+}
+
+function clutchCard(t) {
+  return card('Clutch success', [
+    h('div', { class: 'big-line' }, h('span', { class: 'big-pre' }, '1vX'), h('span', { class: 'big' }, `${pct(t.clutchWon, t.clutchPlayed)}%`),
+      h('span', { class: 'big-note' }, `${t.clutchWon} won of ${t.clutchPlayed}`)),
+    h('div', { class: 'clutch-grid' }, ...[1, 2, 3, 4, 5].map(n => {
+      const [w, p] = t.clutch[n];
+      return h('div', { class: 'clutch-col', title: `1v${n}: won ${w} of ${p}` },
+        h('div', { class: 'cl-k' }, `1v${n}`), pie(p ? w / p : 0), h('div', { class: 'cl-v' }, `${pct(w, p)}%`), h('div', { class: 'cl-n' }, `W ${w} · L ${p - w}`));
+    })),
+  ]);
+}
+
+function recentCard(list) {
+  const last = list.slice(0, 10);
+  const r = aggregate(last);
+  return card('Recent matches', [
+    h('div', { class: 'recent' }, ...last.map(m => h('button', { class: `recent-m r-${m.result}`, title: `${mapName(m.map)} · ${m.score[0]}:${m.score[1]} · ${fmtDate(m.date)}\nK/D ${m.kills}/${m.deaths}${m.rating != null ? ` · rating ${m.rating.toFixed(2)}` : ''}`, onclick: () => openMatch(m) },
+      mapThumb(m.map), h('span', { class: 'rdot' }), h('span', { class: 'rscore' }, `${m.score[0]}:${m.score[1]}`)))),
+    kv([
+      ['Last ' + last.length, `${r.won}W · ${r.lost}L${r.tied ? ` · ${r.tied}T` : ''}`],
+      ['Rating', r.rating == null ? '—' : r.rating.toFixed(2), r.rating == null ? '' : ratingClass(r.rating)],
+      ['K/D · ADR', `${r.kd.toFixed(2)} · ${r.adr.toFixed(0)}`],
+    ]),
+  ], { extra: h('button', { class: 'link-btn', onclick: () => showView('matches') }, 'All matches →') });
+}
+
+function overallCard(t) {
+  const big = (ic, k, v, cls = '') => h('div', { class: 'big-stat' }, h('span', { class: 'big-ic' }, icon(ic)), h('div', {}, h('div', { class: 'k' }, k), h('div', { class: `v ${cls}` }, v)));
+  return card(null, [
+    h('div', { class: 'big-stats' },
+      big(ICON.trophy, 'Win rate', `${pct(t.won, t.played)}%`, pct(t.won, t.played) >= 50 ? 'good' : 'bad'),
+      big(ICON.head, 'Headshot %', `${pct(t.hs, t.kills)}%`),
+      big(ICON.burst, 'ADR', t.adr.toFixed(0), qualityClass(t.adr, 80, 65))),
+    h('div', { class: 'kv-cols' },
+      kv([['Played', t.played], ['Won', t.won, 'good'], ['Lost', t.lost, 'bad'], ['Tied', t.tied]]),
+      kv([['Kills', fmtNum(t.kills)], ['Deaths', fmtNum(t.deaths)], ['Assists', fmtNum(t.assists)], ['Headshots', fmtNum(t.hs)]]),
+      kv([['KAST', `${pct(t.kastRounds, t.rounds)}%`], ['Damage', fmtNum(t.damage)], ['Rounds', fmtNum(t.rounds)], ['Kills / round', (t.rounds ? t.kills / t.rounds : 0).toFixed(2)]])),
+  ], { span: 2 });
+}
+
+function entryCard(t) {
+  const sides = [['Combined', t.fk, t.fd, t.rounds], ['T side', t.side.T.fk, t.side.T.fd, t.side.T.rounds], ['CT side', t.side.CT.fk, t.side.CT.fd, t.side.CT.rounds]];
+  return card('Opening duels', [
+    h('div', { class: 'big-line' }, h('span', { class: 'big' }, `${pct(t.fk, t.rounds)}%`), h('span', { class: 'big-note' }, 'of rounds you got the first kill')),
+    h('table', { class: 'entry' },
+      h('thead', {}, h('tr', {}, h('th', {}), ...sides.map(([l], i) => h('th', { class: i === 1 ? 'side-T' : i === 2 ? 'side-CT' : '' }, l)))),
+      h('tbody', {},
+        h('tr', { title: 'Opening duels won: first kills / (first kills + first deaths)' }, h('td', {}, 'Success'),
+          ...sides.map(([, fk, fd], i) => h('td', {}, pie((fk + fd) ? fk / (fk + fd) : 0, ['', 't', 'ct'][i]), h('div', {}, `${pct(fk, fk + fd)}%`)))),
+        h('tr', { title: 'Rounds where you were in the opening duel' }, h('td', {}, 'Attempts'),
+          ...sides.map(([, fk, fd, r], i) => h('td', {}, pie(r ? (fk + fd) / r : 0, ['', 't', 'ct'][i]), h('div', {}, `${pct(fk + fd, r)}%`)))))),
+  ]);
+}
+
+function mapsCard(t) {
+  const most = Object.values(t.maps).sort((a, b) => b.played - a.played).slice(0, 5);
+  const go = m => () => { state.mp.map = m.map; resetZoom(state.mp.view); showView('maps'); };
+  // Most played maps; the bar is the win rate.
+  return card('Maps', h('div', { class: 'map-rows' }, ...most.map(m => {
+    const wr = pct(m.won, m.played);
+    return h('div', { class: 'map-row', onclick: go(m), title: `${m.won} won, ${m.lost} lost · open this map` },
+      mapThumb(m.map),
+      h('div', { class: 'map-row-main' },
+        h('div', { class: 'bar-top' }, h('span', { class: 'bar-label' }, mapName(m.map)), h('span', { class: 'spacer' }), h('span', { class: 'muted' }, `${m.played} played`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`)),
+        h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))));
+  })), { extra: h('button', { class: 'link-btn', onclick: () => showView('maps') }, 'Maps →') });
+}
+
+function weaponCard(title, rows, val, note) {
+  const max = Math.max(1, ...rows.map(([, [k]]) => k));
+  return card(title, barList(rows.map(r => { const [v, frac] = val(r, max); return { label: r[0], value: v, frac }; }), { empty: note || 'No kills yet' }),
+    { extra: note ? h('span', { class: 'hint' }, note) : null });
+}
+
+// Rating per match, oldest to newest, with the 1.00 line and a 5-match average.
+function trendCard(list) {
+  const ms = list.filter(m => m.rating != null).slice(0, 40).reverse();
+  if (ms.length < 2) return card('Rating per match', h('div', { class: 'muted-note' }, 'Needs at least two matches.'), { span: 2 });
+  const W = 800, H = 210, padL = 34, padR = 12, padT = 12, padB = 22;
+  const vals = ms.map(m => m.rating);
+  const lo = Math.min(0.4, Math.floor(Math.min(...vals) * 5) / 5), hi = Math.max(1.6, Math.ceil(Math.max(...vals) * 5) / 5);
+  const x = i => padL + (W - padL - padR) * (ms.length === 1 ? 0.5 : i / (ms.length - 1));
+  const y = v => padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo));
+  const avg = vals.map((_, i) => { const s = vals.slice(Math.max(0, i - 4), i + 1); return s.reduce((a, b) => a + b, 0) / s.length; });
+  const grid = [];
+  for (let v = Math.ceil(lo * 2) / 2; v <= hi + 1e-9; v += 0.5) grid.push(`<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" class="${Math.abs(v - 1) < 1e-9 ? 'g-one' : 'g'}"/><text x="${padL - 6}" y="${y(v) + 4}" class="g-t">${v.toFixed(1)}</text>`);
+  const line = pts => pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  const area = `${line(vals)}L${x(vals.length - 1)},${H - padB}L${x(0)},${H - padB}Z`;
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg">${grid.join('')}
+    <path d="${area}" class="t-area"/><path d="${line(vals)}" class="t-line"/><path d="${line(avg)}" class="t-avg"/>
+    ${ms.map((m, i) => `<circle cx="${x(i)}" cy="${y(m.rating)}" r="4.5" class="t-pt r-${m.result}" data-i="${i}"><title>${mapName(m.map).replace(/[<&]/g, '')} ${m.score[0]}:${m.score[1]} · rating ${m.rating.toFixed(2)} · ${new Date(m.date).toLocaleDateString()}</title></circle>`).join('')}</svg>`;
+  const el = h('div', { class: 'trend-wrap', html: svg });
+  el.addEventListener('click', e => { const i = e.target.dataset?.i; if (i !== undefined) openMatch(ms[+i]); });
+  return card('Rating per match', [el, h('div', { class: 'legend' }, h('span', { class: 'lg l-line' }, 'Rating'), h('span', { class: 'lg l-avg' }, '5-match average'), h('span', { class: 'lg l-w' }, 'Win'), h('span', { class: 'lg l-l' }, 'Loss'))],
+    { span: 2, extra: h('span', { class: 'hint' }, `last ${ms.length} matches · click a point to open it`) });
+}
+
+function multiCard(t) {
+  const per = v => (t.rounds ? (v / t.rounds).toFixed(2) : '0');
+  return card('Multi-kills & utility', [
+    h('div', { class: 'multi' }, ...[[2, '2K'], [3, '3K'], [4, '4K'], [5, 'ACE']].map(([n, l]) => h('div', { class: `multi-c m${n}` }, h('div', { class: 'v' }, t.multi[n]), h('div', { class: 'k' }, l)))),
+    kv([['Trade kills', t.trades], ['Utility damage / round', per(t.utility)], ['Enemies flashed / round', per(t.flashed)], ['Flash assists', t.flashAssists]]),
+  ]);
+}
+
+function sidesCard(t) {
+  const row = (s, cls) => {
+    const d = t.side[s];
+    return { label: `${s} side`, value: `${pct(d.won, d.rounds)}%`, frac: d.rounds ? d.won / d.rounds : 0, fillCls: cls, title: `${d.won} of ${d.rounds} rounds won` };
+  };
+  return card('Rounds won per side', [
+    barList([row('T', 't'), row('CT', 'ct')]),
+    kv([['T rounds played', fmtNum(t.side.T.rounds)], ['CT rounds played', fmtNum(t.side.CT.rounds)]]),
+  ]);
+}
+
+function matesCard(t) {
+  const mates = Object.values(t.mates).filter(m => m.played >= 2).sort((a, b) => b.played - a.played || b.won - a.won).slice(0, 8);
+  return card('Played with', mates.length
+    ? h('table', { class: 'mates' },
+      h('thead', {}, h('tr', {}, h('th', {}, 'Teammate'), h('th', {}, 'Matches'), h('th', {}, 'W – L'), h('th', {}, 'Win rate'))),
+      h('tbody', {}, ...mates.map(m => h('tr', {},
+        h('td', { class: 'name' }, h('span', { class: 'avatar sm' }, (m.name.replace(/[^\p{L}\p{N}]/gu, '')[0] || '?').toUpperCase()), m.name),
+        h('td', {}, m.played), h('td', {}, `${m.won} – ${m.lost}`),
+        h('td', {}, h('div', { class: 'wr' }, h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${m.won / m.played >= 0.5 ? 'good' : 'bad'}`, style: { width: `${pct(m.won, m.played)}%` } })), `${pct(m.won, m.played)}%`))))))
+    : h('div', { class: 'muted-note' }, 'Teammates you played at least two matches with show up here.'), { span: 2 });
+}
+
+// Opens a match from the dashboard or the Maps page (on its scoreboard).
+function openMatch(m) {
+  const d = state.demos.find(x => x.id === m.id) || state.demos.find(x => x.path === m.path);
+  if (!d) return toast('This demo is no longer in your demo folders.', 'error');
+  showView('matches');
+  openDemo(d, undefined, 'scoreboard');
+}
+
+// ---------- Maps ----------
+// Every map with parsed demos; per map one big zoomable radar with kills, deaths, damage and grenades
+// from all its matches, for you or for everyone.
+state.mp = { map: null, who: 'me', side: 'both', layers: new Set(['kill', 'death']), display: 'heat', lines: true, weapon: 'all', floor: 'upper', room: 'auto', data: null, loading: null, view: newView() };
+
+function mapsIndex() {
+  const by = new Map();
+  const seen = new Set();
+  for (const d of state.demos) {
+    const m = d.summary?.map;
+    if (!m || seen.has(d.id)) continue;
+    seen.add(d.id);
+    const e = by.get(m) || by.set(m, { map: m, demos: 0, last: 0 }).get(m);
+    e.demos++;
+    e.last = Math.max(e.last, d.date);
+  }
+  const mine = aggregate(state.profile?.matches || []).maps;
+  return [...by.values()].map(e => ({ ...e, me: mine[e.map] })).sort((a, b) => b.demos - a.demos || b.last - a.last);
+}
+
+function renderMaps() {
+  const view = $('#view-maps');
+  if (state.mp.map) return view.replaceChildren(mapDetail());
+  const maps = mapsIndex();
+  const pending = state.demos.filter(d => !d.summary && !d.failed).length;
+  view.replaceChildren(h('div', { class: 'page' },
+    h('div', { class: 'page-head' }, h('h2', {}, 'Maps'), h('span', { class: 'dl-head-info' }, 'Kills, deaths, damage and grenades of every match on a map, in one zoomable radar.'),
+      h('span', { class: 'spacer' }), pending ? h('span', { class: 'hint' }, spinner(11), ` reading ${pending} demos…`) : null),
+    maps.length ? h('div', { class: 'map-grid' }, ...maps.map(e => {
+      const info = radarMaps ? radarInfo(e.map) : null;
+      const me = e.me;
+      const wr = me ? pct(me.won, me.played) : null;
+      return h('button', { class: 'map-card', style: { '--c': mapColor(e.map), '--img': info ? `url("radar/${radarName(info, e.map)}.png")` : 'none' }, onclick: () => { state.mp.map = e.map; resetZoom(state.mp.view); renderMaps(); } },
+        h('div', { class: 'map-card-bg' }),
+        h('div', { class: 'map-card-body' },
+          h('div', { class: 'map-card-name' }, mapName(e.map)),
+          h('div', { class: 'map-card-sub' }, `${e.demos} match${e.demos === 1 ? '' : 'es'} · last ${new Date(e.last).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`),
+          me ? h('div', { class: 'map-card-rec' },
+            h('span', {}, `${me.won}W – ${me.lost}L`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`),
+            h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))) : h('div', { class: 'map-card-rec muted' }, 'You did not play here'),
+          info ? null : h('div', { class: 'map-card-sub' }, 'No radar image for this map')));
+    })) : h('div', { class: 'empty' }, pending ? spinner(28) : icon(ICONS.demo, 'class="big"'), h('h2', {}, pending ? 'Reading your demos…' : 'No maps yet'), h('div', {}, 'Maps appear once their demos have been read.')),
+  ));
+}
+
+function mapHeatData() {
+  const mp = state.mp;
+  const n = state.demos.filter(d => d.summary?.map === mp.map).length;
+  const key = `${mp.map}|${mp.who}|${n}`;
+  if (mp.data?.key === key) return mp.data;
+  if (mp.loading !== key) {
+    mp.loading = key;
+    api.mapHeat(mp.map, mp.who === 'all' ? 'all' : null)
+      .then(v => { mp.data = { key, ...v }; })
+      .catch(e => { mp.data = { key, error: e.message }; })
+      .finally(() => { if (mp.loading === key) mp.loading = null; if (state.view === 'maps') renderMaps(); });
+  }
+  return null;
+}
+
+function mapDetail() {
+  const mp = state.mp, map = mp.map;
+  const info = radarInfo(map);
+  const rerender = () => renderMaps();
+  const maps = mapsIndex();
+  const head = h('div', { class: 'page-head map-head' },
+    h('button', { class: 'btn ghost', onclick: () => { mp.map = null; rerender(); } }, icon('<path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2"/>'), 'All maps'),
+    h('h2', {}, mapName(map)),
+    select(map, maps.map(e => [e.map, `${mapName(e.map)} (${e.demos})`]), v => { mp.map = v; resetZoom(mp.view); rerender(); }),
+    h('span', { class: 'spacer' }),
+    h('div', { class: 'tabs' }, ...[['me', 'Me'], ['all', 'Everyone']].map(([k, l]) =>
+      h('button', { class: mp.who === k ? 'on' : '', onclick: () => { mp.who = k; if (k === 'all') mp.layers.delete('shot'); rerender(); } }, l))),
+  );
+  const wrap = (...body) => h('div', { class: 'page map-page' }, head, ...body);
+  if (info === null) return wrap(h('div', { class: 'empty' }, h('h2', {}, 'No radar for this map'), h('div', {}, `There is no radar image for ${mapName(map)} yet. Run scripts/extract-radars.js after a CS2 update to add new maps.`)));
+  const data = info && mapHeatData();
+  if (!data) return wrap(h('div', { class: 'empty' }, spinner(28), h('h2', {}, 'Collecting every match on this map…')));
+  if (data.error) return wrap(h('div', { class: 'err-box' }, data.error));
+
+  const weapons = [...new Set(data.points.filter(p => WEAPON_KINDS.has(p[0]) && p[2]).map(p => p[2]))].sort();
+  if (mp.weapon !== 'all' && !weapons.includes(mp.weapon)) mp.weapon = 'all';
+  const floors = info.lowerBelow !== undefined;
+  const pts = data.points.filter(p =>
+    (mp.side === 'both' || p[1] === (mp.side === 'T' ? 0 : 1)) &&
+    (mp.weapon === 'all' || !WEAPON_KINDS.has(p[0]) || p[2] === mp.weapon) &&
+    (!floors || onLower(info, p[5]) === (mp.floor === 'lower')));
+  let room = null, roomCounts = null;
+  if (info.rooms) {
+    roomCounts = {};
+    for (const p of pts) if (mp.layers.has(HEAT_LAYERS[p[0]][0])) { const r = bestRoom(info, [[p[3], p[4]]]); if (r) roomCounts[r] = (roomCounts[r] || 0) + 1; }
+    room = mp.room === 'auto' ? Object.entries(roomCounts).sort((x, y) => y[1] - x[1])[0]?.[0] || null : mp.room === 'overview' ? null : mp.room;
+  }
+  const frame = radarFrame(info, map, { room, lower: floors && mp.floor === 'lower' });
+  if (mp.frameSrc !== frame.src) { mp.frameSrc = frame.src; resetZoom(mp.view); }
+
+  const canvas = h('canvas', { width: 1800, height: 1800 });
+  const prepared = prepareHeat(frame, pts, mp.layers);
+  const opts = { dots: mp.display === 'dots', lines: mp.lines };
+  let img = null;
+  const redraw = () => drawHeat(canvas, img, mp.view, prepared, opts);
+  radarImage(frame.src).then(i => { img = i; redraw(); });
+
+  const controls = card('Show', [
+    h('div', { class: 'ctl-row' }, h('label', {}, 'Side'), h('div', { class: 'tabs' }, ...[['both', 'Both'], ['T', 'T'], ['CT', 'CT']].map(([k, l]) =>
+      h('button', { class: `${mp.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, onclick: () => { mp.side = k; rerender(); } }, l)))),
+    h('div', { class: 'ctl-row' }, h('label', {}, 'Display'), ...heatDisplayControls(mp, rerender)),
+    weapons.length ? h('div', { class: 'ctl-row' }, h('label', {}, 'Weapon'), select(mp.weapon, [['all', 'All weapons'], ...weapons.map(w => [w, w])], v => { mp.weapon = v; rerender(); })) : null,
+    floors ? h('div', { class: 'ctl-row' }, h('label', {}, 'Floor'), h('div', { class: 'tabs' }, ...[['upper', 'Upper'], ['lower', 'Lower']].map(([k, l]) =>
+      h('button', { class: mp.floor === k ? 'on' : '', onclick: () => { mp.floor = k; rerender(); } }, l)))) : null,
+    info.rooms ? h('div', { class: 'ctl-row' }, h('label', {}, 'Room'), roomSelect(info, mp.room, v => { mp.room = v; rerender(); }, roomCounts)) : null,
+    h('div', { class: 'sub-head' }, 'Layers'),
+    heatLayerChips(mp, pts, rerender, k => !(mp.who === 'all' && k === 'shot')),
+    h('div', { class: 'hint' }, `${data.matches} match${data.matches === 1 ? '' : 'es'} · ${mp.who === 'all' ? 'all players' : 'only you'}${mp.display === 'dots' ? '' : ' · switch to Dots to see single positions'}`),
+  ], { cls: 'map-controls' });
+
+  const me = aggregate((state.profile?.matches || []).filter(m => m.map === map));
+  const mine = (state.profile?.matches || []).filter(m => m.map === map).sort((a, b) => b.date - a.date);
+  const stats = me.played ? card('You on ' + mapName(map), [
+    h('div', { class: 'mini-stats' },
+      ...[['Win rate', `${pct(me.won, me.played)}%`, pct(me.won, me.played) >= 50 ? 'good' : 'bad'], ['Rating', me.rating == null ? '—' : me.rating.toFixed(2), me.rating == null ? '' : ratingClass(me.rating)],
+        ['K/D', me.kd.toFixed(2), qualityClass(me.kd, 1.05, 0.95)], ['ADR', me.adr.toFixed(0)]].map(([k, v, cls]) => h('div', { class: 'mini-stat' }, h('div', { class: 'k' }, k), h('div', { class: `v ${cls || ''}` }, v)))),
+    barList([
+      { label: 'T rounds won', value: `${pct(me.side.T.won, me.side.T.rounds)}%`, frac: me.side.T.rounds ? me.side.T.won / me.side.T.rounds : 0, fillCls: 't' },
+      { label: 'CT rounds won', value: `${pct(me.side.CT.won, me.side.CT.rounds)}%`, frac: me.side.CT.rounds ? me.side.CT.won / me.side.CT.rounds : 0, fillCls: 'ct' },
+    ]),
+    h('div', { class: 'sub-head' }, `Matches (${me.won}W – ${me.lost}L${me.tied ? ` – ${me.tied}T` : ''})`),
+    h('div', { class: 'map-matches' }, ...mine.slice(0, 8).map(m => h('button', { class: `mm r-${m.result}`, onclick: () => openMatch(m) },
+      h('span', { class: 'rdot' }), h('span', { class: 'mm-date' }, new Date(m.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })),
+      h('b', {}, `${m.score[0]}:${m.score[1]}`), h('span', { class: 'mm-kd' }, `${m.kills}–${m.deaths}`),
+      h('span', { class: `rtg ${m.rating == null ? '' : ratingClass(m.rating)}` }, m.rating == null ? '' : m.rating.toFixed(2))))),
+  ], { cls: 'map-stats' }) : null;
+
+  return wrap(h('div', { class: 'map-layout' },
+    h('div', { class: 'map-stage' }, zoomable(canvas, mp.view, redraw), h('div', { class: 'stage-hint' }, 'Scroll to zoom · drag to move · double-click for the whole map')),
+    h('div', { class: 'map-side' }, controls, stats)));
+}
+
+// ---------- Highlights & recording ----------
 function highlightCard(hl) {
   const sel = state.selected.has(hl.id);
   return h('div', { class: `hl ${sel ? 'selected' : ''}`, onclick: () => { sel ? state.selected.delete(hl.id) : state.selected.add(hl.id); renderDetail(); } },
@@ -1050,7 +1706,7 @@ function renderClips() {
   if (!items.length) {
     body = h('div', { class: 'empty' }, icon(ICONS.film, 'class="big"'),
       h('h2', {}, state.clips.length ? 'No clips match' : 'No clips yet'),
-      h('div', {}, state.clips.length ? 'Try another weapon filter.' : 'Record highlights from the Matches tab and they will show up here.'));
+      h('div', {}, state.clips.length ? 'Try another weapon filter.' : 'Record highlights from a match’s Highlights & clips tab and they will show up here.'));
   } else if (sort === 'type') {
     const groups = new Map();
     for (const c of items) {
@@ -1172,8 +1828,8 @@ function num(value, onchange, { min = 0, max = 999, step = 1 } = {}) {
   return h('input', { type: 'number', value, min, max, step, onchange: e => onchange(Number(e.target.value)) });
 }
 function text(value, onchange, attrs = {}) { return h('input', { type: 'text', value: value ?? '', ...attrs, onchange: e => onchange(e.target.value.trim()) }); }
-function toggle(label, on, onchange) {
-  return h('button', { class: `chip-toggle ${on ? 'on' : ''}`, onclick: e => { on = !on; e.currentTarget.classList.toggle('on', on); onchange(on); } }, label);
+function toggle(label, on, onchange, title) {
+  return h('button', { class: `chip-toggle ${on ? 'on' : ''}`, title, onclick: e => { on = !on; e.currentTarget.classList.toggle('on', on); onchange(on); } }, label);
 }
 function select(value, options, onchange) {
   return h('select', { onchange: e => onchange(e.target.value) }, ...options.map(([v, l]) => h('option', { value: v, selected: v === value }, l)));
@@ -1218,6 +1874,12 @@ function renderSettings() {
   const SPECIAL_LABELS = { noscope: 'No-scope', wallbang: 'Wallbang', smoke: 'Through smoke', blind: 'While flashed', jumpshot: 'Jumpshot', knife: 'Knife', zeus: 'Zeus', collateral: 'Collateral' };
 
   const cards = [
+    h('div', { class: 'card' },
+      h('h3', {}, 'Display'),
+      row('Interface size', select(String(st.uiScale || 0), [['0', `Automatic (now ${Math.round(autoScale() * 100)}%)`], ['0.9', '90%'], ['1', '100%'], ['1.1', '110%'], ['1.25', '125%'], ['1.4', '140%'], ['1.6', '160%']],
+        v => save({ uiScale: +v }).then(() => { applyScale(); renderSettings(); })), 'Automatic makes everything a bit bigger on wide screens such as 2560 × 1440.'),
+    ),
+
     h('div', { class: 'card' },
       h('h3', {}, 'Highlights'),
       h('div', { class: 'desc' }, 'What counts as a highlight. Each round becomes at most one clip.'),
@@ -1406,11 +2068,13 @@ function renderDownloads() {
 // ---------- Boot ----------
 (async () => {
   state.settings = await api.getSettings();
+  applyScale();
+  radarMaps = await api.radarMaps().catch(() => ({}));
   await refreshEnv();
+  renderOverview();
   renderDetail();
   loadClipCount();
   api.listDownloads().then(r => { Object.assign(state.dl, r); updateDlCount(); }).catch(() => {});
   await loadDemos();
-  if (state.demos[0]) openDemo(state.demos[0]);
   setInterval(refreshEnv, 10000);
 })();

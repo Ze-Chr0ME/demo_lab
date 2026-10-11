@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 const call = async (channel, ...args) => {
   const r = await ipcRenderer.invoke(channel, ...args);
@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('api', {
   radarMaps: () => call('radar:maps'),
   replay: file => call('demo:replay', file),
   heat: (file, steamid, scope) => call('demo:heat', file, steamid, scope),
+  profile: () => call('profile:get'),
+  mapHeat: (map, who) => call('map:heat', map, who),
+  getZoom: () => webFrame.getZoomFactor(),
+  setZoom: f => webFrame.setZoomFactor(f),
   renameDemo: (file, name) => call('demo:rename', file, name),
   record: (items, steamid) => call('record:start', items, steamid),
   cancelRecord: () => call('record:cancel'),

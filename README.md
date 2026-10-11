@@ -1,10 +1,13 @@
 # CS2 ClipMaker
 
-Turns your CS2 demos into highlight clips automatically. It reads each demo to find your
-**multi-kills (3K/4K/ace)**, **clutches** and **special kills** (no-scopes, wallbangs, through smoke,
-while flashed, knife, Zeus, collaterals). Then CS2 replays those moments from your point of view
-through [HLAE](https://www.advancedfx.org/), which records them in the background, and ffmpeg turns
-the recordings into clips and montages.
+Stats, replays and highlight clips from your CS2 demos, all on your PC. It reads each demo once and shows
+an **overview dashboard** of your play (K/D, rating, clutches, opening duels, maps, weapons, teammates),
+a **scoreboard, duels, heatmap and 2D replay** for every match, and **zoomable per-map heatmaps** of
+kills, deaths, damage and grenades across all your matches. It also finds your **multi-kills
+(3K/4K/ace)**, **clutches** and **special kills** (no-scopes, wallbangs, through smoke, while flashed,
+knife, Zeus, collaterals) and records them as clips: CS2 replays those moments through
+[HLAE](https://www.advancedfx.org/), which records them in the background, and ffmpeg turns the
+recordings into clips and montages.
 
 ## Setup
 
@@ -28,12 +31,36 @@ Then:
    quarantines it (HLAE injects into CS2), restore it or add an exclusion for that folder.
 3. The status panel at the bottom left should show CS2, Steam, ffmpeg and HLAE in green.
 
+## Overview
+
+The app opens on the **Overview**: your K/D and ≈ HLTV 2.0 rating (with how your last 10 matches compare),
+clutch success per 1v1…1v5, recent results, win rate, HS%, ADR, KAST, opening duels per side, your maps,
+a rating-per-match chart, your best weapons, multi-kills and utility, rounds won per side and the
+teammates you play with most. Filter it by mode (5v5, Wingman, Rush), map and period. Click a recent
+match or a point on the chart to open that match, or a map to open it in **Maps**.
+
+## Maps
+
+**Maps** lists every map you have demos of, with your record on it. Open one to see all of its matches
+on a single radar: kill and death locations, shots, damage dealt and taken, and smokes, flashes, HEs
+and molotovs, for **you** or for **everyone** in those matches, T side, CT side or both. **Dots** shows
+every single position and **Throw lines** connects each grenade to where it was thrown from (handy for
+lineups). Next to it: your win rate, rating, K/D, ADR and round win rate per side on that map, and your
+matches there.
+
+All radars (Maps, a match's heatmap and its 2D replay) zoom with the **mouse wheel** towards the cursor,
+**drag** to move around, and **double-click** (or the ⤢ button) shows the whole map again.
+
+The interface scales itself to the window: on a 2560 × 1440 screen everything is drawn about 20% larger
+than on 1920 × 1080. **Settings → Display** can set the size by hand.
+
 ## Making clips
 
 1. In CS2, download your matches from **Watch → Your Matches** (or let the **Downloads** tab do it,
    see below). They show up in ClipMaker automatically.
 2. **Close CS2.** Recording needs its own CS2 session started through HLAE.
-3. Pick a match on the left. The 2★-and-up highlights are pre-selected, and you can tick or untick any.
+3. Open a match in **Matches** and go to its **Highlights & clips** tab. The 2★-and-up highlights are
+   pre-selected, and you can tick or untick any.
 4. Click **Record**. CS2 opens in a window and plays the demo. **You can keep using your PC**, and you
    can put other windows over CS2 or minimize it (it renders more slowly when minimized). CS2 closes
    by itself when recording finishes.
@@ -42,21 +69,21 @@ Then:
 
 ## Match stats
 
-Each match has five tabs:
+Each match opens on its scoreboard and has five tabs:
 
-- **Highlights**: the clips to record (see above).
 - **Scoreboard**: K/D/A, ADR, HS%, KAST and an **≈ HLTV Rating 2.0** for every player. **Detailed** adds
   opening kills/deaths, multi-kill rounds, clutches, trade kills, utility damage, enemies flashed and
   flash assists. HLTV doesn't publish its rating formula, so the rating uses the widely used community
   reconstruction, which is usually within about ±0.02 of HLTV's number. Click a column to sort it, or a
-  player to see their highlights.
+  player to view the match (heatmap, highlights) as them.
 - **Duels**: who killed whom, for all kills or only each round's opening duel.
 - **Heatmap**: where the selected player got kills, died, shot from, dealt or took damage, and where
   their grenades landed, split into T side and CT side like csstats.gg. It can show this match or every
   analyzed match on the same map. Nuke, Train and Vertigo have a floor switch, and Rush zooms to one room.
-- **Radar**: a 2D replay of each round with players, view directions, health, weapons, smokes, fires,
+- **2D Replay**: a 2D replay of each round with players, view directions, health, weapons, smokes, fires,
   flashes, HE grenades, the bomb and a kill feed (Space: play/pause, ←/→: 5 seconds, ↑/↓: round). The
-  first time you open a match's radar, its player positions are read, which takes a few seconds.
+  first time you open a match's replay, its player positions are read, which takes a few seconds.
+- **Highlights & clips**: the clips to record (see above).
 
 To give a match a name in ClipMaker, double-click it in the list or click the pencil next to its
 title. The file keeps its own name.
@@ -65,7 +92,7 @@ title. The file keeps its own name.
 
 Demos are recognized by their content (size plus a hash of the first and last 256 KB), not by their
 file name. Renaming, moving or copying a demo, or a changed file date, never makes ClipMaker read it
-again. The results are stored in `%APPDATA%cs2-clipmakerdemo-data` along with custom names and demos
+again. The results are stored in `%APPDATA%\cs2-clipmaker\demo-data` along with custom names and demos
 that couldn't be read. The stored data is raw facts (kills, damage, shots, grenades with positions), and
 the stats are computed from it when shown, so a new stat or a formula change doesn't require reading
 the demos again. Demos are re-read only when a ClipMaker update changes what is extracted from them.
@@ -155,7 +182,8 @@ src/main.js              Electron main process, IPC
 src/lib/demo.js          Demo → rounds/rosters/kills/damage/shots/grenades (demoparser2, in a worker)
 src/lib/store.js         Content-based demo ids, parsed data, failures and custom names on disk
 src/lib/stats.js         Scoreboard (KAST, ≈Rating 2.0, trades, clutches…) and duels
-src/lib/heat.js          Heatmap points per player
+src/lib/heat.js          Heatmap points per player (or everyone), grenades with their throw spot
+src/lib/profile.js       Your per-match summary for the overview and the Maps page
 src/lib/track.js         Sampled player positions for the 2D replay
 src/lib/parser.js        Loads the vendored demo parser (or the npm one)
 src/lib/highlights.js    Multi-kill / clutch / special-kill detection, clip segments
