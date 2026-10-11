@@ -42,7 +42,8 @@ function buildMatchStats(core, events, mySteamId) {
     rounds: 0, kills: 0, deaths: 0, assists: 0, flashAssists: 0, teamKills: 0, hsKills: 0,
     damage: 0, utilityDamage: 0, kastRounds: 0, firstKills: 0, firstDeaths: 0,
     tradeKills: 0, tradedDeaths: 0, enemiesFlashed: 0, multi: { 2: 0, 3: 0, 4: 0, 5: 0 },
-    clutches: { won: 0, played: 0, best: 0 },
+    clutches: { won: 0, played: 0, best: 0, vs: { 1: [0, 0], 2: [0, 0], 3: [0, 0], 4: [0, 0], 5: [0, 0] } }, // vs: [won, played]
+    side: { T: { rounds: 0, won: 0, fk: 0, fd: 0 }, CT: { rounds: 0, won: 0, fk: 0, fd: 0 } },
   });
   for (const id of Object.keys(team)) st(id);
 
@@ -63,7 +64,12 @@ function buildMatchStats(core, events, mySteamId) {
     const died = new Set();
     const roundKills = {};
 
-    for (const id of Object.keys(roster)) st(id).rounds++;
+    for (const [id, p] of Object.entries(roster)) {
+      const s = st(id);
+      s.rounds++;
+      const side = s.side[p.team];
+      if (side) { side.rounds++; if (r.winner === p.team) side.won++; }
+    }
 
     let first = true;
     kills.forEach((k, i) => {
@@ -82,7 +88,8 @@ function buildMatchStats(core, events, mySteamId) {
       if (first) {
         first = false;
         a.firstKills++;
-        if (S[k.victim]) S[k.victim].firstDeaths++;
+        if (a.side[k.attackerTeam]) a.side[k.attackerTeam].fk++;
+        if (S[k.victim]) { S[k.victim].firstDeaths++; if (S[k.victim].side[k.victimTeam]) S[k.victim].side[k.victimTeam].fd++; }
         add(openings, k.attacker, k.victim);
       }
       if (k.assister && k.assisterTeam && k.assisterTeam !== k.victimTeam && S[k.assister]) {
@@ -122,8 +129,10 @@ function buildMatchStats(core, events, mySteamId) {
     for (const [side, c] of Object.entries(clutch)) {
       const s = S[c.id];
       if (!s) continue;
+      const vs = s.clutches.vs[Math.min(c.vs, 5)];
       s.clutches.played++;
-      if (r.winner === side) { s.clutches.won++; s.clutches.best = Math.max(s.clutches.best, c.vs); }
+      vs[1]++;
+      if (r.winner === side) { s.clutches.won++; vs[0]++; s.clutches.best = Math.max(s.clutches.best, c.vs); }
     }
   }
 
@@ -163,4 +172,4 @@ function buildMatchStats(core, events, mySteamId) {
   return { rounds: rounds.length, teams, duels, openings, me: myTeam ? mySteamId : null };
 }
 
-module.exports = { buildMatchStats, rating2 };
+module.exports = { buildMatchStats, rating2, enemyKill };

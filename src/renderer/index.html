@@ -12,12 +12,21 @@
       <div class="brand-mark">
         <svg viewBox="0 0 24 24"><path d="M4 6h11l5 6-5 6H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="10" cy="12" r="2.2" fill="currentColor"/></svg>
       </div>
-      <div><div class="brand-name">ClipMaker</div><div class="brand-sub">for Counter-Strike 2</div></div>
+      <div><div class="brand-name">ClipMaker</div><div class="brand-sub">CS2 stats · replays · clips</div></div>
     </div>
+    <div class="me-card" id="meCard"></div>
     <nav>
-      <button class="nav-btn active" data-view="matches">
-        <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 9h16M9 5v14" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Matches
+      <div class="nav-label">Analyze</div>
+      <button class="nav-btn active" data-view="overview">
+        <svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-4H4zM14 4v4h6V4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>Overview
       </button>
+      <button class="nav-btn" data-view="matches">
+        <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 9h16M9 5v14" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Matches<span class="nav-count" id="matchCount"></span>
+      </button>
+      <button class="nav-btn" data-view="maps">
+        <svg viewBox="0 0 24 24"><path d="M3 6.5l6-2.5 6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5zM9 4v13.5M15 6.5V20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>Maps
+      </button>
+      <div class="nav-label">Create</div>
       <button class="nav-btn" data-view="clips">
         <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor"/></svg>Clips<span class="nav-count" id="clipCount"></span>
       </button>
@@ -32,10 +41,12 @@
   </aside>
 
   <main>
-    <section class="view active" id="view-matches">
+    <section class="view active" id="view-overview"></section>
+
+    <section class="view" id="view-matches">
       <div class="demo-list">
         <div class="list-head">
-          <input id="demoSearch" type="search" placeholder="Search demos or maps…">
+          <input id="demoSearch" type="search" placeholder="Search matches or maps…">
           <button class="icon-btn" id="refreshDemos" title="Rescan demo folders">
             <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
           </button>
@@ -46,6 +57,7 @@
       <div class="detail" id="detail"></div>
     </section>
 
+    <section class="view" id="view-maps"></section>
     <section class="view" id="view-clips"></section>
     <section class="view" id="view-downloads"></section>
     <section class="view" id="view-settings"></section>

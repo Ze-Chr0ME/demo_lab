@@ -5,6 +5,7 @@
 //   index.json        path|size|mtime -> demo id, so ids don't need re-hashing on every scan
 //   names.json        demo id -> custom name shown in the UI
 //   failures.json     demo id -> { version, map, error } for demos the parser rejected
+//   derived.json      demo id|steamid -> per-player match summary (overview), rebuilt when its version changes
 //   <id>.json         core data: rounds, rosters, kills (highlights, lists, duplicate detection)
 //   <id>.events.json  damage, shots, flashes, grenades, bomb (scoreboard, heatmap)
 //   <id>.track.bin    sampled player positions for the 2D replay, built on first use
@@ -57,13 +58,14 @@ class DemoStore {
     this.index = new JsonFile(path.join(this.dir, 'index.json'));
     this.names = new JsonFile(path.join(this.dir, 'names.json'));
     this.failures = new JsonFile(path.join(this.dir, 'failures.json'));
+    this.derivedFile = new JsonFile(path.join(this.dir, 'derived.json'));
     this.core = new Map();   // id -> core data (small, all demos stay in memory)
     this.events = new Map(); // id -> events data (bigger, only the last few)
     // The previous cache was keyed by file path; its contents are superseded by demo-data.
     fs.rm(path.join(userData, 'demo-cache'), { recursive: true, force: true }, () => {});
   }
 
-  flush() { this.index.flush(); this.names.flush(); this.failures.flush(); }
+  flush() { this.index.flush(); this.names.flush(); this.failures.flush(); this.derivedFile.flush(); }
 
   idOf(file, st = fs.statSync(file)) {
     const key = `${file.toLowerCase()}|${st.size}|${st.mtimeMs}`;
@@ -115,6 +117,13 @@ class DemoStore {
     return f && f.version === this.version ? f : null;
   }
   setFailure(id, info) { this.failures.set(id, { version: this.version, ...info }); }
+
+  // Values computed from the stored facts, so they are never stale: the key includes both versions.
+  derived(key, version) {
+    const v = this.derivedFile.get(key);
+    return v && v.v === `${this.version}.${version}` ? v.value : undefined;
+  }
+  setDerived(key, version, value) { this.derivedFile.set(key, { v: `${this.version}.${version}`, value }); }
 
   name(id) { return this.names.get(id) || null; }
   setName(id, name) { this.names.set(id, (name || '').trim().slice(0, 80) || undefined); }
