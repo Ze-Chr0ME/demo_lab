@@ -40,6 +40,41 @@ Then:
 5. Your clips show up in the **Clips** tab and are saved to `Videos\CS2 Clips`. Click clips in the
    order you want, then click **Create montage**.
 
+## Match stats
+
+Each match has five tabs:
+
+- **Highlights**: the clips to record (see above).
+- **Scoreboard**: K/D/A, ADR, HS%, KAST and an **≈ HLTV Rating 2.0** for every player. **Detailed** adds
+  opening kills/deaths, multi-kill rounds, clutches, trade kills, utility damage, enemies flashed and
+  flash assists. HLTV doesn't publish its rating formula, so the rating uses the widely used community
+  reconstruction, which is usually within about ±0.02 of HLTV's number. Click a column to sort it, or a
+  player to see their highlights.
+- **Duels**: who killed whom, for all kills or only each round's opening duel.
+- **Heatmap**: where the selected player got kills, died, shot from, dealt or took damage, and where
+  their grenades landed, split into T side and CT side like csstats.gg. It can show this match or every
+  analyzed match on the same map. Nuke, Train and Vertigo have a floor switch, and Rush zooms to one room.
+- **Radar**: a 2D replay of each round with players, view directions, health, weapons, smokes, fires,
+  flashes, HE grenades, the bomb and a kill feed (Space: play/pause, ←/→: 5 seconds, ↑/↓: round). The
+  first time you open a match's radar, its player positions are read, which takes a few seconds.
+
+To give a match a name in ClipMaker, double-click it in the list or click the pencil next to its
+title. The file keeps its own name.
+
+### Each demo is read only once
+
+Demos are recognized by their content (size plus a hash of the first and last 256 KB), not by their
+file name. Renaming, moving or copying a demo, or a changed file date, never makes ClipMaker read it
+again. The results are stored in `%APPDATA%cs2-clipmakerdemo-data` along with custom names and demos
+that couldn't be read. The stored data is raw facts (kills, damage, shots, grenades with positions), and
+the stats are computed from it when shown, so a new stat or a formula change doesn't require reading
+the demos again. Demos are re-read only when a ClipMaker update changes what is extracted from them.
+
+The radar images come from CS2's own files and are bundled in `src/renderer/radar`. After Valve changes
+a map, regenerate them with `node scripts/extract-radars.js <Source2Viewer-CLI.exe> <...gamecsgo>`
+(Source2Viewer's `cli-windows-x64.zip` from
+[its releases](https://github.com/ValveResourceFormat/ValveResourceFormat/releases)).
+
 ## How recording works
 
 - ClipMaker starts CS2 in a window through HLAE with `-insecure` (no VAC servers) and `-afxFixNetCon`
@@ -117,7 +152,11 @@ To rebuild it: install Rust, clone LaihoE/demoparser, apply the patch, make
 
 ```
 src/main.js              Electron main process, IPC
-src/lib/demo.js          Demo → rounds/rosters/kills (demoparser2, runs in a worker)
+src/lib/demo.js          Demo → rounds/rosters/kills/damage/shots/grenades (demoparser2, in a worker)
+src/lib/store.js         Content-based demo ids, parsed data, failures and custom names on disk
+src/lib/stats.js         Scoreboard (KAST, ≈Rating 2.0, trades, clutches…) and duels
+src/lib/heat.js          Heatmap points per player
+src/lib/track.js         Sampled player positions for the 2D replay
 src/lib/parser.js        Loads the vendored demo parser (or the npm one)
 src/lib/highlights.js    Multi-kill / clutch / special-kill detection, clip segments
 src/lib/hlae.js          Starting CS2 through HLAE, console port, HLAE updates
@@ -125,5 +164,6 @@ src/lib/recorder.js      Playback + recording orchestration
 src/lib/ffmpeg.js        Mux, join, montage, thumbnails
 src/lib/matches.js       Match downloads (gcWorker.js: Valve's list, community.js: Steam Community)
 src/lib/steam.js         Finding Steam, CS2 and the logged-in account
-src/renderer/            UI
+src/renderer/            UI (radar/: bundled radar images and their world coordinates)
+scripts/extract-radars.js  Regenerates src/renderer/radar from a CS2 install
 ```
