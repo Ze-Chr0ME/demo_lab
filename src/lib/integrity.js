@@ -1,6 +1,6 @@
 // Aim and game-sense anomalies per player, the raw material of the Integrity tab. Built in a worker
 // the first time a match's Integrity tab is opened (one extra pass over every tick of the demo,
-// about 10 seconds), then read from <id>.integrity.json.
+// about 6 seconds for a 5v5 match), then read from <id>.integrity.json.
 //
 // What a demo tells us, per player and tick: the view angles the client sent, the mouse movement of
 // the last input frame of that tick (already multiplied by the player's sensitivity: one unit turns
@@ -12,39 +12,41 @@
 // they are is decided by scoreIntegrity() at read time, so thresholds can change without reading the
 // demo again. Nothing here proves cheating: these are moments worth watching.
 const path = require('path');
+const os = require('os');
 const { Worker } = require('worker_threads');
 const parser = require('./parser');
 const { AimCollector } = require('./aim');
+const { ALIVE, CT, T, FORCED, SCOPED, DUCK, NOCMD, AIR, VIS_STEP, BODY, wrap, tickArrays, tickView, castRays, spot, startSight } = require('./sight');
 
 const INTEGRITY_VERSION = 2;
 const SPOT_MEMORY = 128;      // an enemy the team saw (or had on the radar) in the last 2 s counts as known
-const VIS_STEP = 2;           // line of sight is checked every 2 ticks
 const HIDDEN_STEP = 4;        // crosshair-on-hidden-enemy sampling, every 4 ticks
 const MAX_DIST = 3000;        // ignore enemies further away than this
-const FOV = 55;               // degrees from the crosshair a player notices an enemy within (106° wide view)
 const SNAP_MIN = 8;           // degrees the view turns within 2 ticks to count as a snap
 const STEP_RANGE = 1300;      // footsteps tell where an enemy is within this distance…
 const SHOT_RANGE = 2500;      // …gunshots within this one
 const LIST_MAX = 60;          // moments kept per kind and player
 const NOT_GUNS = /grenade|flashbang|molotov|incgrenade|inferno|decoy|knife|bayonet|c4|taser|world/;
-// Points on the target checked for line of sight: [sideways offset × 14 units, height]
-const BODY = [[0, 62], [0, 45], [0, 20], [1, 50], [-1, 50]];
-
-// flags: 1 alive, 2 CT, 4 T, 8 server set the view angles, 16 scoped, 32 crouching, 64 no usercmd, 128 in the air
-const ALIVE = 1, CT = 2, T = 4, FORCED = 8, SCOPED = 16, DUCK = 32, NOCMD = 64, AIR = 128;
+// Player flags, line of sight and the per player, per tick arrays are in sight.js.
 const PROPS = ['X', 'Y', 'Z', 'usercmd_viewangle_x', 'usercmd_viewangle_y', 'usercmd_mouse_dx', 'usercmd_mouse_dy', 'is_alive', 'team_num', 'ducking',
   'usercmd_consumed_server_angle_changes', 'approximate_spotted_by', 'is_scoped', 'is_airborne'];
-// Per player, per tick arrays, in shared memory so a helper thread can fill part of the ticks.
-const LAYOUT = [['x', Float32Array, NaN], ['y', Float32Array, NaN], ['z', Float32Array, NaN], ['pitch', Float32Array, NaN], ['yaw', Float32Array, NaN],
-  ['mouse', Float32Array, 0], ['flags', Uint8Array, 0], ['spottedBy', Uint32Array, 0]];
-const SPLIT_MIN = 20000; // live ticks from which reading them with two parsers at once pays off
+const SPLIT_MIN = 20000; // live ticks from which reading them with several parsers at once pays off
+const SPLIT_MAX = 4;     // parsers at once; more don't read faster (1: 12.9 s, 2: 7.6 s, 4: 5.7 s, 6: 5.8 s on a 5v5 match)
 
-const wrap = d => ((d + 540) % 360) - 180;
-const deg = r => r * 180 / Math.PI;
 const r1 = v => Math.round(v * 10) / 10;
 
 // geometry: a MapGeometry for core.map, or null to fall back on radar spotting.
-function extractIntegrity(file, core, { geometry = null, onProgress = () => {} } = {}) {
+function extractIntegrity(file, core, opts = {}) {
+  const threads = [];
+  try {
+    return measure(file, core, opts, threads);
+  } finally {
+    for (const w of threads) w.close();
+  }
+}
+
+// threads: every helper thread started here, stopped once done (or failed).
+function measure(file, core, { geometry = null, onProgress = () => {} }, threads) {
   const tr = core.tickrate || 64;
   const rounds = core.rounds.filter(r => r.endTick > r.freezeEndTick);
   if (!rounds.length) throw new Error('No rounds in this demo');
@@ -61,16 +63,26 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
   if (N > 32) throw new Error('Too many players for the integrity check');
   const { P, buffers } = tickArrays(N, maxTick);
   onProgress(0.02);
-  // The second half of the match is read by a helper thread at the same time (each parser only
-  // decodes what the ticks it is asked for need, so two halves take about 2/3 of the time of one whole).
-  const split = liveTicks.length >= SPLIT_MIN ? liveTicks.length >> 1 : liveTicks.length;
-  const helper = split < liveTicks.length ? startTickHelper(file, ids, liveTicks.slice(split), maxTick, buffers) : null;
-  readTicks(file, ids, helper ? liveTicks.slice(0, split) : liveTicks, P);
-  if (helper && !helper.join()) readTicks(file, ids, liveTicks.slice(split), P);
-  onProgress(0.7);
+  // Long matches are read in up to SPLIT_MAX parts by helper threads at once (each parser only decodes
+  // what the ticks it is asked for need, so 4 parts take less than half the time of one whole) while
+  // this thread reads the events. Line of sight is worked out by a pool of threads as soon as each part
+  // is in (sight.js).
+  const parts = splitTicks(liveTicks.length);
+  const ready = new Int32Array(new SharedArrayBuffer(4 * parts.length)); // per part: 0 reading, 1 done, 2 failed
+  let sight = geometry ? startSight({ geometry, P, buffers, N, maxTick, ticks: liveTicks, parts, ready }) : null;
+  if (sight) threads.push(sight);
+  const helpers = parts.length > 1 ? parts.map(([a, b], k) => startTickHelper(file, ids, liveTicks.slice(a, b), maxTick, buffers, ready, k)) : [];
+  for (const h of helpers) if (h) threads.push(h);
 
   // ---- events: shots and footsteps (what an enemy gives away by sound), hits and kills
   const events = parser.parseEvents(file, ['weapon_fire', 'player_footstep', 'player_hurt', 'player_death'], [], []).filter(e => e.tick < maxTick);
+  parts.forEach(([a, b], k) => {
+    if (helpers[k]?.join()) return;
+    readTicks(file, ids, liveTicks.slice(a, b), P);
+    Atomics.store(ready, k, 1);
+    Atomics.notify(ready, k);
+  });
+  onProgress(0.7);
   const fired = ids.map(() => new Uint8Array(maxTick));
   const stepped = ids.map(() => new Uint8Array(maxTick));
   const shotTicks = ids.map(() => []);
@@ -88,25 +100,12 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
     damageAt.get(e.tick).push(e);
   }
 
-  const alive = (p, t) => P[p].flags[t] & ALIVE;
-  const side = (p, t) => P[p].flags[t] & (CT | T);
-  const enemies = (p, q, t) => q !== p && side(q, t) && side(p, t) && side(q, t) !== side(p, t);
-  const hasCmd = (p, t) => !(P[p].flags[t] & NOCMD) && !Number.isNaN(P[p].yaw[t]);
-  const eye = (a, t) => a.z[t] + (a.flags[t] & DUCK ? 46 : 64);
-
-  // Angular distance from p's crosshair to q's upper body, and where q is as seen from p.
-  function aim(p, q, t) {
-    const a = P[p], b = P[q];
-    const dx = b.x[t] - a.x[t], dy = b.y[t] - a.y[t], dz = b.z[t] + (b.flags[t] & DUCK ? 38 : 50) - eye(a, t);
-    const dist = Math.hypot(dx, dy, dz);
-    const yawTo = deg(Math.atan2(dy, dx)), pitchTo = -deg(Math.asin(dz / dist));
-    const err = Math.hypot(wrap(yawTo - a.yaw[t]) * Math.cos(pitchTo * Math.PI / 180), pitchTo - a.pitch[t]);
-    // "On" the enemy: within their silhouette (about 40 units wide), and never stricter than 2.5°.
-    return { err, dist, yawTo, pitchTo, thr: Math.max(2.5, 1.5 * deg(Math.atan2(20, dist))) };
-  }
+  const view = tickView(P);
+  const { alive, side, enemies, hasCmd, aim } = view;
 
   // Can p see any part of q (walls only: smokes, doors and view direction are not considered)?
-  // Cached per tick; without map geometry the radar spotting decides.
+  // Cached per tick; without map geometry the radar spotting decides. During the pass, the answers
+  // at check ticks come from the sight pool.
   const losCache = new Int8Array(N * N);
   const wallHint = new Int32Array(N * N * BODY.length).fill(-1); // per ray (eye of p, a body point of q): the triangle that last blocked it
   let losTick = -1;
@@ -115,15 +114,8 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
     if (losTick !== t) { losCache.fill(-1); losTick = t; }
     const k = p * N + q;
     if (losCache[k] >= 0) return losCache[k] === 1;
-    const a = P[p], b = P[q];
-    const ex = a.x[t], ey = a.y[t], ez = eye(a, t);
-    const dx = b.x[t] - ex, dy = b.y[t] - ey, L = Math.hypot(dx, dy) || 1, sx = -dy / L * 14, sy = dx / L * 14;
-    const h = b.flags[t] & DUCK ? 0.75 : 1;
-    let v = 0;
-    for (let j = 0; j < BODY.length; j++) {
-      const [s, z] = BODY[j];
-      if (!geometry.blocked(ex, ey, ez, b.x[t] + s * sx, b.y[t] + s * sy, b.z[t] + z * h, wallHint, k * BODY.length + j)) { v = 1; break; }
-    }
+    let v = sight && t % VIS_STEP === 0 ? sight.get(p, q, t) : -1;
+    if (v < 0) v = castRays(geometry, P, N, p, q, t, wallHint);
     losCache[k] = v;
     losCache[q * N + p] = v; // eye-to-body is close enough to symmetric for "could they see each other"
     return v === 1;
@@ -173,16 +165,7 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
     // What each team knew about each enemy before this tick, then what they learn now: an enemy on
     // their radar, or in sight of (and in front of) someone on the team.
     const knownBefore = check || damageAt.has(t) ? ids.map((_, q) => ({ [CT]: lastSeen[q][CT], [T]: lastSeen[q][T] })) : null;
-    if (check) for (let q = 0; q < N; q++) {
-      if (!alive(q, t)) continue;
-      const m = P[q].spottedBy[t];
-      for (let p = 0; p < N; p++) {
-        if (!alive(p, t) || !enemies(p, q, t)) continue;
-        const team = side(p, t);
-        if (lastSeen[q][team] === t) continue;
-        if ((m >>> p) & 1 || (hasCmd(p, t) && aim(p, q, t).err < FOV && los(p, q, t))) lastSeen[q][team] = t;
-      }
-    }
+    if (check) spot(view, P, N, t, los, (q, team) => { lastSeen[q][team] = t; });
 
     for (let p = 0; p < N; p++) {
       const a = P[p], o = out[p];
@@ -275,20 +258,19 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
     }
   }
 
+  // The pool's answers were for the pass; aim.js casts its own rays.
+  if (sight) { sight.close(); sight = null; }
+
   const players = {};
   ids.forEach((id, p) => { players[id] = { ratio: r1(ratio[p]), ...out[p] }; });
   const aimFacts = { ...aimc.finish(events, maxTick), los: !!geometry };
   return { version: INTEGRITY_VERSION, tickrate: tr, liveTicks: total, los: !!geometry, players, aim: aimFacts };
 }
 
-function tickArrays(N, maxTick, shared = null) {
-  const buffers = shared || Array.from({ length: N }, () => LAYOUT.map(([, Type]) => new SharedArrayBuffer(Type.BYTES_PER_ELEMENT * maxTick)));
-  const P = buffers.map(b => Object.fromEntries(LAYOUT.map(([k, Type, fill], i) => {
-    const a = new Type(b[i]);
-    if (!shared && fill !== 0) a.fill(fill);
-    return [k, a];
-  })));
-  return { P, buffers };
+// [from, to) index ranges of the live ticks, one per parser: up to SPLIT_MAX, at most one per two cores.
+function splitTicks(n) {
+  const k = n >= SPLIT_MIN ? Math.max(1, Math.min(SPLIT_MAX, os.availableParallelism() >> 1)) : 1;
+  return Array.from({ length: k }, (_, i) => [Math.floor(n * i / k), Math.floor(n * (i + 1) / k)]);
 }
 
 // Reads the given ticks into P. One call, as columns: no JS object per row (3× faster than chunks of rows).
@@ -310,38 +292,39 @@ function readTicks(file, ids, ticks, P) {
   }
 }
 
-// A thread that reads some ticks into the shared arrays (parseWorker.js, mode 'ticks'). join() blocks
-// until it is done and says whether it worked; if not, the caller reads those ticks itself. The ticks
-// of the two threads never overlap, so they write to different places of the arrays.
-function startTickHelper(file, ids, ticks, maxTick, buffers) {
-  const flag = new Int32Array(new SharedArrayBuffer(4)); // 0 working, 1 done, 2 failed
+// A thread that reads some ticks into the shared arrays (parseWorker.js, mode 'ticks') and sets
+// ready[k] when done: 1 worked, 2 failed. join() blocks until then and says whether it worked; if not,
+// the caller reads those ticks itself. The ticks of the threads never overlap, so they write to
+// different places of the arrays.
+function startTickHelper(file, ids, ticks, maxTick, buffers, ready, k) {
   let w;
   try {
-    w = new Worker(path.join(__dirname, 'parseWorker.js'), { workerData: { mode: 'ticks', file, ids, ticks, maxTick, buffers, flag: flag.buffer } });
+    w = new Worker(path.join(__dirname, 'parseWorker.js'), { workerData: { mode: 'ticks', file, ids, ticks, maxTick, buffers, ready: ready.buffer, k } });
     w.unref();
     w.on('error', () => {});
   } catch { return null; }
   return {
     join() {
       // The event loop is blocked meanwhile, so the helper reports through the flag, never by message.
-      while (Atomics.load(flag, 0) === 0) if (Atomics.wait(flag, 0, 0, 10 * 60000) === 'timed-out') break;
-      const ok = Atomics.load(flag, 0) === 1;
+      while (Atomics.load(ready, k) === 0) if (Atomics.wait(ready, k, 0, 10 * 60000) === 'timed-out') break;
+      const ok = Atomics.load(ready, k) === 1;
       if (!ok) w.terminate();
       return ok;
     },
+    close() { w.terminate(); },
   };
 }
 
 // parseWorker.js, mode 'ticks': the helper's side.
-function tickHelper({ file, ids, ticks, maxTick, buffers, flag }) {
-  const f = new Int32Array(flag);
+function tickHelper({ file, ids, ticks, maxTick, buffers, ready, k }) {
+  const f = new Int32Array(ready);
   try {
     readTicks(file, ids, ticks, tickArrays(ids.length, maxTick, buffers).P);
-    Atomics.store(f, 0, 1);
+    Atomics.store(f, k, 1);
   } catch {
-    Atomics.store(f, 0, 2);
+    Atomics.store(f, k, 2);
   }
-  Atomics.notify(f, 0);
+  Atomics.notify(f, k);
 }
 
 function closeTrack(o, tk, target) {

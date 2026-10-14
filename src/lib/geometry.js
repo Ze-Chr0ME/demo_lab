@@ -82,6 +82,21 @@ class MapGeometry {
     this.stack = new Int32Array(128);
   }
 
+  // The triangles and the tree moved to shared memory, for fromShared() in worker threads.
+  share() {
+    const move = a => { if (a.buffer instanceof SharedArrayBuffer) return a; const s = new a.constructor(new SharedArrayBuffer(a.byteLength)); s.set(a); return s; };
+    this.tri = move(this.tri); this.box = move(this.box); this.node = move(this.node);
+    return { triangles: this.triangles, tri: this.tri.buffer, box: this.box.buffer, node: this.node.buffer };
+  }
+
+  static fromShared({ triangles, tri, box, node }) {
+    const g = Object.create(MapGeometry.prototype);
+    g.triangles = triangles;
+    g.tri = new Float32Array(tri); g.box = new Float32Array(box); g.node = new Int32Array(node);
+    g.stack = new Int32Array(128);
+    return g;
+  }
+
   // True when a wall (any triangle) crosses the segment from A to B. hints[slot], when given, is a
   // triangle to try first and is set to the one found: rays from one player to another hit the same
   // wall from tick to tick, so most blocked rays end after a single triangle test instead of a walk

@@ -9,6 +9,8 @@
 // header.players order, one REC-byte record:
 //   int16 x, int16 y, int16 z, uint8 yaw (0-255 = 0-360°), uint8 health, uint8 weapon (index into
 //   header.weapons, 255 = none), uint8 flags (1 = present, 2 = alive, 4 = CT)
+const path = require('path');
+const { Worker, MessageChannel, receiveMessageOnPort } = require('worker_threads');
 const parser = require('./parser');
 
 const TRACK_VERSION = 2;
@@ -27,6 +29,16 @@ function extractTrack(file, core) {
   const first = core.rounds[0]?.startTick ?? 0;
   const lastRound = core.rounds.at(-1);
   const last = lastRound ? (lastRound.nextStartTick ?? lastRound.endTick + 5 * core.tickrate) : first;
+  // Reading the grenades takes most of the time: a helper thread does it while this one reads the rest.
+  const flights = startFlights(file, first, last);
+  try {
+    return readTrack(file, core, first, last, flights);
+  } finally {
+    flights?.close();
+  }
+}
+
+function readTrack(file, core, first, last, flights) {
   const ticks = [];
   for (let t = first; t <= last; t += STEP) ticks.push(t);
 
@@ -57,11 +69,11 @@ function extractTrack(file, core) {
     buf[o + 8] = w;
     buf[o + 9] = 1 | (r.is_alive ? 2 : 0) | (r.team_num === 3 ? 4 : 0);
   }
-  const extra = extractExtra(file, core, first, last, index);
+  const extra = extractExtra(file, core, first, last, index, flights);
   return { header: { version: TRACK_VERSION, step: STEP, rec: REC, firstTick: first, samples: ticks.length, players, weapons, extra }, data: buf };
 }
 
-function extractExtra(file, core, first, last, index) {
+function extractExtra(file, core, first, last, index, flights) {
   const events = parser.parseEvents(file,
     ['weapon_fire', 'player_jump', 'bomb_beginplant', 'bomb_begindefuse', 'bomb_pickup', 'bomb_dropped', 'server_cvar'],
     ['X', 'Y', 'Z', 'pitch', 'yaw'], []);
@@ -99,13 +111,31 @@ function extractExtra(file, core, first, last, index) {
     ...(e.event_name === 'bomb_begindefuse' ? { kit: !!e.haskit } : {}),
   }));
 
-  return { timers, shots, nades: grenadePaths(file, first, last, throws, jumps), bomb };
+  const moves = movementAround(file, throws);
+  return { timers, shots, nades: grenadePaths(file, first, last, throws, jumps, flights, moves), bomb };
 }
 
 // Every thrown grenade's flight from the parser's per-tick projectile positions, matched to the
-// throw (weapon_fire) it came from, with how the player threw it.
-function grenadePaths(file, first, last, throws, jumps) {
-  const rows = parser.parseGrenades(file).filter(r => PROJECTILES[r.grenade_type] && r.x != null && r.tick >= first && r.tick <= last);
+// throw (weapon_fire) it came from, with how the player threw it (moves: from movementAround).
+function grenadePaths(file, first, last, throws, jumps, flights, moves) {
+  const nades = [];
+  for (const f of flights?.join() || flightsOf(parser.parseGrenades(file), first, last)) {
+    let from = null;
+    for (let i = throws.length - 1; i >= 0; i--) {
+      const t = throws[i];
+      if (t.used || t.steamid !== f.steamid || t.type !== f.type || t.tick > f.t0) continue;
+      if (f.t0 - t.tick <= 96) { t.used = true; from = t; }
+      break;
+    }
+    nades.push({ type: f.type, thrower: f.steamid || null, entity: f.entity, t0: f.t0, t1: f.t1, path: f.path, throw: from && throwInfo(from, jumps) });
+  }
+  addMovement(nades, moves);
+  return nades;
+}
+
+// The flights in the parser's grenade rows, in the order they were thrown: { type, steamid, entity, t0, t1, path }.
+function flightsOf(grenades, first, last) {
+  const rows = grenades.filter(r => PROJECTILES[r.grenade_type] && r.x != null && r.tick >= first && r.tick <= last);
   rows.sort((a, b) => a.grenade_entity_id - b.grenade_entity_id || a.tick - b.tick);
 
   // Entity ids get reused: a gap in the ticks starts a new projectile.
@@ -119,7 +149,7 @@ function grenadePaths(file, first, last, throws, jumps) {
     cur.rows.push(r);
   }
 
-  const nades = [];
+  const out = [];
   for (const f of flights.sort((a, b) => a.rows[0].tick - b.rows[0].tick)) {
     // Smokes and decoys keep their entity after landing: cut the path where it stopped moving.
     let end = f.rows.length - 1;
@@ -138,18 +168,43 @@ function grenadePaths(file, first, last, throws, jumps) {
       const bounce = prev && next && ((r.x - prev.x) * (next.x - r.x) + (r.y - prev.y) * (next.y - r.y) + (r.z - prev.z) * (next.z - r.z)) < 0;
       if (i % PATH_STEP === 0 || i === pts.length - 1 || bounce) path.push(r.tick - t0, ri(r.x), ri(r.y), ri(r.z));
     });
-
-    let from = null;
-    for (let i = throws.length - 1; i >= 0; i--) {
-      const t = throws[i];
-      if (t.used || t.steamid !== f.steamid || t.type !== f.type || t.tick > t0) continue;
-      if (t0 - t.tick <= 96) { t.used = true; from = t; }
-      break;
-    }
-    nades.push({ type: f.type, thrower: f.steamid || null, entity: f.entity, t0, t1: pts.at(-1).tick, path, throw: from && throwInfo(from, jumps) });
+    out.push({ type: f.type, steamid: f.steamid, entity: f.entity, t0, t1: pts.at(-1).tick, path });
   }
-  addMovement(file, nades);
-  return nades;
+  return out;
+}
+
+// A thread that reads the grenades and works out their flights (parseWorker.js, mode 'flights').
+// join() blocks until it is done and returns the flights, or null if it failed (the caller then reads
+// them itself).
+function startFlights(file, first, last) {
+  const flag = new Int32Array(new SharedArrayBuffer(4)); // 0 working, 1 done, 2 failed
+  const { port1, port2 } = new MessageChannel();
+  let w;
+  try {
+    w = new Worker(path.join(__dirname, 'parseWorker.js'), { workerData: { mode: 'flights', file, first, last, port: port2, flag: flag.buffer }, transferList: [port2] });
+    w.unref();
+    w.on('error', () => {});
+  } catch { return null; }
+  return {
+    join() {
+      // The event loop is blocked meanwhile: the result comes through the port, read without it.
+      while (Atomics.load(flag, 0) === 0) if (Atomics.wait(flag, 0, 0, 10 * 60000) === 'timed-out') break;
+      return Atomics.load(flag, 0) === 1 ? receiveMessageOnPort(port1)?.message || null : null;
+    },
+    close() { w.terminate(); port1.close(); },
+  };
+}
+
+// parseWorker.js, mode 'flights': the helper's side.
+function flightsHelper({ file, first, last, port, flag }) {
+  const f = new Int32Array(flag);
+  try {
+    port.postMessage(flightsOf(parser.parseGrenades(file), first, last));
+    Atomics.store(f, 0, 1);
+  } catch {
+    Atomics.store(f, 0, 2);
+  }
+  Atomics.notify(f, 0);
 }
 
 function throwInfo(t, jumps) {
@@ -163,14 +218,20 @@ function throwInfo(t, jumps) {
 
 // Buttons and movement around each throw: which mouse buttons were held (throw strength), which
 // movement keys, crouching, in the air, and the speed.
-function addMovement(file, nades) {
-  const thrown = nades.filter(n => n.throw);
-  if (!thrown.length) return;
-  const want = new Set();
-  for (const n of thrown) for (let d = -4; d <= 0; d++) want.add(n.throw.tick + d);
-  const props = ['X', 'Y', 'FIRE', 'RIGHTCLICK', 'FORWARD', 'BACK', 'LEFT', 'RIGHT', 'JUMP', 'is_walking', 'ducking', 'is_airborne'];
+// The ticks around every throw are read before the grenades are matched to their throws (while the
+// helper still reads the grenades), so a few unmatched throws get read for nothing.
+function movementAround(file, throws) {
   const byKey = new Map();
+  if (!throws.length) return byKey;
+  const want = new Set();
+  for (const t of throws) for (let d = -4; d <= 0; d++) want.add(t.tick + d);
+  const props = ['X', 'Y', 'FIRE', 'RIGHTCLICK', 'FORWARD', 'BACK', 'LEFT', 'RIGHT', 'JUMP', 'is_walking', 'ducking', 'is_airborne'];
   for (const r of parser.parseTicks(file, props, [...want].sort((a, b) => a - b))) byKey.set(`${r.tick}|${r.steamid}`, r);
+  return byKey;
+}
+
+function addMovement(nades, byKey) {
+  const thrown = nades.filter(n => n.throw);
   for (const n of thrown) {
     const t = n.throw.tick;
     const at = d => byKey.get(`${t + d}|${n.thrower}`);
@@ -200,4 +261,4 @@ function unpackTrack(buf) {
   return { header, data: buf.subarray(4 + n) };
 }
 
-module.exports = { extractTrack, packTrack, unpackTrack };
+module.exports = { extractTrack, packTrack, unpackTrack, flightsHelper };
