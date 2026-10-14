@@ -12,18 +12,24 @@ const { assignTeams } = require('./stats');
 const METERS = 0.0254; // one Hammer unit is an inch
 const dist = (a, b) => (a && b ? Math.round(Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) * METERS * 10) / 10 : null);
 const enemy = (a, at, vt) => a && at && vt && at !== vt;
+// player_hurt names some guns by their base item (the M4A1-S as m4a1, the USP-S as hkp2000, the MP5-SD as
+// mp7, the R8 as deagle). weapon_fire has the real one, always on the same tick as the hit.
+const BASE_OF = { m4a1: 'm4a1_silencer', hkp2000: 'usp_silencer', mp7: 'mp5sd', deagle: 'revolver' };
 
 function buildWeapons(core, events) {
   const { team, sideOfA } = assignTeams(core.rounds);
   const sideOf = {};   // `${round}|${steamid}` -> side, for shots (weapon_fire rows carry no team)
   for (const r of core.rounds) for (const [id, p] of Object.entries(r.roster)) sideOf[`${r.num}|${id}`] = p.team;
 
+  const fired = new Map(); // `${tick}|${steamid}` -> weapon, only for the guns player_hurt misnames
+  for (const [tick, , id, , , , w] of events.shots) if (Object.values(BASE_OF).includes(w)) fired.set(`${tick}|${id}`, w);
   const hits = [], shotHit = new Set();
   for (const d of events.damage) {
     if (!enemy(d.attacker, d.attackerTeam, d.victimTeam) || d.attacker === d.victim || !d.weapon) continue;
     const shot = `${d.tick}|${d.attacker}`, first = shotHit.has(shot) ? 0 : 1;
     shotHit.add(shot);
-    hits.push([d.round, d.attacker, d.attackerTeam, d.weapon, d.hitgroup || 'generic', d.dmg, dist(d.attackerPos, d.victimPos), first]);
+    const weapon = BASE_OF[d.weapon] && fired.get(shot) === BASE_OF[d.weapon] ? BASE_OF[d.weapon] : d.weapon;
+    hits.push([d.round, d.attacker, d.attackerTeam, weapon, d.hitgroup || 'generic', d.dmg, dist(d.attackerPos, d.victimPos), first]);
   }
   const kills = [];
   for (const k of core.kills) {

@@ -398,6 +398,48 @@ function aimSummaryOf(id, steamid) {
   return value;
 }
 
+// A player's weapon numbers in one demo for the Aim page, per side and weapon (from the Weapons tab rows),
+// also kept in derived.json. null when they didn't play in it, undefined when it isn't parsed yet.
+//   rows: [side, weapon, kills, hs, wall, smoke, noscope, blind, air, distSum, distN, dmg, hits, bodyHits,
+//          headHits, shotHits, shots, groups {hitgroup: [hits, dmg]}]
+const WEAPON_SUM_VERSION = 1;
+function weaponTotalsOf(id, steamid) {
+  const key = `wpn|${id}|${steamid}`;
+  const cached = store.derived(key, WEAPON_SUM_VERSION);
+  if (cached !== undefined) return cached;
+  const core = store.readCore(id), events = core && store.readEvents(id);
+  if (!events) return undefined;
+  let value = null;
+  if (core.players.some(p => p.steamid === steamid)) {
+    const v = buildWeapons(core, events);
+    const by = new Map();
+    const row = (side, w) => by.get(`${side}|${w}`) || by.set(`${side}|${w}`, [side, w, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {}]).get(`${side}|${w}`);
+    for (const [, id2, side, w, flags, dist] of v.kills) {
+      if (id2 !== steamid) continue;
+      const r = row(side, w);
+      r[2]++;
+      for (let b = 0; b < 6; b++) if (flags & (1 << b)) r[3 + b]++;
+      if (dist != null) { r[9] += dist; r[10]++; }
+    }
+    for (const [, id2, side, w, group, dmg, , first] of v.hits) {
+      if (id2 !== steamid) continue;
+      const r = row(side, w);
+      r[11] += dmg; r[12]++;
+      if (group !== 'generic') {
+        r[13]++; r[15] += first;
+        if (group === 'head') r[14]++;
+        const g = r[17][group] ||= [0, 0];
+        g[0]++; g[1] += dmg;
+      }
+    }
+    for (const [, id2, side, w, n] of v.shots) if (id2 === steamid) row(side, w)[16] += n;
+    for (const r of by.values()) r[9] = Math.round(r[9] * 10) / 10;
+    value = { map: core.map, rows: [...by.values()] };
+  }
+  store.setDerived(key, WEAPON_SUM_VERSION, value);
+  return value;
+}
+
 // Demos read before the round facts existed get them in the background; the renderer reloads the
 // profile once they are done.
 let roundsFill = null;
@@ -560,6 +602,22 @@ function registerIpc() {
     return aimBatchStatus();
   });
 
+  // Aim page: a player's weapon numbers in every parsed demo they played (me unless a SteamID is given).
+  handle('weapons:all', steamid => {
+    const me = steamid || mySteamId();
+    const matches = [];
+    const seen = new Set();
+    let pending = 0;
+    for (const d of scanDemos()) {
+      if (seen.has(d.id) || !me) continue;
+      seen.add(d.id);
+      const v = weaponTotalsOf(d.id, me);
+      if (v === undefined) { if (!store.failure(d.id)) pending++; continue; }
+      if (v) matches.push({ id: d.id, date: d.date, customName: d.customName, mode: summaryOf(d.id, me)?.mode || null, ...v });
+    }
+    return { steamid: me, matches, pending };
+  });
+
   // Heatmap points of every parsed demo on one map, for me (who = steamid) or for everyone (who = 'all').
   handle('map:heat', (map, who) => {
     const steamid = who === 'all' ? null : who || mySteamId();
@@ -580,7 +638,7 @@ function registerIpc() {
   handle('demo:analyze', async (file, steamid) => analysis(file, await parseDemo(file), steamid || mySteamId()));
   handle('demo:stats', async file => {
     const { core, events } = await demoData(file);
-    return buildMatchStats(core, events, mySteamId());
+    return buildMatchStats(core, events, mySteamId(), { sides: true });
   });
   // Weapons tab: every hit, kill and shot as rows the renderer filters and adds up.
   handle('demo:weapons', async file => {
@@ -643,6 +701,7 @@ function registerIpc() {
   handle('art:team', code => themeArt.team(code));
   handle('art:teamSvg', code => themeArt.teamSvg(code));
   handle('art:weapon', code => themeArt.weapon(code));
+  handle('art:mapIcon', map => themeArt.mapIcon(map));
   handle('radar:maps', () => JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'radar', 'maps.json'), 'utf8')));
   handle('demo:rename', (file, name) => { const id = store.idOf(file); store.setName(id, name); return store.name(id); });
 
@@ -701,7 +760,6 @@ function registerIpc() {
     });
     const r = recorder;
     send('record:update', { state: 'running', total: jobs.length, step: 'Starting…', progress: 0 });
-  handle('art:mapIcon', map => themeArt.mapIcon(map));
     r.run(jobs).then(clips => {
       const lib = library();
       clips.forEach(c => lib.add(c));
