@@ -641,6 +641,7 @@ function registerIpc() {
   handle('art:list', () => themeArt.list());
   handle('art:shot', (name, thumb) => themeArt.shot(name, thumb));
   handle('art:team', code => themeArt.team(code));
+  handle('art:teamSvg', code => themeArt.teamSvg(code));
   handle('art:weapon', code => themeArt.weapon(code));
   handle('radar:maps', () => JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'radar', 'maps.json'), 'utf8')));
   handle('demo:rename', (file, name) => { const id = store.idOf(file); store.setName(id, name); return store.name(id); });

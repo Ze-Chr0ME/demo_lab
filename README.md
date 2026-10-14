@@ -52,7 +52,9 @@ that match, or a map to open it in **Maps**.
 
 - **Teams** (Vitality, Spirit, NAVI, MOUZ, Falcons, FURIA, The MongolZ, Aurora, G2, FaZe, Liquid, paiN,
   3DMAX, Virtus.pro, HEROIC, Astralis, NiP, Fnatic, ENCE, Cloud9, Eternal Fire, TYLOO): the team's logo
-  as a neon sign over a pattern. Scrolling makes the pattern drift and the logo rise, tilt and dim.
+  as a neon sign over a pattern. Flat logos are drawn as neon tubes; shaded or detailed ones (The MongolZ)
+  light up in the team color inside a neon outline, so they stay recognizable. Scrolling makes the
+  pattern drift and the logo rise, tilt and dim.
 - **Maps** (Dust II, Mirage, Inferno, Nuke, Ancient, Anubis, Overpass, Vertigo, Train, Cache, Office,
   Italy): a screenshot of the map. It slides up more slowly than the page and blurs as you scroll so
   cards stay readable. Pick any of the 4–6 angles CS2 has for the map.
@@ -76,8 +78,9 @@ matches there.
 All radars (Maps, a match's heatmap and its 2D replay) zoom with the **mouse wheel** towards the cursor,
 **drag** to move around, and **double-click** (or the ⤢ button) shows the whole map again.
 
-The interface scales itself to the window: on a 2560 × 1440 screen everything is drawn about 20% larger
-than on 1920 × 1080. **Theme → Display** can set the size by hand.
+The interface scales itself to the window: on a 2560 × 1440 screen everything is drawn about 30% larger
+than on 1920 × 1080, on 3840 × 2160 (100% display scaling) about 80%, and the pages spread their cards over
+the extra room instead of leaving it empty. **Theme → Display** can set the size by hand.
 
 ## Making clips
 

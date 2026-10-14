@@ -94,15 +94,23 @@ function rerender() {
 }
 
 // ---------- UI scale ----------
-// The layout is designed at 1920 px wide. Wider windows (1440p and up) get a matching zoom so text and
-// charts don't shrink; Settings → Display can force a scale instead.
-function autoScale() {
-  const dipWidth = window.innerWidth * api.getZoom();
-  return clamp(Math.round(dipWidth / 2100 * 20) / 20, 1, 1.25);
+// The layout is designed for a 1920 × 1000 window (1080p, maximized). Bigger windows (1440p, 4K at 100 %
+// display scaling) get a matching zoom so text and charts don't shrink into a corner: a bit less than
+// proportional, so they also gain some room. The smaller of width and height decides, so an ultrawide
+// screen isn't zoomed past its height. Theme → Display can force a scale instead.
+function autoFit() {
+  const z = api.getZoom();
+  return clamp(Math.min(window.innerWidth * z / 1920, window.innerHeight * z / 1000) ** 0.85, 1, 2);
 }
+const autoScale = () => Math.round(autoFit() * 20) / 20;
 function applyScale() {
-  const want = state.settings?.uiScale || autoScale();
-  if (Math.abs(api.getZoom() - want) > 0.001) api.setZoom(want);
+  const manual = state.settings?.uiScale;
+  const cur = api.getZoom();
+  // Automatic keeps the current zoom while it's still close to the ideal one: every zoom change resizes
+  // the page, and a window right between two steps would otherwise flip back and forth.
+  if (!manual && Math.abs(autoFit() - cur) < 0.035) return;
+  const want = manual || autoScale();
+  if (Math.abs(cur - want) > 0.001) api.setZoom(want);
 }
 let scaleTimer = 0;
 window.addEventListener('resize', () => { clearTimeout(scaleTimer); scaleTimer = setTimeout(applyScale, 150); });
@@ -3603,8 +3611,12 @@ function themePreview(t) {
     p.append(img);
   }
   if (t.logo) {
-    const img = h('img', { class: 'tp-logo', alt: '', onload: () => img.classList.add('ready'), style: { filter: Scene.neonFilter(`sw-neon-${t.id}`, t.accent, 0.32) } });
+    // Shown once both the picture and its look (neon or lit, see Scene.teamLook) are known.
+    let waiting = 2;
+    const ready = () => { if (!--waiting) img.classList.add('ready'); };
+    const img = h('img', { class: 'tp-logo', alt: '', onload: ready });
     Scene.teamUrl(t.logo).then(u => { if (u) img.src = u; });
+    Scene.teamLook(t.logo).then(look => { img.style.filter = Scene.neonFilter(`sw-neon-${t.id}`, t.accent, 0.32, look); ready(); });
     p.append(img);
   }
   p.append(h('i', { class: 'tp-nav' }), h('i', { class: 'tp-bar' }), h('i', { class: 'tp-bar data' }));
@@ -3679,12 +3691,12 @@ function themeCard() {
 // The Theme page: theme gallery and interface size.
 function renderThemes() {
   const st = state.settings;
-  $('#view-themes').replaceChildren(h('div', { class: 'page settings' }, h('div', { class: 'page-head' }, h('h2', {}, 'Theme')),
+  $('#view-themes').replaceChildren(h('div', { class: 'page theme-page' }, h('div', { class: 'page-head' }, h('h2', {}, 'Theme')),
     themeCard(),
     h('div', { class: 'card' },
       h('h3', {}, 'Display'),
-      row('Interface size', select(String(st.uiScale || 0), [['0', `Automatic (now ${Math.round(autoScale() * 100)}%)`], ['0.9', '90%'], ['1', '100%'], ['1.1', '110%'], ['1.25', '125%'], ['1.4', '140%'], ['1.6', '160%']],
-        v => save({ uiScale: +v }).then(() => { applyScale(); renderThemes(); })), 'Automatic makes everything a bit bigger on wide screens such as 2560 × 1440.'),
+      row('Interface size', select(String(st.uiScale || 0), [['0', `Automatic (now ${Math.round((st.uiScale ? autoScale() : api.getZoom()) * 100)}%)`], ['0.9', '90%'], ['1', '100%'], ['1.1', '110%'], ['1.25', '125%'], ['1.4', '140%'], ['1.6', '160%'], ['1.8', '180%'], ['2', '200%']],
+        v => save({ uiScale: +v }).then(() => { applyScale(); renderThemes(); })), 'Automatic follows the window: everything is drawn bigger on large screens, about 30% at 2560 × 1440 and 80% at 3840 × 2160.'),
     )));
 }
 
@@ -3876,12 +3888,16 @@ function renderDownloads() {
       h('div', { class: 'act' }, h('span', { class: `pill ${cls}` }, label), action),
     );
   });
-  $('#view-downloads').replaceChildren(h('div', { class: 'page' },
-    head, steamCard, info,
-    d.error ? h('div', { class: 'err-box', style: { maxWidth: '980px' } }, d.error) : null,
-    d.notes?.length && !d.error ? h('div', { class: 'warn-box', style: { maxWidth: '980px' } }, d.notes.join('\n')) : null,
-    items.length ? h('div', { class: 'dl-list' }, ...items)
-      : h('div', { class: 'empty' }, h('h2', {}, 'No matches yet'), h('div', {}, 'Sign in to Steam above, then click "Check now".')),
+  // The match list, with the Steam sign-in and how checking works beside it (above it in narrow windows).
+  $('#view-downloads').replaceChildren(h('div', { class: 'page dl-page' },
+    head,
+    h('div', { class: 'dl-layout' },
+      h('aside', { class: 'dl-side' }, steamCard, info),
+      h('div', { class: 'dl-main' },
+        d.error ? h('div', { class: 'err-box' }, d.error) : null,
+        d.notes?.length && !d.error ? h('div', { class: 'warn-box' }, d.notes.join('\n')) : null,
+        items.length ? h('div', { class: 'dl-list' }, ...items)
+          : h('div', { class: 'empty' }, h('h2', {}, 'No matches yet'), h('div', {}, signedIn ? 'Click "Check now" to look for your latest matches.' : 'Sign in to Steam, then click "Check now".')))),
   ));
 }
 
