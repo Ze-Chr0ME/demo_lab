@@ -685,3 +685,11 @@ kbd { display: inline-block; min-width: 18px; text-align: center; font: 700 11px
 .integ-none { color: var(--muted); padding: 18px; text-align: center; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 24px; }
 @media (max-width: 900px) { .integ-moment { grid-template-columns: 56px 1fr; } .integ-actions { grid-column: 1 / -1; justify-content: flex-start; } }
 .sb.integ th:not(.team) { white-space: normal; min-width: 92px; max-width: 120px; line-height: 1.3; }
+
+/* Highlights already in the clip library */
+.tag.clipped { display: inline-flex; align-items: center; gap: 4px; background: #4f8dff22; color: var(--blue-2); }
+.tag.clipped svg { width: 11px; height: 11px; }
+.hl.is-clipped:not(.selected) { opacity: .62; }
+.hl.is-clipped:not(.selected):hover { opacity: .9; }
+.dup-warn { color: var(--warn); font-weight: 600; }
+.warn-box { margin: 4px 0 12px; padding: 10px 14px; border-radius: 10px; background: #f5c3441a; color: var(--warn); font-size: 13.5px; line-height: 1.45; }

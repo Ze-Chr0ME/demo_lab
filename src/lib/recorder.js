@@ -200,6 +200,8 @@ class Recorder {
       file, thumb: fs.existsSync(thumb) ? thumb : null,
       title: h.title, tags: h.tags.map(t => t.label), score: h.score, round: h.round, side: h.side,
       weapons: h.weapons, killWeapons: h.kills.map(k => k.weapon), map: job.map, player: job.player.name, demo: path.basename(job.demoPath),
+      // which highlight this is, so the match view can mark it as already clipped
+      demoId: job.demoId, steamid: job.player.steamid, highlightId: h.id,
       matchDate: job.demoDate, duration: info.duration, createdAt: Date.now(),
     };
   }

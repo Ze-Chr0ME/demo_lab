@@ -268,8 +268,8 @@ async function openDemo(d, player, tab) {
   try {
     state.analysis = await api.analyze(d.path, player || undefined);
     state.player = state.analysis.player || null;
-    // preselect strong highlights
-    for (const hl of state.analysis.highlights || []) if (hl.score >= 40) state.selected.add(hl.id);
+    // preselect strong highlights that weren't clipped yet
+    for (const hl of state.analysis.highlights || []) if (hl.score >= 40 && !clipsOf(hl).length) state.selected.add(hl.id);
     state.analysisError = null;
   } catch (e) { state.analysisError = e.message; }
   state.analyzing = false;
@@ -2232,11 +2232,16 @@ function mapDetail() {
 // ---------- Highlights & recording ----------
 function highlightCard(hl) {
   const sel = state.selected.has(hl.id);
-  return h('div', { class: `hl ${sel ? 'selected' : ''}`, onclick: () => { sel ? state.selected.delete(hl.id) : state.selected.add(hl.id); renderDetail(); } },
+  const done = clipsOf(hl);
+  const clipped = done.length ? h('span', {
+    class: 'tag clipped',
+    title: `Already in your clips: ${done.map(c => c.file.split(/[\\/]/).pop()).join(', ')}. Recording it again makes a duplicate.`,
+  }, icon(ICONS.check), done.length > 1 ? `Clipped ×${done.length}` : 'Already clipped') : null;
+  return h('div', { class: `hl ${sel ? 'selected' : ''} ${done.length ? 'is-clipped' : ''}`, onclick: () => { sel ? state.selected.delete(hl.id) : state.selected.add(hl.id); renderDetail(); } },
     h('div', { class: 'check' }, icon(ICONS.check)),
     h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, hl.round), h('div', { class: `l side-${hl.side}` }, hl.side)),
     h('div', {},
-      h('div', { class: 'hl-title' }, ...hl.tags.map(t => h('span', { class: `tag ${t.type}` }, t.label))),
+      h('div', { class: 'hl-title' }, ...hl.tags.map(t => h('span', { class: `tag ${t.type}` }, t.label)), clipped),
       h('div', { class: 'kills' }, ...hl.kills.map(k => h('div', { class: 'kill' },
         h('span', { class: 'w' }, k.weapon),
         k.headshot ? h('span', { class: 'hs' }, 'HS') : null,
@@ -2265,7 +2270,8 @@ function actionBar() {
   const hls = (state.analysis?.highlights || []).filter(x => state.selected.has(x.id));
   const n = hls.length;
   return h('div', { class: 'action-bar' },
-    h('div', { class: 'info' }, n ? h('span', {}, h('b', {}, `${n} highlight${n > 1 ? 's' : ''}`), ` selected · about ${Math.ceil(estimateSeconds(hls) / 60)} min to record`) : 'Select highlights to record'),
+    h('div', { class: 'info' }, n ? h('span', {}, h('b', {}, `${n} highlight${n > 1 ? 's' : ''}`), ` selected · about ${Math.ceil(estimateSeconds(hls) / 60)} min to record`,
+      dup ? h('span', { class: 'dup-warn' }, ` · ${dup} already clipped`) : null) : 'Select highlights to record'),
     h('span', { class: 'spacer' }),
     h('button', { class: 'btn primary', disabled: !n || !!state.recording, onclick: () => confirmRecord(hls) }, icon(ICONS.rec), `Record ${n || ''} clip${n === 1 ? '' : 's'}`),
   );
@@ -2296,7 +2302,8 @@ function confirmRecord(hls) {
     h('ul', { class: 'steps' }, ...steps),
     h('div', { class: 'actions' },
       h('button', { class: 'btn', onclick: () => closeModal() }, 'Cancel'),
-      h('button', { class: 'btn primary', onclick: () => startRecord(hls) }, icon(ICONS.rec), 'Start recording'),
+      dup.length && fresh.length ? h('button', { class: 'btn', onclick: () => startRecord(fresh) }, `Skip clipped · record ${fresh.length}`) : null,
+      h('button', { class: 'btn primary', onclick: () => startRecord(hls) }, icon(ICONS.rec), dup.length ? `Record all ${hls.length}` : 'Start recording'),
     ),
   ]);
 }
@@ -2352,7 +2359,7 @@ function renderRecording(u) {
         : h('button', { class: 'btn danger', onclick: () => api.cancelRecord() }, 'Cancel'),
     ),
   ], { onClose: false });
-  if (done) { refreshEnv(); loadClipCount(); }
+  if (done) { refreshEnv(); loadClipCount().then(() => { if (state.view === 'matches' && state.demo) renderDetail(); }); }
 }
 api.onRecord(u => renderRecording(u));
 
@@ -2801,3 +2808,19 @@ function renderDownloads() {
   await loadDemos();
   setInterval(refreshEnv, 10000);
 })();
+// Clips in the library recorded from this highlight: same demo, round and point-of-view player.
+// Clips made before demo ids were stored only know the demo's file name and the player's name.
+function clipsOf(hl) {
+  const d = state.demo, p = state.analysis?.player;
+  if (!d || !p) return [];
+  const base = d.path.split(/[\\/]/).pop();
+  return (state.clips || []).filter(c => c.kind === 'clip' && c.round === hl.round
+    && (c.demoId ? c.demoId === d.id : c.demo === base)
+    && (c.steamid ? c.steamid === p.steamid : c.player === p.name));
+}
+
+  const dup = hls.filter(x => clipsOf(x).length).length;
+  const dup = hls.filter(x => clipsOf(x).length);
+  const fresh = hls.filter(x => !dup.includes(x));
+    dup.length ? h('div', { class: 'warn-box' }, h('b', {}, `${dup.length === hls.length ? (dup.length > 1 ? 'All of these were' : 'This one was') : `${dup.length} of these ${dup.length > 1 ? 'were' : 'was'}`} already clipped`),
+      ` (round${dup.length > 1 ? 's' : ''} ${dup.map(x => x.round).join(', ')}). Recording ${dup.length > 1 ? 'them' : 'it'} again makes duplicates.`) : null,

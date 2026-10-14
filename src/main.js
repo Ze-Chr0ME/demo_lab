@@ -474,7 +474,7 @@ function registerIpc() {
       const a = analysis(it.demoPath, data, steamid || mySteamId());
       const h = a.highlights?.find(x => x.id === it.highlightId);
       if (!h) continue;
-      jobs.push({ demoPath: it.demoPath, demoDate: matchDate(it.demoPath, fs.statSync(it.demoPath)), map: data.map, player: a.player, highlight: h });
+      jobs.push({ demoPath: it.demoPath, demoId: store.idOf(it.demoPath), demoDate: matchDate(it.demoPath, fs.statSync(it.demoPath)), map: data.map, player: a.player, highlight: h });
     }
     if (!jobs.length) throw new Error('Nothing to record.');
 
