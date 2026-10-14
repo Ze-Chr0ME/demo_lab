@@ -1,13 +1,14 @@
 // Pictures for the themes, taken from the player's own CS2 install: the map screenshots CS2 shows in
-// its map picker (1080p, several angles per map), the team logos it uses for tournament stickers and the
-// weapon silhouettes of the kill feed (Weapons tab).
+// its map picker (1080p, several angles per map) and the maps' emblems, the team logos it uses for
+// tournament stickers and the weapon silhouettes of the kill feed (Weapons tab).
 // All sit in pak01_dir.vpk inside Valve's compiled resource files, but as plain PNG / SVG data, so
 // a small VPK reader is enough (no Source2Viewer). Results are cached in <userData>/theme-art and
 // refreshed when CS2 updates a file (the cache name carries the file's CRC).
 const fs = require('fs');
 const path = require('path');
 
-const SHOTS = 'panorama/images/map_icons/screenshots/1080p/';
+const MAP_ICONS = 'panorama/images/map_icons/';
+const SHOTS = `${MAP_ICONS}screenshots/1080p/`;
 const TEAMS = 'panorama/images/tournaments/teams/';
 const EQUIP = 'panorama/images/icons/equipment/';
 
@@ -95,25 +96,28 @@ class ThemeArt {
     let key;
     try { const st = fs.statSync(file); key = `${file}|${st.mtimeMs}|${st.size}`; } catch { return null; }
     if (key !== this.indexKey) {
-      this.index = readVpkIndex(file, f => f.startsWith(SHOTS) || f.startsWith(TEAMS) || f.startsWith(EQUIP));
+      this.index = readVpkIndex(file, f => f.startsWith(MAP_ICONS) || f.startsWith(TEAMS) || f.startsWith(EQUIP));
       this.indexKey = key;
     }
     return { file, index: this.index };
   }
 
-  // { maps: { de_mirage: ['de_mirage', 'de_mirage_1', …] }, teams: ['vita', …] } — null without CS2.
+  // { maps: { de_mirage: ['de_mirage', 'de_mirage_1', …] }, icons: ['de_mirage', …], teams: ['vita', …] }
+  // — null without CS2.
   list() {
     const v = this.vpk();
     if (!v) return null;
-    const maps = {}, teams = [];
+    const maps = {}, icons = [], teams = [];
     for (const f of v.index.files.keys()) {
       const shot = f.startsWith(SHOTS) && f.slice(SHOTS.length).match(/^(\w+)_png\.vtex_c$/)?.[1];
+      const icon = f.startsWith(MAP_ICONS) && f.slice(MAP_ICONS.length).match(/^map_icon_(\w+)\.vsvg_c$/)?.[1];
       const team = f.startsWith(TEAMS) && f.slice(TEAMS.length).match(/^(\w+)\.vsvg_c$/)?.[1];
       if (shot) (maps[shot.replace(/_\d+$/, '')] ||= []).push(shot);
+      else if (icon) icons.push(icon);
       else if (team) teams.push(team);
     }
     for (const list of Object.values(maps)) list.sort((a, b) => (+a.match(/_(\d+)$/)?.[1] || 0) - (+b.match(/_(\d+)$/)?.[1] || 0) || a.length - b.length);
-    return { maps, teams: teams.filter(t => !/^(nologo|nosticker|center_icon)$/.test(t)).sort() };
+    return { maps, icons: icons.sort(), teams: teams.filter(t => !/^(nologo|nosticker|center_icon)$/.test(t)).sort() };
   }
 
   // Writes the cached file through make(bytes) unless it already exists; drops older copies. rev changes
@@ -134,17 +138,33 @@ class ThemeArt {
     return file;
   }
 
-  // A map screenshot as JPEG: full size (1920 × 1080) for the background, or a 400 px wide thumbnail.
+  // A map screenshot as JPEG: full size (1920 × 1080) for the background and the Maps page, or a 640 px
+  // wide thumbnail for the theme previews (sharp up to about 300 px shown at 200 % zoom). Thumbnails get
+  // their own folder, else cached() dropping older '<name>.*.jpg' copies deletes the other one.
   shot(name, thumb = false) {
     if (!/^[a-z0-9_]+$/.test(name)) throw new Error('bad screenshot name');
     const { nativeImage } = require('electron');
-    return this.cached('maps', name, thumb ? '.thumb.jpg' : '.jpg', `${SHOTS}${name}_png.vtex_c`, buf => {
+    return this.cached(thumb ? 'map-thumbs' : 'maps', name, '.jpg', `${SHOTS}${name}_png.vtex_c`, buf => {
       const png = embeddedPng(buf);
       if (!png) return null;
       const img = nativeImage.createFromBuffer(png);
       if (img.isEmpty()) return null;
-      return (thumb ? img.resize({ width: 400, quality: 'best' }) : img).toJPEG(thumb ? 84 : 90);
+      if (thumb) this.dropOldThumbs();
+      return (thumb ? img.resize({ width: 640, quality: 'best' }) : img).toJPEG(thumb ? 86 : 90);
     });
+  }
+
+  dropOldThumbs() {
+    if (this.oldThumbsGone) return;
+    this.oldThumbsGone = true;
+    const folder = path.join(this.dir, 'maps');
+    try { for (const f of fs.readdirSync(folder)) if (f.endsWith('.thumb.jpg')) fs.rmSync(path.join(folder, f), { force: true }); } catch {}
+  }
+
+  // The map's emblem from CS2's map picker (a 32 × 32 vector drawing, so it is sharp at any size).
+  mapIcon(map) {
+    if (!/^\w+$/.test(map)) throw new Error('bad map name');
+    return this.cached('map-icons', map, '.svg', `${MAP_ICONS}map_icon_${map}.vsvg_c`, buf => embeddedSvg(buf));
   }
 
   team(code) {

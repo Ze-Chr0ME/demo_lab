@@ -148,6 +148,7 @@ const Scene = (() => {
   function set(t, onResolved) {
     const my = ++token;
     kind = t.scene || 'pattern';
+  const mapIconUrl = map => resolve(`icon:${map}`, () => api.artMapIcon(map));
     root.dataset.kind = kind;
     document.documentElement.dataset.scene = kind;
     const tile = patternTile(t.pattern, t.accent);
@@ -253,5 +254,5 @@ const Scene = (() => {
   });
   logoWrap.style.setProperty('--size', `${logoSize()}px`);
 
-  return { set, follow, list, shotUrl, teamUrl, teamLook, neonFilter, patternTile, PATTERNS };
+  return { set, follow, list, shotUrl, teamUrl, mapIconUrl, teamLook, neonFilter, patternTile, PATTERNS };
 })();

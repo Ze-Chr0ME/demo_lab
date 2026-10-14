@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('api', {
   artTeamSvg: code => call('art:teamSvg', code),
   artWeapon: code => call('art:weapon', code),
   replay: file => call('demo:replay', file),
+  artMapIcon: map => call('art:mapIcon', map),
   integrity: file => call('demo:integrity', file),
   aim: file => call('demo:aim', file),
   rounds: (file, steamid) => call('demo:rounds', file, steamid),

@@ -701,6 +701,7 @@ function registerIpc() {
     });
     const r = recorder;
     send('record:update', { state: 'running', total: jobs.length, step: 'Starting…', progress: 0 });
+  handle('art:mapIcon', map => themeArt.mapIcon(map));
     r.run(jobs).then(clips => {
       const lib = library();
       clips.forEach(c => lib.add(c));

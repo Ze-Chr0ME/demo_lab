@@ -760,6 +760,31 @@ function radarInfo(map) {
     return undefined; // still loading
   }
   return radarMaps[map] || radarMaps[(map || '').replace(/_(night|v\d)$/, '')] || null;
+// ---------- Map pictures from CS2 (Maps page, map themes) ----------
+// The map-picker screenshot (the one chosen for the map's theme, else the first) and the map's vector
+// emblem, read from the player's CS2 install; null when CS2 or the picture isn't there.
+function mapShotUrl(map, thumb = false) {
+  return Scene.list().then(l => {
+    const shots = l?.maps?.[map] || [];
+    const chosen = state.settings?.themeShots?.[THEMES.find(t => t.map === map)?.id];
+    const shot = shots.includes(chosen) ? chosen : shots[0];
+    return shot ? Scene.shotUrl(shot, thumb) : null;
+  });
+}
+const mapIconUrl = map => Scene.list().then(l => (l?.icons?.includes(map) ? Scene.mapIconUrl(map) : null));
+// An <img> that fades in once loaded; one the browser already has shows at once, so pages that render
+// again while demos are read don't blink. missing(img) runs when there is no picture.
+function artImg(cls, url, missing = img => img.remove()) {
+  const img = h('img', { class: cls, alt: '', draggable: 'false', onload: () => img.classList.add('ready') });
+  url.then(u => {
+    if (!u) return missing(img);
+    img.src = u;
+    if (img.complete) img.classList.add('ready');
+  });
+  return img;
+}
+const mapEmblem = (map, cls) => artImg(cls, mapIconUrl(map));
+
 }
 function radarImage(src) {
   if (!radarImages.has(src)) {
@@ -2524,11 +2549,16 @@ function renderMaps() {
       const info = radarMaps ? radarInfo(e.map) : null;
       const me = e.me;
       const wr = me ? pct(me.won, me.played) : null;
-      return h('button', { class: 'map-card', style: { '--c': mapColor(e.map), '--img': info ? `url("radar/${radarName(info, e.map)}.png")` : 'none' }, onclick: () => { state.mp.map = e.map; resetZoom(state.mp.view); renderMaps(); } },
-        h('div', { class: 'map-card-bg' }),
+      // Without CS2's screenshot, the radar stands in for it.
+      const radar = img => { if (!info) return img.remove(); img.classList.add('radar'); img.src = `radar/${radarName(info, e.map)}.png`; };
+      return h('button', { class: 'map-card', style: { '--c': mapColor(e.map) }, onclick: () => { state.mp.map = e.map; resetZoom(state.mp.view); renderMaps(); } },
+        artImg('map-card-photo', mapShotUrl(e.map), radar),
         h('div', { class: 'map-card-body' },
-          h('div', { class: 'map-card-name' }, mapName(e.map)),
-          h('div', { class: 'map-card-sub' }, `${e.demos} match${e.demos === 1 ? '' : 'es'} · last ${new Date(e.last).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`),
+          h('div', { class: 'map-card-title' },
+            mapEmblem(e.map, 'map-card-icon'),
+            h('div', { class: 'map-card-t' },
+              h('div', { class: 'map-card-name' }, mapName(e.map)),
+              h('div', { class: 'map-card-sub' }, `${e.demos} match${e.demos === 1 ? '' : 'es'} · last ${new Date(e.last).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`))),
           me ? h('div', { class: 'map-card-rec' },
             h('span', {}, `${me.won}W – ${me.lost}L`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`),
             h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))) : h('div', { class: 'map-card-rec muted' }, 'You did not play here'),
@@ -2559,7 +2589,7 @@ function mapDetail() {
   const maps = mapsIndex();
   const head = h('div', { class: 'page-head map-head' },
     h('button', { class: 'btn ghost', onclick: () => { mp.map = null; rerender(); } }, icon('<path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2"/>'), 'All maps'),
-    h('h2', {}, mapName(map)),
+    h('h2', { class: 'map-title' }, mapEmblem(map, 'map-title-icon'), mapName(map)),
     select(map, maps.map(e => [e.map, `${mapName(e.map)} (${e.demos})`]), v => { mp.map = v; resetZoom(mp.view); rerender(); }),
     h('span', { class: 'spacer' }),
     h('div', { class: 'tabs' }, ...[['me', 'Me'], ['all', 'Everyone']].map(([k, l]) =>
@@ -3602,18 +3632,18 @@ api.onHlaeUpdate(u => {
 // backdrop; a map theme also offers the other screenshots CS2 has of that map.
 const PATTERN_NAMES = [['', 'None'], ['hex', 'Hexagons'], ['tri', 'Triangles'], ['grid', 'Grid'], ['diag', 'Stripes'], ['dots', 'Dots']];
 function themePreview(t) {
-  const p = h('span', { class: 'theme-prev', style: { '--sw-base': t.base, '--sw-accent': t.accent, '--sw-data': t.data || t.accent } });
+  const p = h('span', { class: `theme-prev ${t.group === 'Maps' ? 'map' : ''}`, style: { '--sw-base': t.base, '--sw-accent': t.accent, '--sw-data': t.data || t.accent } });
   const tile = !t.map && Scene.patternTile(t.pattern, t.accent);
   if (tile) p.append(h('i', { class: 'tp-pattern', style: { backgroundImage: tile.url, backgroundSize: `${tile.w / 2}px ${tile.h / 2}px` } }));
   if (t.map) {
-    const img = h('img', { class: 'tp-photo', alt: '', onload: () => img.classList.add('ready') });
-    Scene.shotUrl(t.shot, true).then(u => { if (u) img.src = u; else { img.classList.add('radar'); img.src = `radar/${t.map}.png`; } });
-    p.append(img);
+    p.append(artImg('tp-photo', Scene.shotUrl(t.shot, true), img => { img.classList.add('radar'); img.src = `radar/${t.map}.png`; }));
+    if (t.group === 'Maps') p.append(mapEmblem(t.map, 'tp-emblem'));
   }
   if (t.logo) {
     // Shown once both the picture and its look (neon or lit, see Scene.teamLook) are known.
     let waiting = 2;
     const ready = () => { if (!--waiting) img.classList.add('ready'); };
+// A map theme shows the map's emblem with the two bars beside it, like a title next to an icon.
     const img = h('img', { class: 'tp-logo', alt: '', onload: ready });
     Scene.teamUrl(t.logo).then(u => { if (u) img.src = u; });
     Scene.teamLook(t.logo).then(look => { img.style.filter = Scene.neonFilter(`sw-neon-${t.id}`, t.accent, 0.32, look); ready(); });
@@ -3642,11 +3672,9 @@ function themeCard() {
     Scene.list().then(l => {
       const names = l?.maps?.[curT.map] || [];
       if (!names.length) { shots.replaceChildren(h('div', { class: 'hint' }, 'CS2 wasn’t found, so the map’s radar is shown instead of a picture.')); return; }
-      shots.replaceChildren(...names.map((n, i) => {
-        const img = h('img', { alt: '', onload: () => img.classList.add('ready') });
-        Scene.shotUrl(n, true).then(u => { if (u) img.src = u; });
-        return h('button', { class: `theme-shot ${n === curT.shot ? 'on' : ''}`, title: `Picture ${i + 1}`, onclick: () => setShot(n) }, img);
-      }));
+      shots.replaceChildren(...names.map((n, i) => h('button', { class: `theme-shot ${n === curT.shot ? 'on' : ''}`, title: `Picture ${i + 1}`, onclick: () => setShot(n) },
+        artImg('', Scene.shotUrl(n, true), () => {}),
+        h('span', { class: 'theme-shot-n' }, n === curT.shot ? icon(ICONS.check) : i + 1))));
     });
   }
   const shotPicker = curT.map ? [h('div', { class: 'sub-head' }, `${curT.name === 'Custom' ? mapName(curT.map) : curT.name} — picture`), shots] : [];
