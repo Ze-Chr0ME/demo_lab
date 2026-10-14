@@ -48,7 +48,7 @@ that match, or a map to open it in **Maps**.
 
 ## Themes
 
-**Settings → Theme** changes the colors and the backdrop behind every page, which moves as you scroll:
+**Theme** (in the menu under your name, top right) changes the colors and the backdrop behind every page, which moves as you scroll:
 
 - **Teams** (Vitality, Spirit, NAVI, MOUZ, Falcons, FURIA, The MongolZ, Aurora, G2, FaZe, Liquid, paiN,
   3DMAX, Virtus.pro, HEROIC, Astralis, NiP, Fnatic, ENCE, Cloud9, Eternal Fire, TYLOO): the team's logo
@@ -77,7 +77,7 @@ All radars (Maps, a match's heatmap and its 2D replay) zoom with the **mouse whe
 **drag** to move around, and **double-click** (or the ⤢ button) shows the whole map again.
 
 The interface scales itself to the window: on a 2560 × 1440 screen everything is drawn about 20% larger
-than on 1920 × 1080. **Settings → Display** can set the size by hand.
+than on 1920 × 1080. **Theme → Display** can set the size by hand.
 
 ## Making clips
 
