@@ -30,7 +30,12 @@ function assignTeams(rounds) {
   return { team, sideOfA };
 }
 
-function buildMatchStats(core, events, mySteamId) {
+// side 'T' | 'CT' limits every number to what players did while on that side (HLTV's side
+// filter); the team score is then the rounds each team won on it. Without it: the whole match,
+// plus `sides` with both one-side versions when opts.sides is set.
+function buildMatchStats(core, events, mySteamId, opts = {}) {
+  const side = opts.side || null;
+  const on = team => !side || team === side;
   const tr = core.tickrate || 64;
   const rounds = core.rounds;
   const { team, sideOfA } = assignTeams(rounds);
@@ -58,13 +63,14 @@ function buildMatchStats(core, events, mySteamId) {
   for (const r of rounds) {
     const roster = r.roster;
     const winnerTeam = r.winner === sideOfA[r.num] ? 'A' : 'B';
-    if (r.winner) score[winnerTeam]++;
+    if (r.winner && on(r.winner)) score[winnerTeam]++;
     const kills = (killsByRound.get(r.num) || []).slice().sort((a, b) => a.tick - b.tick);
     const kast = new Set();
     const died = new Set();
     const roundKills = {};
 
     for (const [id, p] of Object.entries(roster)) {
+      if (!on(p.team)) continue;
       const s = st(id);
       s.rounds++;
       const side = s.side[p.team];
@@ -74,31 +80,32 @@ function buildMatchStats(core, events, mySteamId) {
     let first = true;
     kills.forEach((k, i) => {
       died.add(k.victim);
-      if (S[k.victim]) S[k.victim].deaths++;
+      const victimOn = on(k.victimTeam), killerOn = on(k.attackerTeam);
+      if (S[k.victim] && victimOn) S[k.victim].deaths++;
       if (!enemyKill(k)) {
-        if (k.attacker && k.attacker !== k.victim && k.attackerTeam === k.victimTeam && S[k.attacker]) S[k.attacker].teamKills++;
+        if (k.attacker && k.attacker !== k.victim && k.attackerTeam === k.victimTeam && S[k.attacker] && killerOn) S[k.attacker].teamKills++;
         return;
       }
-      const a = st(k.attacker);
-      a.kills++;
-      if (k.headshot) a.hsKills++;
-      roundKills[k.attacker] = (roundKills[k.attacker] || 0) + 1;
-      kast.add(k.attacker);
-      add(duels, k.attacker, k.victim);
-      if (first) {
-        first = false;
-        a.firstKills++;
-        if (a.side[k.attackerTeam]) a.side[k.attackerTeam].fk++;
-        if (S[k.victim]) { S[k.victim].firstDeaths++; if (S[k.victim].side[k.victimTeam]) S[k.victim].side[k.victimTeam].fd++; }
-        add(openings, k.attacker, k.victim);
+      const opening = first;
+      first = false;
+      if (killerOn) {
+        const a = st(k.attacker);
+        a.kills++;
+        if (k.headshot) a.hsKills++;
+        roundKills[k.attacker] = (roundKills[k.attacker] || 0) + 1;
+        kast.add(k.attacker);
+        if (opening) { a.firstKills++; if (a.side[k.attackerTeam]) a.side[k.attackerTeam].fk++; }
       }
-      if (k.assister && k.assisterTeam && k.assisterTeam !== k.victimTeam && S[k.assister]) {
+      if (opening && victimOn && S[k.victim]) { S[k.victim].firstDeaths++; if (S[k.victim].side[k.victimTeam]) S[k.victim].side[k.victimTeam].fd++; }
+      add(duels, k.attacker, k.victim);
+      if (opening) add(openings, k.attacker, k.victim);
+      if (k.assister && k.assisterTeam && k.assisterTeam !== k.victimTeam && on(k.assisterTeam) && S[k.assister]) {
         k.flashAssist ? S[k.assister].flashAssists++ : S[k.assister].assists++;
         kast.add(k.assister);
       }
       // Trade: a teammate of the victim kills this killer shortly after.
       const trade = kills.slice(i + 1).find(t => t.tick - k.tick <= TRADE_SECONDS * tr && enemyKill(t) && t.victim === k.attacker && t.attackerTeam === k.victimTeam);
-      if (trade) {
+      if (trade && victimOn) {
         st(trade.attacker).tradeKills++;
         if (S[k.victim]) S[k.victim].tradedDeaths++;
         kast.add(k.victim);
@@ -106,7 +113,7 @@ function buildMatchStats(core, events, mySteamId) {
     });
 
     for (const id of Object.keys(roster)) if (!died.has(id)) kast.add(id);
-    for (const id of kast) if (roster[id] && S[id]) S[id].kastRounds++;
+    for (const id of kast) if (roster[id] && on(roster[id].team) && S[id]) S[id].kastRounds++;
     for (const [id, n] of Object.entries(roundKills)) if (n >= 2) S[id].multi[Math.min(n, 5)]++;
 
     // Clutches: the moment a player is the last one alive on their side with enemies left.
@@ -126,23 +133,23 @@ function buildMatchStats(core, events, mySteamId) {
       alive.delete(k.victim);
       check();
     }
-    for (const [side, c] of Object.entries(clutch)) {
+    for (const [cs, c] of Object.entries(clutch)) {
       const s = S[c.id];
-      if (!s) continue;
+      if (!s || !on(cs)) continue;
       const vs = s.clutches.vs[Math.min(c.vs, 5)];
       s.clutches.played++;
       vs[1]++;
-      if (r.winner === side) { s.clutches.won++; vs[0]++; s.clutches.best = Math.max(s.clutches.best, c.vs); }
+      if (r.winner === cs) { s.clutches.won++; vs[0]++; s.clutches.best = Math.max(s.clutches.best, c.vs); }
     }
   }
 
   for (const d of events.damage) {
-    if (!d.attacker || d.attacker === d.victim || !d.attackerTeam || d.attackerTeam === d.victimTeam || !S[d.attacker]) continue;
+    if (!d.attacker || d.attacker === d.victim || !d.attackerTeam || d.attackerTeam === d.victimTeam || !on(d.attackerTeam) || !S[d.attacker]) continue;
     S[d.attacker].damage += d.dmg;
     if (UTILITY.has(d.weapon)) S[d.attacker].utilityDamage += d.dmg;
   }
   for (const b of events.blinds) {
-    if (b.attacker && b.attackerTeam && b.attackerTeam !== b.victimTeam && b.duration >= 0.5 && S[b.attacker]) S[b.attacker].enemiesFlashed++;
+    if (b.attacker && b.attackerTeam && b.attackerTeam !== b.victimTeam && on(b.attackerTeam) && b.duration >= 0.5 && S[b.attacker]) S[b.attacker].enemiesFlashed++;
   }
 
   const players = Object.values(S).filter(s => s.rounds > 0).map(s => {
@@ -164,12 +171,21 @@ function buildMatchStats(core, events, mySteamId) {
     id,
     startSide: id === 'A' ? sideOfA[rounds[0]?.num] : (sideOfA[rounds[0]?.num] === 'T' ? 'CT' : 'T'),
     score: score[id],
+    played: rounds.filter(r => on(id === 'A' ? sideOfA[r.num] : sideOfA[r.num] === 'T' ? 'CT' : 'T')).length, // rounds on `side`
     mine: myTeam === id,
     players: players.filter(p => p.team === id).sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0)),
   }));
   if (myTeam === 'B') teams.reverse();
 
-  return { rounds: rounds.length, teams, duels, openings, me: myTeam ? mySteamId : null };
+  const out = { rounds: rounds.length, teams, duels, openings, me: myTeam ? mySteamId : null };
+  if (!side && opts.sides) {
+    out.sides = {};
+    for (const sd of ['CT', 'T']) {
+      const one = buildMatchStats(core, events, mySteamId, { side: sd });
+      out.sides[sd] = { teams: one.teams };
+    }
+  }
+  return out;
 }
 
 module.exports = { buildMatchStats, rating2, enemyKill, assignTeams };

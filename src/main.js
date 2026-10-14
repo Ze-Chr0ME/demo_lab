@@ -580,7 +580,7 @@ function registerIpc() {
   handle('demo:analyze', async (file, steamid) => analysis(file, await parseDemo(file), steamid || mySteamId()));
   handle('demo:stats', async file => {
     const { core, events } = await demoData(file);
-    return buildMatchStats(core, events, mySteamId());
+    return buildMatchStats(core, events, mySteamId(), { sides: true });
   });
   // Weapons tab: every hit, kill and shot as rows the renderer filters and adds up.
   handle('demo:weapons', async file => {

@@ -585,14 +585,21 @@ function scoreboardView() {
   const me = state.analysis?.player?.steamid;
   const detailed = !!state.sbDetailed;
   const cols = detailed ? SB_COLS : SB_COLS.slice(0, SB_BASIC);
+  // Both sides, or only what everyone did as CT / as T (like HLTV). Older results have no `sides`.
+  const side = st.sides && state.sbSide in st.sides ? state.sbSide : null;
+  const teams = side ? st.sides[side].teams : st.teams;
   const table = t => {
-    const other = st.teams.find(o => o !== t);
+    const other = teams.find(o => o !== t);
+    // On one side the team score is the rounds won on it, so compare it with the rounds lost there.
+    const lost = side ? t.played - t.score : other.score;
     const rows = [...t.players].sort((x, y) => sort.dir * (col[2](x) - col[2](y)) || x.name.localeCompare(y.name));
     return h('table', { class: `sb sb-score ${detailed ? 'detailed' : ''}` },
       h('thead', {}, h('tr', {},
         h('th', { class: 'team' },
-          h('span', { class: `team-score score-${t.score > other.score ? 'w' : t.score < other.score ? 'l' : 'd'}` }, t.score),
-          teamLabel(t), h('span', { class: `side side-${t.startSide}` }, `started ${t.startSide}`)),
+          h('span', { class: `team-score score-${t.score > lost ? 'w' : t.score < lost ? 'l' : 'd'}`, title: side ? `Rounds won as ${side}: ${t.score} of ${t.played}` : null }, side ? `${t.score}–${lost}` : t.score),
+          teamLabel(t), side
+            ? h('span', { class: `side side-${side}` }, `as ${side} · ${t.played} rounds`)
+            : h('span', { class: `side side-${t.startSide}` }, `started ${t.startSide}`)),
         ...cols.map(([k, tip]) => h('th', {
           title: tip, class: `${sort.col === k ? 'sorted' : ''} ${k === 'Multi' || k === 'Clutch' ? 'wide' : ''}`,
           onclick: () => { state.sbSort = { col: k, dir: sort.col === k ? -sort.dir : -1 }; renderDetail(); },
@@ -607,8 +614,10 @@ function scoreboardView() {
     h('div', { class: 'section-head' }, h('h3', {}, 'Scoreboard'),
       h('div', { class: 'tabs' }, ...[[false, 'Compact'], [true, 'Detailed']].map(([v, l]) =>
         h('button', { class: detailed === v ? 'on' : '', onclick: () => { state.sbDetailed = v; renderDetail(); } }, l))),
+      st.sides ? h('div', { class: 'tabs', title: 'Count everything, or only the rounds each player spent on one side' }, ...[[null, 'Both sides'], ['CT', 'CT'], ['T', 'T']].map(([v, l]) =>
+        h('button', { class: `${side === v ? 'on' : ''} ${v ? 'side-' + v : ''}`, onclick: () => { state.sbSide = v; renderDetail(); } }, l))) : null,
       h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Click a column to sort it, a player to view the match as them, the bars icon for their stats over all your demos.')),
-    ...st.teams.map(t => h('div', { class: 'sb-wrap' }, table(t))),
+    ...teams.map(t => h('div', { class: 'sb-wrap' }, table(t))),
   ];
 }
 
