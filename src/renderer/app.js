@@ -70,6 +70,8 @@ const state = {
 document.querySelectorAll('.nav-btn, .brand').forEach(b => b.addEventListener('click', () => { if (b.dataset.view === 'overview') state.who = null; showView(b.dataset.view); }));
 function showView(v) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  $('#meCard').classList.toggle('active', v === 'themes' || v === 'settings');
+  closeMeMenu();
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === `view-${v}`));
   state.view = v;
   if (v === 'overview') renderOverview();
@@ -78,7 +80,9 @@ function showView(v) {
   if (v === 'matches' && !state.demo && state.demos[0]) openDemo(state.demos[0]);
   if (v === 'clips') loadClips();
   if (v === 'downloads') loadDownloads();
+  if (v === 'themes') renderThemes();
   if (v === 'settings') renderSettings();
+  Scene.follow($(`#view-${v}`));
 }
 
 // Repaints whatever page is showing (e.g. once the radar images' positions are known).
@@ -104,38 +108,76 @@ let scaleTimer = 0;
 window.addEventListener('resize', () => { clearTimeout(scaleTimer); scaleTimer = setTimeout(applyScale, 150); });
 
 // ---------- Themes ----------
-// Colors only, no logos. base: background (all surfaces and lines are derived from it in styles.css),
-// accent: buttons, active tab, rating and charts; data: selection and data highlights when they should
-// differ from the accent; art: a radar image faded into the top corner.
+// base: background (all surfaces and lines are derived from it in styles.css), accent: buttons, active
+// tab, rating and charts; data: selection and data highlights when they should differ from the accent.
+// The backdrop (scene.js) moves with scrolling: map themes show a screenshot of the map from the CS2
+// install (Settings lets you pick the angle), team themes the team's logo as a neon sign over a pattern
+// (both read from CS2's files by lib/themeArt.js), the others just the pattern.
 const THEMES = [
-  { id: 'demolab', group: 'DemoLab', name: 'DemoLab', base: '#0b0f13', accent: '#2fd8a4' },
-  { id: 'classic', group: 'DemoLab', name: 'Classic', base: '#0a0e16', accent: '#ff9d2e', data: '#4f8dff' },
-  { id: 'midnight', group: 'DemoLab', name: 'Midnight', base: '#0c0b16', accent: '#9d8bff' },
-  { id: 'graphite', group: 'DemoLab', name: 'Graphite', base: '#0e0f11', accent: '#d9dee5' },
-  { id: 'vitality', group: 'Teams', name: 'Vitality', base: '#0b0a05', accent: '#ffe500' },
-  { id: 'spirit', group: 'Teams', name: 'Team Spirit', base: '#0a0a0b', accent: '#f2f2f2', data: '#a7b0bd' },
-  { id: 'navi', group: 'Teams', name: 'NAVI', base: '#080b11', accent: '#fff200' },
-  { id: 'faze', group: 'Teams', name: 'FaZe Clan', base: '#0e0a0a', accent: '#e8392c' },
-  { id: 'g2', group: 'Teams', name: 'G2 Esports', base: '#0b0b0c', accent: '#ff2b2b', data: '#ececec' },
-  { id: 'mouz', group: 'Teams', name: 'MOUZ', base: '#0f0a0c', accent: '#ff3352' },
-  { id: 'falcons', group: 'Teams', name: 'Team Falcons', base: '#07100b', accent: '#00c46a' },
-  { id: 'liquid', group: 'Teams', name: 'Team Liquid', base: '#08101c', accent: '#3fa0ff' },
-  { id: 'astralis', group: 'Teams', name: 'Astralis', base: '#0a0d18', accent: '#ff2d3c' },
-  { id: 'cloud9', group: 'Teams', name: 'Cloud9', base: '#071017', accent: '#19b5ff' },
-  { id: 'eternalfire', group: 'Teams', name: 'Eternal Fire', base: '#100b07', accent: '#ff7a1a' },
-  { id: 'dust2', group: 'Maps', name: 'Dust II', base: '#120f0a', accent: '#e6b872', art: 'de_dust2' },
-  { id: 'mirage', group: 'Maps', name: 'Mirage', base: '#110e0b', accent: '#eda35c', art: 'de_mirage' },
-  { id: 'inferno', group: 'Maps', name: 'Inferno', base: '#130c0a', accent: '#ec7546', art: 'de_inferno' },
-  { id: 'nuke', group: 'Maps', name: 'Nuke', base: '#0a0f15', accent: '#ffd23f', data: '#5aa9e6', art: 'de_nuke' },
-  { id: 'ancient', group: 'Maps', name: 'Ancient', base: '#09100c', accent: '#8fcf6a', art: 'de_ancient' },
-  { id: 'anubis', group: 'Maps', name: 'Anubis', base: '#0c0f10', accent: '#e9c25a', data: '#3cc3bd', art: 'de_anubis' },
-  { id: 'overpass', group: 'Maps', name: 'Overpass', base: '#0a0f10', accent: '#6cc4cc', art: 'de_overpass' },
-  { id: 'vertigo', group: 'Maps', name: 'Vertigo', base: '#0a0e14', accent: '#8ec5ff', art: 'de_vertigo' },
-  { id: 'train', group: 'Maps', name: 'Train', base: '#0d0e10', accent: '#e2683b', data: '#b8c0cc', art: 'de_train' },
-  { id: 'office', group: 'Maps', name: 'Office', base: '#0b0e12', accent: '#bfe3ff', art: 'cs_office' },
+  { id: 'demolab', group: 'DemoLab', name: 'DemoLab', base: '#0b0f13', accent: '#2fd8a4', pattern: 'dots' },
+  { id: 'classic', group: 'DemoLab', name: 'Classic', base: '#0a0e16', accent: '#ff9d2e', data: '#4f8dff', pattern: 'grid' },
+  { id: 'midnight', group: 'DemoLab', name: 'Midnight', base: '#0c0b16', accent: '#9d8bff', pattern: 'tri' },
+  { id: 'graphite', group: 'DemoLab', name: 'Graphite', base: '#0e0f11', accent: '#d9dee5', pattern: 'diag' },
+  { id: 'vitality', group: 'Teams', name: 'Vitality', logo: 'vita', base: '#0b0a05', accent: '#ffe500', pattern: 'hex' },
+  { id: 'spirit', group: 'Teams', name: 'Team Spirit', logo: 'spir', base: '#0a0a0b', accent: '#f2f2f2', data: '#a7b0bd', pattern: 'tri' },
+  { id: 'navi', group: 'Teams', name: 'NAVI', logo: 'navi', base: '#080b11', accent: '#fff200', pattern: 'diag' },
+  { id: 'mouz', group: 'Teams', name: 'MOUZ', logo: 'mouz', base: '#0f0a0c', accent: '#ff3352', pattern: 'dots' },
+  { id: 'falcons', group: 'Teams', name: 'Team Falcons', logo: 'fal', base: '#07100b', accent: '#00c46a', pattern: 'hex' },
+  { id: 'furia', group: 'Teams', name: 'FURIA', logo: 'furi', base: '#0b0b0b', accent: '#f0f0f0', data: '#9aa4b1', pattern: 'diag' },
+  { id: 'mongolz', group: 'Teams', name: 'The MongolZ', logo: 'mngz', base: '#100c06', accent: '#f2b53a', pattern: 'hex' },
+  { id: 'aurora', group: 'Teams', name: 'Aurora', logo: 'aura', base: '#06100f', accent: '#2ed3c4', pattern: 'tri' },
+  { id: 'g2', group: 'Teams', name: 'G2 Esports', logo: 'g2', base: '#0b0b0c', accent: '#ff2b2b', data: '#ececec', pattern: 'grid' },
+  { id: 'faze', group: 'Teams', name: 'FaZe Clan', logo: 'faze', base: '#0e0a0a', accent: '#e8392c', pattern: 'tri' },
+  { id: 'liquid', group: 'Teams', name: 'Team Liquid', logo: 'liq', base: '#08101c', accent: '#3fa0ff', pattern: 'diag' },
+  { id: 'pain', group: 'Teams', name: 'paiN Gaming', logo: 'pain', base: '#0f0909', accent: '#ff2e3a', pattern: 'grid' },
+  { id: '3dmax', group: 'Teams', name: '3DMAX', logo: '3dm', base: '#0f0809', accent: '#ff2e4d', pattern: 'diag' },
+  { id: 'vp', group: 'Teams', name: 'Virtus.pro', logo: 'vp', base: '#100a06', accent: '#ff7a21', pattern: 'dots' },
+  { id: 'heroic', group: 'Teams', name: 'HEROIC', logo: 'hero', base: '#0e0809', accent: '#ff3b4e', pattern: 'tri' },
+  { id: 'astralis', group: 'Teams', name: 'Astralis', logo: 'astr', base: '#0a0d18', accent: '#ff2d3c', pattern: 'tri' },
+  { id: 'nip', group: 'Teams', name: 'NiP', logo: 'nip', base: '#0a0d06', accent: '#c8f000', pattern: 'hex' },
+  { id: 'fnatic', group: 'Teams', name: 'Fnatic', logo: 'fntc', base: '#0d0906', accent: '#ff5900', pattern: 'grid' },
+  { id: 'ence', group: 'Teams', name: 'ENCE', logo: 'ence', base: '#0a0d16', accent: '#f7a428', pattern: 'dots' },
+  { id: 'cloud9', group: 'Teams', name: 'Cloud9', logo: 'c9', base: '#071017', accent: '#19b5ff', pattern: 'dots' },
+  { id: 'eternalfire', group: 'Teams', name: 'Eternal Fire', logo: 'eter', base: '#100b07', accent: '#ff7a1a', pattern: 'hex' },
+  { id: 'tyloo', group: 'Teams', name: 'TYLOO', logo: 'tyl', base: '#100707', accent: '#e8262d', pattern: 'grid' },
+  { id: 'dust2', group: 'Maps', name: 'Dust II', map: 'de_dust2', base: '#120f0a', accent: '#e6b872' },
+  { id: 'mirage', group: 'Maps', name: 'Mirage', map: 'de_mirage', base: '#110e0b', accent: '#eda35c' },
+  { id: 'inferno', group: 'Maps', name: 'Inferno', map: 'de_inferno', base: '#130c0a', accent: '#ec7546' },
+  { id: 'nuke', group: 'Maps', name: 'Nuke', map: 'de_nuke', base: '#0a0f15', accent: '#ffd23f', data: '#5aa9e6' },
+  { id: 'ancient', group: 'Maps', name: 'Ancient', map: 'de_ancient', base: '#09100c', accent: '#8fcf6a' },
+  { id: 'anubis', group: 'Maps', name: 'Anubis', map: 'de_anubis', base: '#0c0f10', accent: '#e9c25a', data: '#3cc3bd' },
+  { id: 'overpass', group: 'Maps', name: 'Overpass', map: 'de_overpass', base: '#0a0f10', accent: '#6cc4cc' },
+  { id: 'vertigo', group: 'Maps', name: 'Vertigo', map: 'de_vertigo', base: '#0a0e14', accent: '#8ec5ff' },
+  { id: 'train', group: 'Maps', name: 'Train', map: 'de_train', base: '#0d0e10', accent: '#e2683b', data: '#b8c0cc' },
+  { id: 'cache', group: 'Maps', name: 'Cache', map: 'de_cache', base: '#0b0f0b', accent: '#b5d65a' },
+  { id: 'office', group: 'Maps', name: 'Office', map: 'cs_office', base: '#0b0e12', accent: '#bfe3ff' },
+  { id: 'italy', group: 'Maps', name: 'Italy', map: 'cs_italy', base: '#120d0a', accent: '#e9895a' },
 ];
-const CUSTOM_THEME = { id: 'custom', group: 'Custom', name: 'Custom', base: '#0b0f13', accent: '#2fd8a4', data: '', art: '' };
-const themeById = id => (id === 'custom' ? { ...CUSTOM_THEME, ...state.settings?.customTheme, id: 'custom', name: 'Custom' } : THEMES.find(t => t.id === id) || THEMES[0]);
+// Names for the other logos CS2 ships, for the custom theme (codes without a name show in capitals).
+const TEAM_NAMES = {
+  ...Object.fromEntries(THEMES.filter(t => t.logo).map(t => [t.logo, t.name])),
+  big: 'BIG', mibr: 'MIBR', gl: 'GamerLegion', imp: 'Imperial', lynn: 'Lynn Vision', b8: 'B8', cplx: 'Complexity', og: 'OG', saw: 'SAW',
+  mont: 'Monte', wcrd: 'Wildcard', fq: 'FlyQuest', gamb: 'Gambit', sk: 'SK Gaming', koi: 'KOI', m80: 'M80', nrg: 'NRG', optc: 'OpTic',
+  ren: 'Renegades', spr: 'Sprout', thv: '100 Thieves', tsm: 'TSM', vega: 'Vega Squadron', evl: 'Evil Geniuses', clg: 'CLG', dig: 'Dignitas',
+  nv: 'EnVyUs', hlr: 'HellRaisers', col: 'compLexity', god: 'GODSENT', nor: 'North', ad: 'Astana Dragons', amka: 'AMKAL', apex: 'Apeks',
+  avg: 'AVANGAR', bne: 'Bad News Eagles', cw: 'Copenhagen Wolves', ent: 'Entropiq', flip: 'Flipsid3', forz: 'forZe', gray: 'Grayhound',
+  intz: 'INTZ', king: 'Kinguin', lgcy: 'Legacy', meti: 'Metizport', mss: 'mousesports', nemi: 'Nemiga', out: 'Outsiders', pari: 'PARIVISION',
+  rog: 'Rogue', spc: 'Space Soldiers', splc: 'Splyce', tit: 'Titan', wins: 'Winstrike', ecst: 'ECSTATIC', ence: 'ENCE', penta: 'PENTA',
+};
+const teamName = code => TEAM_NAMES[code] || code.toUpperCase();
+const CUSTOM_THEME = { id: 'custom', group: 'Custom', name: 'Custom', base: '#0b0f13', accent: '#2fd8a4', data: '', map: '', shot: '', logo: '', pattern: 'dots' };
+// The theme to apply: picture choices from the settings filled in, scene kind decided.
+function themeById(id, custom = state.settings?.customTheme) {
+  const st = state.settings || {};
+  let t = THEMES.find(x => x.id === id) || THEMES[0];
+  if (id === 'custom') {
+    const c = { ...CUSTOM_THEME, ...custom };
+    if (!c.map && c.art && !c.logo) c.map = c.art; // older settings: art = a radar in the background
+    t = { ...c, id: 'custom', name: 'Custom' };
+  }
+  const shot = t.map ? (id === 'custom' ? t.shot : st.themeShots?.[t.id]) || t.map : '';
+  return { ...t, shot, scene: t.map ? 'map' : t.logo ? 'team' : 'pattern' };
+}
 // Text on the accent color: dark on light accents (Vitality yellow), white on dark ones (FaZe red).
 function inkFor(hex) {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
@@ -147,8 +189,10 @@ function applyTheme(t) {
   st.setProperty('--accent', t.accent);
   st.setProperty('--accent-ink', inkFor(t.accent));
   if (t.data) st.setProperty('--blue', t.data); else st.removeProperty('--blue');
-  if (t.art) st.setProperty('--art', `url("radar/${t.art}.png")`); else st.removeProperty('--art');
-  try { localStorage.setItem('theme', JSON.stringify(t)); } catch {}
+  const remember = x => { try { localStorage.setItem('theme', JSON.stringify(x)); } catch {} };
+  // The picture URLs are cached with the theme so the next start shows them straight away.
+  Scene.set(t, urls => { Object.assign(t, urls); remember(t); });
+  remember(t);
 }
 // The last theme is cached so the window opens in it before the settings have loaded.
 try { const t = JSON.parse(localStorage.getItem('theme')); if (t?.base) applyTheme(t); } catch {}
@@ -172,15 +216,40 @@ function renderMeCard() {
   const name = state.profile?.name || e?.steamUser?.name || 'Unknown player';
   const n = state.profile?.matches.length;
   const el = $('#meCard');
-  el.title = e?.mySteamId ? `SteamID ${e.mySteamId}` : 'No Steam account found';
-  el.onclick = () => { state.who = null; showView(e?.mySteamId ? 'overview' : 'settings'); };
+  el.onclick = () => ($('#meMenu').classList.contains('hidden') ? openMeMenu() : closeMeMenu());
   el.replaceChildren(
-    h('div', { class: 'avatar' }, initial(name)),
+    avatar(name, e?.mySteamId),
     h('div', { class: 'me-text' },
       h('div', { class: 'me-name' }, name),
       h('div', { class: `me-sub ${e?.mySteamId ? '' : 'bad'}` }, e?.mySteamId ? (n != null ? `${n} match${n === 1 ? '' : 'es'} analyzed` : 'Steam account') : 'Set your SteamID in Settings')),
+    icon('<path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>', 'class="me-chev"'),
   );
 }
+
+// The menu under the player card: your stats, the Theme page and Settings.
+const ME_MENU = [
+  ['overview', 'My stats', ICONS.stats],
+  ['themes', 'Theme', '<circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3.5a8.5 8.5 0 0 0 0 17z" fill="currentColor"/>'],
+  ['settings', 'Settings', '<circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" stroke="currentColor" stroke-width="1.8"/>'],
+];
+function openMeMenu() {
+  const e = state.env;
+  const mine = state.view === 'overview' && !state.who;
+  $('#meMenu').replaceChildren(
+    e?.mySteamId ? h('div', { class: 'me-menu-id' }, `SteamID ${e.mySteamId}`) : null,
+    ...ME_MENU.map(([v, label, d]) => h('button', {
+      class: `me-item ${(v === 'overview' ? mine : state.view === v) ? 'on' : ''}`,
+      onclick: () => { if (v === 'overview') state.who = null; showView(v === 'overview' && !e?.mySteamId ? 'settings' : v); },
+    }, icon(d), label)));
+  $('#meMenu').classList.remove('hidden');
+  $('#meCard').classList.add('open');
+}
+function closeMeMenu() {
+  $('#meMenu').classList.add('hidden');
+  $('#meCard').classList.remove('open');
+}
+document.addEventListener('mousedown', e => { if (!e.target.closest('.me-wrap')) closeMeMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#meMenu').classList.contains('hidden')) closeMeMenu(); });
 
 async function refreshEnv() {
   state.env = await api.env();
@@ -403,7 +472,7 @@ function renderDetail() {
         sb ? stat('Rating', sb.rating == null ? '—' : sb.rating.toFixed(2), ratingClass(sb.rating)) : null,
       ) : null,
     ),
-    h('div', { class: 'player-pick' }, icon('<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8"/>'), 'Point of view', playerSelect,
+    h('div', { class: 'player-pick' }, a.player ? avatar(a.player.name, a.player.steamid, 'sm') : icon('<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8"/>'), 'Point of view', playerSelect,
       h('span', { class: 'spacer' }),
       viewInCs2Button('View demo', 'btn', 'Opens this demo in CS2 (through HLAE) at the first round, in the eyes of the point-of-view player',
         () => ({ name: a.player?.name }), 'The demo is playing in the CS2 window.')),
@@ -510,17 +579,17 @@ function scoreboardView() {
   const table = t => {
     const other = st.teams.find(o => o !== t);
     const rows = [...t.players].sort((x, y) => sort.dir * (col[2](x) - col[2](y)) || x.name.localeCompare(y.name));
-    return h('table', { class: 'sb' },
+    return h('table', { class: `sb sb-score ${detailed ? 'detailed' : ''}` },
       h('thead', {}, h('tr', {},
         h('th', { class: 'team' },
           h('span', { class: `team-score score-${t.score > other.score ? 'w' : t.score < other.score ? 'l' : 'd'}` }, t.score),
           teamLabel(t), h('span', { class: `side side-${t.startSide}` }, `started ${t.startSide}`)),
         ...cols.map(([k, tip]) => h('th', {
-          title: tip, class: sort.col === k ? 'sorted' : '',
+          title: tip, class: `${sort.col === k ? 'sorted' : ''} ${k === 'Multi' || k === 'Clutch' ? 'wide' : ''}`,
           onclick: () => { state.sbSort = { col: k, dir: sort.col === k ? -sort.dir : -1 }; renderDetail(); },
         }, k, sort.col === k ? (sort.dir < 0 ? ' ▾' : ' ▴') : '')))),
       h('tbody', {}, ...rows.map(p => h('tr', { class: p.steamid === me ? 'me' : '', title: `View the match as ${p.name}`, onclick: pick(p.steamid) },
-        h('td', { class: 'name' }, p.name,
+        h('td', { class: 'name' }, avatar(p.name, p.steamid, 'sm'), p.name,
           h('button', { class: 'sb-profile', title: `${p.name}’s stats over all your demos`, onclick: e => { e.stopPropagation(); openPlayer(p.steamid); } }, icon(ICONS.stats))),
         ...cols.map(([, , val, fmt, cls]) => h('td', { class: cls ? cls(p) : '' }, fmt ? fmt(p) : val(p)))))),
     );
@@ -563,10 +632,11 @@ function duelsView() {
     h('div', { class: 'sb-wrap' }, h('table', { class: 'sb duels' },
       h('thead', {}, h('tr', {},
         h('th', { class: 'team' }, `${teamLabel(rowsT)} ↓  vs  ${teamLabel(colsT)} →`),
-        ...colsT.players.map(b => h('th', { class: 'vert', title: b.name }, h('span', {}, b.name))),
-        h('th', {}, 'Total'))),
+        ...colsT.players.map(b => h('th', { class: `duel-head ${b.steamid === me ? 'me' : ''}`, title: b.name },
+          avatar(b.name, b.steamid), h('span', { class: 'duel-name' }, b.name))),
+        h('th', { class: 'duel-total' }, 'Total'))),
       h('tbody', {}, ...rowsT.players.map(a => h('tr', { class: a.steamid === me ? 'me' : '', onclick: pick(a.steamid) },
-        h('td', { class: 'name' }, a.name),
+        h('td', { class: 'name', title: a.name }, avatar(a.name, a.steamid, 'sm'), a.name),
         ...colsT.players.map(b => cell(a, b)),
         total(a)))))),
   ];
@@ -620,7 +690,7 @@ function integrityView() {
       ...sel.signals.map(c => h('th', { title: `${c.tip}\n\nNormal: ${c.normal}` }, c.label)),
       h('th', { title: 'Kills and headshot percentage, for context' }, 'K · HS%'))),
     h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''}`, title: 'Show this player’s moments', onclick: () => { state.integPlayer = p.steamid; renderDetail(); } },
-      h('td', { class: 'name' }, p.name, h('span', { class: 'integ-team' }, teamName(p))),
+      h('td', { class: 'name' }, avatar(p.name, p.steamid, 'sm'), p.name, h('span', { class: 'integ-team' }, teamName(p))),
       h('td', {}, h('span', { class: `pill ${INTEG_LEVEL[p.level][1]}` }, INTEG_LEVEL[p.level][0])),
       ...p.signals.map(s => h('td', { class: `integ-${s.level}`, title: `Normal: ${s.normal}` }, s.display)),
       h('td', {}, `${p.context.kills} · ${p.context.hsPct}%`)))));
@@ -650,7 +720,7 @@ function integrityMoments(p) {
       m.kind === 'snap' ? 'Paused right after the snap in CS2. Use the demo controls (Shift+F2) to step back and forth.' : 'The demo is playing in the CS2 window.')));
   return [
     h('div', { class: 'section-head' },
-      h('h3', {}, `Moments · ${p.name}`),
+      h('h3', { class: 'with-avatar' }, avatar(p.name, p.steamid, 'sm'), `Moments · ${p.name}`),
       minor.length ? toggle(`Show ${minor.length} weaker moment${minor.length > 1 ? 's' : ''}`, showMinor, v => { state.integMinor = v; renderDetail(); },
         'Every time the crosshair was already on an unknown enemy as they came into view (good crosshair placement does this too, so one by one they mean little), and snaps onto an enemy without a shot.') : null,
       h('span', { class: 'spacer' }),
@@ -1835,6 +1905,7 @@ function drawRadar() {
     const side = ct => players.filter(p => p.s.ct === ct).sort((x, y) => x.name.localeCompare(y.name)).map(p =>
       h('div', { class: `rp ${p.s.alive ? '' : 'dead'} ${p.id === pov ? 'me' : ''}` },
         h('div', { class: 'rp-top' },
+          (els.avatars ||= new Map()).get(p.id) || els.avatars.set(p.id, avatar(p.name, p.id, 'xs')).get(p.id), // reused, so animated pictures keep playing
           h('span', { class: 'rp-name' }, p.name),
           bs.carrier === p.id ? h('span', { class: 'rp-c4', title: 'Carries the bomb' }, 'C4') : null,
           blind.has(p.id) ? h('span', { class: 'rp-flash', title: 'Flashed' }, 'flashed') : null,
@@ -1970,7 +2041,40 @@ function barList(rows, { empty = 'Nothing yet' } = {}) {
     h('div', { class: 'bar-top' }, r.lead || null, h('span', { class: 'bar-label' }, r.label), h('span', { class: 'spacer' }), r.note ? h('span', { class: 'bar-note' }, r.note) : null, h('b', { class: r.cls || '' }, r.value)),
     h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${r.fillCls || ''}`, style: { width: `${clamp(r.frac, 0, 1) * 100}%` } })))));
 }
-const initial = name => (name.replace(/[^\p{L}\p{N}]/gu, '')[0] || '?').toUpperCase();
+
+// A player's Steam profile picture, showing Steam's default picture (the CSS background) until (or
+// unless) theirs arrives. Pictures are fetched once by the main process and cached on disk; late arrivals
+// are patched into every .avatar[data-sid] on screen, so nothing needs re-rendering.
+const avatarFiles = new Map(); // steamid -> picture file
+const avatarAsked = new Set();
+let avatarBatch = null;
+function avatar(name, steamid, cls = '') {
+  const el = h('span', { class: `avatar ${cls}`, 'data-sid': steamid || null });
+  if (!steamid) return el;
+  if (avatarFiles.has(steamid)) setAvatarPic(el, avatarFiles.get(steamid));
+  else if (!avatarAsked.has(steamid)) {
+    avatarAsked.add(steamid);
+    if (!avatarBatch) {
+      avatarBatch = [];
+      setTimeout(() => { const ids = avatarBatch; avatarBatch = null; api.avatars(ids).then(gotAvatars, () => {}); });
+    }
+    avatarBatch.push(steamid);
+  }
+  return el;
+}
+function setAvatarPic(el, file) {
+  if (el.dataset.file === file) return;
+  el.dataset.file = file;
+  el.classList.add('pic');
+  el.replaceChildren(h('img', { src: api.fileUrl(file), alt: '', draggable: 'false', onerror: () => { el.classList.remove('pic'); el.replaceChildren(); } }));
+}
+function gotAvatars(files) {
+  for (const [id, file] of Object.entries(files || {})) {
+    avatarFiles.set(id, file);
+    for (const el of document.querySelectorAll(`.avatar[data-sid="${id}"]`)) setAvatarPic(el, file);
+  }
+}
+api.onAvatars(gotAvatars);
 const big = (value, unit, note) => h('div', { class: 'big-line' }, h('span', { class: 'big' }, value, unit ? h('small', {}, unit) : null), note ? h('span', { class: 'big-note' }, note) : null);
 
 // The stat tiles: one value per match (null when it doesn't apply, e.g. no opening duel) for the
@@ -1991,35 +2095,84 @@ const TILES = [
   { k: 'Enemies flashed / round', d: 2, m: m => per(m.enemiesFlashed, m.rounds), t: t => per(t.flashed, t.rounds) },
 ];
 
-// Distribution of a stat over the selected matches, with the selection's average and the last 10 matches
-// as dashed lines.
-function histogram(vals, avg, recent) {
+// Distribution of a stat over the selected matches ({ v, m } items), with the selection's average and the
+// last 10 matches as lines. Hovering a bar lists its matches (histPop), each one opens on click.
+function histogram(items, avg, recent, fmt) {
   const W = 120, H = 38, n = 16;
-  const s = [...vals].sort((a, b) => a - b);
+  const s = items.map(it => it.v).sort((a, b) => a - b);
   const q = f => s[Math.min(s.length - 1, Math.floor(f * s.length))];
   let lo = q(0.03), hi = q(0.97);
   if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
-  const bins = new Array(n).fill(0);
-  for (const v of vals) bins[clamp(Math.floor((v - lo) / (hi - lo) * n), 0, n - 1)]++;
-  const max = Math.max(1, ...bins);
+  const bins = Array.from({ length: n }, () => []);
+  for (const it of items) bins[clamp(Math.floor((it.v - lo) / (hi - lo) * n), 0, n - 1)].push(it);
+  const max = Math.max(1, ...bins.map(b => b.length));
   const x = v => (clamp((v - lo) / (hi - lo), 0, 1) * W).toFixed(1);
   const bw = W / n, avgBin = clamp(Math.floor((avg - lo) / (hi - lo) * n), 0, n - 1);
-  const bars = bins.map((c, i) => c ? `<rect x="${(i * bw + 0.8).toFixed(1)}" width="${(bw - 1.6).toFixed(1)}" y="${(H - 2 - (H - 6) * c / max).toFixed(1)}" height="${((H - 6) * c / max).toFixed(1)}" class="${i === avgBin ? 'on' : ''}"/>` : '').join('');
+  const bars = bins.map((b, i) => b.length ? `<rect data-bar="${i}" x="${(i * bw + 0.8).toFixed(1)}" width="${(bw - 1.6).toFixed(1)}" y="${(H - 2 - (H - 6) * b.length / max).toFixed(1)}" height="${((H - 6) * b.length / max).toFixed(1)}" class="${i === avgBin ? 'on' : ''}"/>` : '').join('');
+  // Full-height invisible targets, so short bars are easy to hover.
+  const hits = bins.map((b, i) => b.length ? `<rect class="hit" data-b="${i}" x="${(i * bw).toFixed(1)}" width="${bw.toFixed(1)}" y="0" height="${H}"/>` : '').join('');
   const mark = (v, cls) => (v == null ? '' : `<line x1="${x(v)}" x2="${x(v)}" y1="0" y2="${H}" class="${cls}"/>`);
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="histo">${bars}<line x1="0" x2="${W}" y1="${H - 1}" y2="${H - 1}" class="base"/>${mark(avg, 'avg')}${mark(recent, 'rec')}</svg>`;
+  const el = h('div', { class: 'tile-chart', html: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="histo">${bars}<line x1="0" x2="${W}" y1="${H - 1}" y2="${H - 1}" class="base"/>${mark(avg, 'avg')}${mark(recent, 'rec')}${hits}</svg>` });
+  el.addEventListener('mouseover', e => { const b = e.target.dataset?.b; if (b !== undefined) showHistPop(el, +b, n, bins[+b], fmt); });
+  el.addEventListener('mouseleave', hideHistPopSoon);
+  return el;
 }
 
+// The matches behind one histogram bar, in a popup above (or below) the bar. One shared element on
+// <body> so tiles don't clip it; it stays open while the mouse moves from the bar into it.
+const histPop = h('div', { class: 'hist-pop hidden', onmouseenter: () => clearTimeout(histPop.timer), onmouseleave: () => hideHistPopSoon() });
+document.body.append(histPop);
+const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+function ago(ms) {
+  const s = (ms - Date.now()) / 1000;
+  for (const [u, n] of [['year', 31536e3], ['month', 2592e3], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60]]) if (Math.abs(s) >= n) return rtf.format(Math.round(s / n), u);
+  return 'just now';
+}
+function showHistPop(chart, b, n, items, fmt) {
+  clearTimeout(histPop.timer);
+  if (histPop.chart === chart && histPop.bin === b && !histPop.classList.contains('hidden')) return;
+  histPop.chart?.querySelector('rect.hl')?.classList.remove('hl');
+  chart.querySelector(`rect[data-bar="${b}"]`)?.classList.add('hl');
+  Object.assign(histPop, { chart, bin: b });
+  const vs = items.map(it => it.v);
+  const lo = fmt(Math.min(...vs)), hi = fmt(Math.max(...vs));
+  const list = [...items].sort((x, y) => y.m.date - x.m.date);
+  histPop.replaceChildren(
+    h('div', { class: 'hp-head' }, h('span', {}, `${list.length} match${list.length === 1 ? '' : 'es'}`), h('span', {}, lo === hi ? lo : `${lo} – ${hi}`)),
+    h('div', { class: 'hp-list' }, ...list.map(({ v, m }) => h('button', { class: 'hp-row', title: `${fmtDate(m.date)} · open the scoreboard`, onclick: () => { hideHistPop(); openMatch(m); } },
+      mapThumb(m.map),
+      h('span', { class: 'hp-t' }, h('b', {}, mapName(m.map)), h('small', {}, ago(m.date))),
+      h('span', { class: 'hp-r' }, h('b', {}, fmt(v)),
+        h('span', { class: `hp-res r-${m.result}` }, h('i', {}, m.result), `${m.score[0]}:${m.score[1]}`))))));
+  histPop.classList.remove('hidden');
+  // Centered on the bar, above the chart (below it when there's no room), kept inside the window.
+  const r = chart.getBoundingClientRect(), p = histPop.getBoundingClientRect();
+  const cx = r.left + (b + 0.5) / n * r.width;
+  const top = r.top - p.height - 8 >= 8 ? r.top - p.height - 8 : r.bottom + 8;
+  histPop.style.left = `${clamp(cx - p.width / 2, 8, window.innerWidth - p.width - 8)}px`;
+  histPop.style.top = `${clamp(top, 8, window.innerHeight - p.height - 8)}px`;
+}
+function hideHistPop() {
+  clearTimeout(histPop.timer);
+  histPop.classList.add('hidden');
+  histPop.chart?.querySelector('rect.hl')?.classList.remove('hl');
+  histPop.chart = null;
+}
+function hideHistPopSoon() { clearTimeout(histPop.timer); histPop.timer = setTimeout(hideHistPop, 180); }
+document.addEventListener('scroll', e => { if (!histPop.contains(e.target)) hideHistPop(); }, true);
+
 function statTile(def, list, t, last10) {
-  const vals = list.map(def.m).filter(v => v != null && Number.isFinite(v));
+  const items = list.map(m => ({ v: def.m(m), m })).filter(it => it.v != null && Number.isFinite(it.v));
+  const vals = items.map(it => it.v);
   const avg = def.t(t), rec = list.length > 10 ? def.t(last10) : null;
   const fmt = v => (v == null ? '—' : v.toFixed(def.d));
   const better = rec == null || avg == null || Math.abs(rec - avg) < 10 ** -def.d ? null : (rec > avg) !== !!def.low;
-  return h('div', { class: 'tile', title: `${def.k}: distribution over ${vals.length} match${vals.length === 1 ? '' : 'es'}\nWhite line: the whole selection (${fmt(avg)}${def.u || ''})${rec != null ? `\nSolid line: your last 10 matches (${fmt(rec)}${def.u || ''})` : ''}` },
-    h('div', { class: 'tile-k' }, def.k),
-    h('div', { class: 'tile-row' },
-      h('div', { class: 'tile-v' }, fmt(avg), def.u && avg != null ? h('small', {}, def.u) : null),
-      h('div', { class: `tile-sub ${better == null ? '' : better ? 'up' : 'down'}` }, rec == null ? '' : [better == null ? null : h('b', {}, rec > avg ? '▲ ' : '▼ '), `last 10: ${fmt(rec)}${def.u || ''}`])),
-    vals.length >= 3 ? h('div', { class: 'tile-chart', html: histogram(vals, avg ?? 0, rec) }) : null);
+  return h('div', { class: 'tile' }, h('div', { class: 'tile-head', title: `${def.k}: distribution over ${vals.length} match${vals.length === 1 ? '' : 'es'}\nWhite line: the whole selection (${fmt(avg)}${def.u || ''})${rec != null ? `\nSolid line: your last 10 matches (${fmt(rec)}${def.u || ''})` : ''}\nHover a bar to see its matches.` },
+      h('div', { class: 'tile-k' }, def.k),
+      h('div', { class: 'tile-row' },
+        h('div', { class: 'tile-v' }, fmt(avg), def.u && avg != null ? h('small', {}, def.u) : null),
+        h('div', { class: `tile-sub ${better == null ? '' : better ? 'up' : 'down'}` }, rec == null ? '' : [better == null ? null : h('b', {}, rec > avg ? '▲ ' : '▼ '), `last 10: ${fmt(rec)}${def.u || ''}`]))),
+    vals.length >= 3 ? histogram(items, avg ?? 0, rec, v => `${fmt(v)}${def.u || ''}`) : null);
 }
 
 const RATING_LEVELS = [[1.2, 'Excellent'], [1.08, 'Good'], [0.95, 'Average'], [0.85, 'Below average'], [-Infinity, 'Poor']];
@@ -2096,7 +2249,7 @@ function renderOverview() {
     ].filter(Boolean).join(' · ');
   }
   const head = h('div', { class: 'dash-head' },
-    h('div', { class: 'avatar lg' }, initial(p.name || '?')),
+    avatar(p.name, p.steamid, 'large'),
     h('div', { class: 'dash-title' },
       h('h2', {}, p.name || 'Your stats', other ? h('span', { class: 'dash-tag', title: `SteamID ${p.steamid}` }, 'Player') : null),
       h('div', { class: 'sub' }, `${t.played} match${t.played === 1 ? '' : 'es'} · ${fmtNum(t.rounds)} rounds`,
@@ -2229,7 +2382,7 @@ function matesCard(t) {
     ? h('div', { class: 'mates' }, ...mates.map(m => {
       const wr = pct(m.won, m.played);
       return h('div', { class: 'mate clickable', title: `${m.won} won · ${m.lost} lost together · click for ${m.name}’s stats`, onclick: () => openPlayer(m.id) },
-        h('span', { class: 'avatar sm' }, initial(m.name)),
+        avatar(m.name, m.id, 'sm'),
         h('span', { class: 'mate-name' }, m.name),
         h('span', { class: 'bar-note' }, `${m.played} matches`),
         h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } })),
@@ -2290,7 +2443,7 @@ async function renderPlayerSearch() {
     onmousedown: e => { e.preventDefault(); choosePlayer(p.steamid); },
     onmousemove: () => { if (ps.sel !== i) { ps.sel = i; markPlayerRow(); } },
   },
-  h('span', { class: 'avatar sm' }, initial(p.name || '?')),
+  avatar(p.name, p.steamid, 'sm'),
   h('span', { class: 'ps-main' },
     h('span', { class: 'ps-name' }, h('b', {}, p.name || p.steamid), p.steamid === idx.self ? h('span', { class: 'ps-you' }, 'you') : null,
       p.names.length > 1 ? h('span', { class: 'ps-aka' }, `aka ${p.names.slice(1, 3).join(', ')}${p.names.length > 3 ? '…' : ''}`) : null),
@@ -3436,33 +3589,76 @@ api.onHlaeUpdate(u => {
   if (state.view === 'settings') renderSettings();
 });
 
-// Theme gallery (DemoLab, teams, maps) plus a custom theme built from three colors.
+// Theme gallery (DemoLab, teams, maps) plus a custom theme. Previews use the same pictures as the
+// backdrop; a map theme also offers the other screenshots CS2 has of that map.
+const PATTERN_NAMES = [['', 'None'], ['hex', 'Hexagons'], ['tri', 'Triangles'], ['grid', 'Grid'], ['diag', 'Stripes'], ['dots', 'Dots']];
+function themePreview(t) {
+  const p = h('span', { class: 'theme-prev', style: { '--sw-base': t.base, '--sw-accent': t.accent, '--sw-data': t.data || t.accent } });
+  const tile = !t.map && Scene.patternTile(t.pattern, t.accent);
+  if (tile) p.append(h('i', { class: 'tp-pattern', style: { backgroundImage: tile.url, backgroundSize: `${tile.w / 2}px ${tile.h / 2}px` } }));
+  if (t.map) {
+    const img = h('img', { class: 'tp-photo', alt: '', onload: () => img.classList.add('ready') });
+    Scene.shotUrl(t.shot, true).then(u => { if (u) img.src = u; else { img.classList.add('radar'); img.src = `radar/${t.map}.png`; } });
+    p.append(img);
+  }
+  if (t.logo) {
+    const img = h('img', { class: 'tp-logo', alt: '', onload: () => img.classList.add('ready'), style: { filter: Scene.neonFilter(`sw-neon-${t.id}`, t.accent, 0.32) } });
+    Scene.teamUrl(t.logo).then(u => { if (u) img.src = u; });
+    p.append(img);
+  }
+  p.append(h('i', { class: 'tp-nav' }), h('i', { class: 'tp-bar' }), h('i', { class: 'tp-bar data' }));
+  return p;
+}
 function themeCard() {
   const cur = state.settings.theme || 'demolab';
-  const pick = async id => { applyTheme(themeById(id)); await save({ theme: id }); renderSettings(); };
-  const swatch = t => h('button', {
-    class: `theme-sw ${t.id === cur ? 'on' : ''}`, title: t.name, onclick: () => pick(t.id),
-    style: { '--sw-base': t.base, '--sw-accent': t.accent, '--sw-data': t.data || t.accent, '--sw-art': t.art ? `url("radar/${t.art}.png")` : 'none' },
-  },
-  h('span', { class: 'theme-prev' }, h('i', { class: 'tp-nav' }), h('i', { class: 'tp-big' }), h('i', { class: 'tp-bar' }), h('i', { class: 'tp-bar data' })),
-  h('span', { class: 'theme-name' }, t.name, t.id === cur ? icon(ICONS.check) : null));
-  const group = (title, list) => [h('div', { class: 'sub-head' }, title), h('div', { class: 'theme-grid' }, ...list.map(swatch))];
+  const curT = themeById(cur);
+  const pick = async id => { applyTheme(themeById(id)); await save({ theme: id }); renderThemes(); };
+  const swatch = t => h('button', { class: `theme-sw ${t.id === cur ? 'on' : ''}`, title: t.name, onclick: () => pick(t.id) },
+    themePreview(t), h('span', { class: 'theme-name' }, t.name, t.id === cur ? icon(ICONS.check) : null));
+  const group = (title, list) => [h('div', { class: 'sub-head' }, title), h('div', { class: 'theme-grid' }, ...list.map(t => swatch(themeById(t.id))))];
+
+  // The screenshots CS2 has of the current map theme's map.
+  const shots = h('div', { class: 'theme-shots' });
+  const setShot = async name => {
+    if (cur === 'custom') await save({ customTheme: { ...state.settings.customTheme, shot: name } });
+    else await save({ themeShots: { [cur]: name } });
+    applyTheme(themeById(cur));
+    renderThemes();
+  };
+  if (curT.map) {
+    Scene.list().then(l => {
+      const names = l?.maps?.[curT.map] || [];
+      if (!names.length) { shots.replaceChildren(h('div', { class: 'hint' }, 'CS2 wasn’t found, so the map’s radar is shown instead of a picture.')); return; }
+      shots.replaceChildren(...names.map((n, i) => {
+        const img = h('img', { alt: '', onload: () => img.classList.add('ready') });
+        Scene.shotUrl(n, true).then(u => { if (u) img.src = u; });
+        return h('button', { class: `theme-shot ${n === curT.shot ? 'on' : ''}`, title: `Picture ${i + 1}`, onclick: () => setShot(n) }, img);
+      }));
+    });
+  }
+  const shotPicker = curT.map ? [h('div', { class: 'sub-head' }, `${curT.name === 'Custom' ? mapName(curT.map) : curT.name} — picture`), shots] : [];
 
   const c = themeById('custom');
-  const edit = (key, value, live) => {
-    const next = { ...state.settings.customTheme, [key]: value };
-    applyTheme({ ...c, ...next });
-    if (!live) save({ theme: 'custom', customTheme: next }).then(renderSettings);
+  const edit = (patch, live) => {
+    const next = { ...state.settings.customTheme, ...patch };
+    applyTheme(themeById('custom', next));
+    if (!live) save({ theme: 'custom', customTheme: next }).then(renderThemes);
   };
   const color = (key, label, value, fallback) => h('label', { class: 'theme-color' },
-    h('input', { type: 'color', value: value || fallback, oninput: e => edit(key, e.target.value, true), onchange: e => edit(key, e.target.value, false) }), label);
-  const arts = Object.keys(MAPS).filter(m => radarMaps?.[m]);
+    h('input', { type: 'color', value: value || fallback, oninput: e => edit({ [key]: e.target.value }, true), onchange: e => edit({ [key]: e.target.value }, false) }), label);
+  const teamSelect = h('span', {}, select(c.logo || '', [['', 'No logo'], ...(c.logo ? [[c.logo, teamName(c.logo)]] : [])], () => {}));
+  Scene.list().then(l => {
+    const codes = (l?.teams || []).slice().sort((a, b) => teamName(a).localeCompare(teamName(b)));
+    teamSelect.replaceChildren(select(c.logo || '', [['', 'No logo'], ...codes.map(code => [code, teamName(code)])], v => edit({ logo: v, map: v ? '' : c.map, art: '' }, false)));
+  });
+  const maps = Object.keys(MAPS);
   return h('div', { class: 'card' },
-    h('h3', {}, 'Theme'),
-    h('div', { class: 'desc' }, 'Colors for the whole app. Map themes also show the map’s radar faintly in the background.'),
+    h('h3', {}, 'Choose a theme'),
+    h('div', { class: 'desc' }, 'Colors and a backdrop that moves as you scroll. Map themes use the map’s screenshots and team themes the team’s logo, both from your CS2 install.'),
     ...group('DemoLab', THEMES.filter(t => t.group === 'DemoLab')),
     ...group('Teams', THEMES.filter(t => t.group === 'Teams')),
     ...group('Maps', THEMES.filter(t => t.group === 'Maps')),
+    ...(cur !== 'custom' ? shotPicker : []),
     h('div', { class: 'sub-head' }, 'Your own'),
     h('div', { class: 'theme-custom' },
       swatch(c),
@@ -3470,9 +3666,25 @@ function themeCard() {
         color('base', 'Background', c.base, CUSTOM_THEME.base),
         color('accent', 'Accent', c.accent, CUSTOM_THEME.accent),
         color('data', 'Highlights', c.data, c.accent),
-        h('label', { class: 'theme-color' }, select(c.art || '', [['', 'No map'], ...arts.map(m => [m, mapName(m)])], v => edit('art', v, false)), 'Map in the background'),
-        c.data ? h('button', { class: 'link-btn', onclick: () => edit('data', '', false) }, 'Highlights = accent') : null)),
+        c.data ? h('button', { class: 'link-btn', onclick: () => edit({ data: '' }, false) }, 'Highlights = accent') : null),
+      h('div', { class: 'theme-custom-ctl' },
+        h('label', { class: 'theme-color' }, select(c.map || '', [['', 'No map'], ...maps.map(m => [m, mapName(m)])], v => edit({ map: v, shot: '', logo: v ? '' : c.logo, art: '' }, false)), 'Map picture'),
+        h('label', { class: 'theme-color' }, teamSelect, 'Team logo'),
+        h('label', { class: 'theme-color' }, select(c.pattern || '', PATTERN_NAMES, v => edit({ pattern: v }, false)), 'Pattern'))),
+    ...(cur === 'custom' ? shotPicker : []),
   );
+}
+
+// The Theme page: theme gallery and interface size.
+function renderThemes() {
+  const st = state.settings;
+  $('#view-themes').replaceChildren(h('div', { class: 'page settings' }, h('div', { class: 'page-head' }, h('h2', {}, 'Theme')),
+    themeCard(),
+    h('div', { class: 'card' },
+      h('h3', {}, 'Display'),
+      row('Interface size', select(String(st.uiScale || 0), [['0', `Automatic (now ${Math.round(autoScale() * 100)}%)`], ['0.9', '90%'], ['1', '100%'], ['1.1', '110%'], ['1.25', '125%'], ['1.4', '140%'], ['1.6', '160%']],
+        v => save({ uiScale: +v }).then(() => { applyScale(); renderThemes(); })), 'Automatic makes everything a bit bigger on wide screens such as 2560 × 1440.'),
+    )));
 }
 
 function renderSettings() {
@@ -3481,13 +3693,6 @@ function renderSettings() {
   const SPECIAL_LABELS = { noscope: 'No-scope', wallbang: 'Wallbang', smoke: 'Through smoke', blind: 'While flashed', jumpshot: 'Jumpshot', knife: 'Knife', zeus: 'Zeus', collateral: 'Collateral' };
 
   const cards = [
-    themeCard(),
-    h('div', { class: 'card' },
-      h('h3', {}, 'Display'),
-      row('Interface size', select(String(st.uiScale || 0), [['0', `Automatic (now ${Math.round(autoScale() * 100)}%)`], ['0.9', '90%'], ['1', '100%'], ['1.1', '110%'], ['1.25', '125%'], ['1.4', '140%'], ['1.6', '160%']],
-        v => save({ uiScale: +v }).then(() => { applyScale(); renderSettings(); })), 'Automatic makes everything a bit bigger on wide screens such as 2560 × 1440.'),
-    ),
-
     h('div', { class: 'card' },
       h('h3', {}, 'Highlights'),
       h('div', { class: 'desc' }, 'What counts as a highlight. Each round becomes at most one clip.'),

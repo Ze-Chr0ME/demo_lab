@@ -30,10 +30,10 @@
     </div>
     <div class="spacer"></div>
     <div class="status" id="status"></div>
-    <button class="nav-btn nav-icon" data-view="settings" title="Settings">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" stroke="currentColor" stroke-width="1.8"/></svg>
-    </button>
-    <div class="me-card" id="meCard"></div>
+    <div class="me-wrap">
+      <div class="me-card" id="meCard" title="Your stats, theme and settings"></div>
+      <div class="me-menu hidden" id="meMenu"></div>
+    </div>
   </header>
 
   <main>
@@ -57,11 +57,13 @@
     <section class="view" id="view-utility"></section>
     <section class="view" id="view-clips"></section>
     <section class="view" id="view-downloads"></section>
+    <section class="view" id="view-themes"></section>
     <section class="view" id="view-settings"></section>
   </main>
 
   <div class="overlay hidden" id="overlay"></div>
   <div class="toasts" id="toasts"></div>
+  <script src="scene.js"></script>
   <script src="app.js"></script>
   <script src="insights.js"></script>
 </body>

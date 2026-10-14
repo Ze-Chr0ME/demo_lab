@@ -215,7 +215,7 @@ function aimView() {
   const table = h('table', { class: 'sb integ aim-table' },
     h('thead', {}, h('tr', {}, h('th', { class: 'team' }, 'Player'), ...AIM_STATS.map(s => h('th', { title: `${s.tip}\n\nGood: ${s.fmt(s.good)} or ${s.low ? 'less' : 'more'} · needs work: ${s.low ? 'over' : 'under'} ${s.fmt(s.bad)}` }, s.label)), h('th', { title: 'Bullets fired · bullets that hit an enemy' }, 'Shots · hits'))),
     h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''}`, onclick: () => { state.aimPlayer = p.steamid; renderDetail(); } },
-      h('td', { class: 'name' }, p.name, h('span', { class: 'integ-team' }, teamName(p))),
+      h('td', { class: 'name' }, avatar(p.name, p.steamid, 'sm'), p.name, h('span', { class: 'integ-team' }, teamName(p))),
       ...AIM_STATS.map(s => cell(s, p)),
       h('td', {}, `${p.shots} · ${p.hits}`)))));
 
@@ -248,7 +248,7 @@ function aimView() {
       h('span', { class: 'hint' }, 'Green: better than three players in four of your lobbies; red: worse. Hover a column for what it measures, click a player for details.')),
     st.value.lineOfSight ? null : h('div', { class: 'integ-note' }, 'No map geometry for this map, so who could see whom comes from the in-game radar. Crosshair placement and time to damage are rougher than usual.'),
     h('div', { class: 'sb-wrap' }, table),
-    h('div', { class: 'section-head' }, h('h3', {}, sel.name)),
+    h('div', { class: 'section-head' }, h('h3', { class: 'with-avatar' }, avatar(sel.name, sel.steamid, 'sm'), sel.name)),
     tiles,
     classTable ? h('div', { class: 'sb-wrap' }, classTable) : null,
     h('div', { class: 'section-head' },
@@ -277,12 +277,18 @@ function aimCard(list) {
   const withAim = list.filter(m => m.aim);
   const batch = state.aimBatch?.running ? state.aimBatch : p?.aimBatch?.running ? p.aimBatch : null;
   const missing = p?.aimMissing || 0;
+  const batchCall = async action => { state.aimBatch = await guard(() => api.aimBatch(action, state.who || undefined)) || state.aimBatch; renderOverview(); };
+  const n = batch && Math.min(batch.done + 1, batch.total);
+  const last = state.aimBatch?.stopped ? state.aimBatch : null;
   const action = batch
-    ? h('div', { class: 'aim-batch' }, spinner(12), ` Measuring match ${Math.min(batch.done + 1, batch.total)} of ${batch.total}…`,
-      h('button', { class: 'link-btn', onclick: () => guard(() => api.aimBatch('cancel')) }, 'Stop after this one'))
-    : missing ? h('button', { class: 'btn', title: 'Goes through every tick of each match once (under a minute per match, in the background). The Integrity tab of those matches is ready afterwards too.',
-      onclick: async () => { state.aimBatch = await guard(() => api.aimBatch('start', state.who || undefined)) || state.aimBatch; renderOverview(); } },
-    `Measure ${missing} more match${missing === 1 ? '' : 'es'} (~${Math.max(1, Math.round(missing * 0.9))} min)`) : null;
+    ? h('div', { class: `aim-batch ${batch.stopping ? 'stopping' : ''}` }, spinner(12), batch.stopping
+      ? [` Stopping once match ${n} of ${batch.total} is measured…`, h('button', { class: 'link-btn', onclick: () => batchCall('resume') }, 'Keep going')]
+      : [` Measuring match ${n} of ${batch.total}…`, h('button', { class: 'link-btn', onclick: () => batchCall('cancel') }, 'Stop after this one')])
+    : missing ? h('div', { class: 'aim-batch' },
+      h('button', { class: 'btn', title: 'Goes through every tick of each match once (under a minute per match, in the background). The Integrity tab of those matches is ready afterwards too.',
+        onclick: () => batchCall('start') },
+      `Measure ${missing} more match${missing === 1 ? '' : 'es'} (~${Math.max(1, Math.round(missing * 0.9))} min)`),
+      last ? h('span', {}, `Stopped: ${last.done} of ${last.total} measured.`) : null) : null;
   if (!withAim.length) {
     return card(null, [h('div', { class: 'muted-note' }, 'Counter-strafing, first-bullet and spray accuracy, crosshair placement and time to damage need one pass over every tick of a match. Open a match’s Aim tab, or measure all your matches at once.'), action], { span: 4 });
   }

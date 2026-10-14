@@ -48,11 +48,21 @@ that match, or a map to open it in **Maps**.
 
 ## Themes
 
-**Settings → Theme** recolors the whole app: DemoLab's own themes, team colors (Vitality, Team Spirit,
-NAVI, FaZe, G2, MOUZ, Falcons, Liquid, Astralis, Cloud9, Eternal Fire) and maps (Dust II, Mirage,
-Inferno, Nuke, Ancient, Anubis, Overpass, Vertigo, Train, Office), which also fade the map's radar into
-the background. **Your own** builds a theme from a background, an accent and a highlight color, with an
-optional map behind it. Themes only use colors, no team logos.
+**Theme** (in the menu under your name, top right) changes the colors and the backdrop behind every page, which moves as you scroll:
+
+- **Teams** (Vitality, Spirit, NAVI, MOUZ, Falcons, FURIA, The MongolZ, Aurora, G2, FaZe, Liquid, paiN,
+  3DMAX, Virtus.pro, HEROIC, Astralis, NiP, Fnatic, ENCE, Cloud9, Eternal Fire, TYLOO): the team's logo
+  as a neon sign over a pattern. Scrolling makes the pattern drift and the logo rise, tilt and dim.
+- **Maps** (Dust II, Mirage, Inferno, Nuke, Ancient, Anubis, Overpass, Vertigo, Train, Cache, Office,
+  Italy): a screenshot of the map. It slides up more slowly than the page and blurs as you scroll so
+  cards stay readable. Pick any of the 4–6 angles CS2 has for the map.
+- **DemoLab**: the app's own colors with a subtle pattern.
+- **Your own**: background, accent and highlight colors, plus any map picture or any of the ~145 team
+  logos CS2 ships, and a pattern.
+
+Logos and screenshots are read from your CS2 install (`pak01_dir.vpk`, see `src/lib/themeArt.js`)
+and cached in `%APPDATA%\cs2-demolab\theme-art`. Nothing is downloaded. Without CS2, map themes fall
+back to the radar image.
 
 ## Maps
 
@@ -67,7 +77,7 @@ All radars (Maps, a match's heatmap and its 2D replay) zoom with the **mouse whe
 **drag** to move around, and **double-click** (or the ⤢ button) shows the whole map again.
 
 The interface scales itself to the window: on a 2560 × 1440 screen everything is drawn about 20% larger
-than on 1920 × 1080. **Settings → Display** can set the size by hand.
+than on 1920 × 1080. **Theme → Display** can set the size by hand.
 
 ## Making clips
 

@@ -26,6 +26,8 @@ const { decode } = require('./lib/proto');
 const { Community, signIn, signOut, watchCookies, loginCookieSummary } = require('./lib/community');
 const hlae = require('./lib/hlae');
 const { UtilityStore, steamScreenshots } = require('./lib/utility');
+const { AvatarStore } = require('./lib/avatars');
+const { ThemeArt } = require('./lib/themeArt');
 
 let win;
 let settings;
@@ -40,6 +42,8 @@ const community = new Community();
 let communityState = 'unknown'; // 'ok' | 'signedOut' | 'unknown' (not checked yet)
 let store; // DemoStore: parsed data, failures and custom names, keyed by demo content
 let utility; // UtilityStore: the Utility page's lineups
+let avatars; // AvatarStore: Steam profile pictures
+let themeArt; // ThemeArt: map screenshots and team logos from the CS2 install, for the themes
 
 // The app used to be called CS2 ClipMaker: its data folder (parsed demos, settings, HLAE, Steam sign-in,
 // lineups) moves over once. Electron has already created the new folder, empty, by the time this runs.
@@ -402,7 +406,7 @@ function fillRounds(files) {
 // "Analyze aim" on the overview: the tick pass for every match of the shown player (me by default) that
 // doesn't have it yet, one by one.
 let aimBatch = null;
-function aimBatchStatus() { return aimBatch ? { running: true, total: aimBatch.total, done: aimBatch.done, current: aimBatch.current, steamid: aimBatch.steamid } : { running: false }; }
+function aimBatchStatus() { return aimBatch ? { running: true, total: aimBatch.total, done: aimBatch.done, current: aimBatch.current, steamid: aimBatch.steamid, stopping: aimBatch.cancelled } : { running: false }; }
 async function runAimBatch(steamid) {
   const me = steamid || mySteamId();
   const seen = new Set();
@@ -423,8 +427,9 @@ async function runAimBatch(steamid) {
       send('aim:batch', aimBatchStatus());
     }
   } finally {
+    const { cancelled, done, total } = aimBatch;
     aimBatch = null;
-    send('aim:batch', { running: false, finished: true });
+    send('aim:batch', { running: false, finished: true, stopped: cancelled && done < total, done, total });
   }
 }
 
@@ -514,6 +519,7 @@ function registerIpc() {
   });
   // Everyone in my parsed demos, for the player search: names they used, how many matches, and how many
   // of those were with me or against me.
+  handle('avatars:get', ids => avatars.get(Array.isArray(ids) ? ids : []));
   handle('players:list', () => {
     const self = mySteamId();
     const by = new Map();
@@ -539,6 +545,7 @@ function registerIpc() {
   handle('aim:batch', (action, steamid) => {
     if (action === 'start' && !aimBatch) runAimBatch(steamid).catch(e => log('aim batch failed', e.message));
     if (action === 'cancel' && aimBatch) aimBatch.cancelled = true;
+    if (action === 'resume' && aimBatch) aimBatch.cancelled = false;
     return aimBatchStatus();
   });
 
@@ -615,6 +622,9 @@ function registerIpc() {
     try { facts = await demoRounds(file); } catch (e) { log('rounds:', e.message); }
     return buildRounds(core, events, facts, steamid || mySteamId());
   });
+  handle('art:list', () => themeArt.list());
+  handle('art:shot', (name, thumb) => themeArt.shot(name, thumb));
+  handle('art:team', code => themeArt.team(code));
   handle('radar:maps', () => JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'radar', 'maps.json'), 'utf8')));
   handle('demo:rename', (file, name) => { const id = store.idOf(file); store.setName(id, name); return store.name(id); });
 
@@ -956,6 +966,8 @@ app.whenReady().then(() => {
   settings = new Settings(app.getPath('userData'));
   store = new DemoStore(app.getPath('userData'), DATA_VERSION);
   utility = new UtilityStore(app.getPath('userData'));
+  avatars = new AvatarStore(app.getPath('userData'), { fetch: net.fetch, steamPath: () => env?.steamPath, onUpdate: v => send('avatars:update', v), log });
+  themeArt = new ThemeArt(app.getPath('userData'), () => env?.csgoDir || null);
   refreshEnv();
   ffmpegFound = ffmpeg.resolve(settings.get().ffmpegPath);
   encoderReady = ffmpeg.pickEncoder(settings.get().encoder);
