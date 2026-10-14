@@ -399,18 +399,19 @@ function fillRounds(files) {
   })().finally(() => { roundsFill = null; if (added) send('profile:changed', {}); });
 }
 
-// "Analyze aim" on the overview: the tick pass for every match of mine that doesn't have it yet, one by one.
+// "Analyze aim" on the overview: the tick pass for every match of the shown player (me by default) that
+// doesn't have it yet, one by one.
 let aimBatch = null;
-function aimBatchStatus() { return aimBatch ? { running: true, total: aimBatch.total, done: aimBatch.done, current: aimBatch.current } : { running: false }; }
-async function runAimBatch() {
-  const me = mySteamId();
+function aimBatchStatus() { return aimBatch ? { running: true, total: aimBatch.total, done: aimBatch.done, current: aimBatch.current, steamid: aimBatch.steamid } : { running: false }; }
+async function runAimBatch(steamid) {
+  const me = steamid || mySteamId();
   const seen = new Set();
   const todo = scanDemos().filter(d => {
     if (seen.has(d.id)) return false;
     seen.add(d.id);
     return summaryOf(d.id, me) && !store.readExtra(store.aimFile(d.id), AIM_VERSION);
   });
-  aimBatch = { total: todo.length, done: 0, current: null, cancelled: false };
+  aimBatch = { total: todo.length, done: 0, current: null, cancelled: false, steamid: me };
   send('aim:batch', aimBatchStatus());
   try {
     for (const d of todo) {
@@ -486,10 +487,13 @@ function registerIpc() {
     return { ...d, summary, failure: failure && { map: failure.map } };
   }));
 
-  // The overview dashboard: my summary for every parsed demo I played in (each demo once, even if copied).
-  // Demos that aren't parsed yet are skipped; the renderer asks again as the background parsing goes on.
-  handle('profile:get', () => {
-    const me = mySteamId();
+  // The overview dashboard: a player's summary (me unless another SteamID is given) for every parsed demo
+  // they played in (each demo once, even if copied). Demos that aren't parsed yet are skipped; the renderer
+  // asks again as the background parsing goes on. Positions are only needed for my Maps page.
+  handle('profile:get', steamid => {
+    const self = mySteamId();
+    const me = steamid || self;
+    const mine = me === self;
     const matches = [];
     const seen = new Set();
     const noRounds = [];
@@ -499,17 +503,41 @@ function registerIpc() {
       seen.add(d.id);
       const sum = me ? summaryOf(d.id, me) : null;
       if (!sum) continue;
-      const positions = positionsOf(d.id, me);
+      const positions = mine ? positionsOf(d.id, me) : null;
       if (positions === undefined && !roundsFailed.has(d.id)) noRounds.push(d.path);
       const aim = aimSummaryOf(d.id, me);
       if (aim === undefined) aimMissing++;
       matches.push({ id: d.id, path: d.path, date: d.date, customName: d.customName, ...sum, positions: positions || null, aim: aim || null });
     }
     fillRounds(noRounds);
-    return { steamid: me, name: matches[0]?.name || env.steamUser?.name || '', matches, aimMissing, aimBatch: aimBatchStatus(), positionsPending: noRounds.length };
+    return { steamid: me, mine, name: matches[0]?.name || (mine && env.steamUser?.name) || '', matches, aimMissing, aimBatch: aimBatchStatus(), positionsPending: noRounds.length };
   });
-  handle('aim:batch', action => {
-    if (action === 'start' && !aimBatch) runAimBatch().catch(e => log('aim batch failed', e.message));
+  // Everyone in my parsed demos, for the player search: names they used, how many matches, and how many
+  // of those were with me or against me.
+  handle('players:list', () => {
+    const self = mySteamId();
+    const by = new Map();
+    const seen = new Set();
+    for (const d of scanDemos()) { // newest first, so the first name seen is the latest one
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
+      const core = store.readCore(d.id);
+      if (!core) continue;
+      const myTeam = {}; // round -> my team letter
+      for (const r of core.rounds) if (r.roster[self]) myTeam[r.num] = r.roster[self].team;
+      for (const p of core.players) {
+        const x = by.get(p.steamid) || by.set(p.steamid, { steamid: p.steamid, name: p.name, names: [], matches: 0, with: 0, against: 0, last: d.date, maps: {} }).get(p.steamid);
+        if (p.name && !x.names.includes(p.name)) x.names.push(p.name);
+        x.matches++;
+        x.maps[core.map] = (x.maps[core.map] || 0) + 1;
+        const r = core.rounds.find(r => r.roster[p.steamid] && myTeam[r.num]);
+        if (r && p.steamid !== self) x[r.roster[p.steamid].team === myTeam[r.num] ? 'with' : 'against']++;
+      }
+    }
+    return { self, players: [...by.values()] };
+  });
+  handle('aim:batch', (action, steamid) => {
+    if (action === 'start' && !aimBatch) runAimBatch(steamid).catch(e => log('aim batch failed', e.message));
     if (action === 'cancel' && aimBatch) aimBatch.cancelled = true;
     return aimBatchStatus();
   });
