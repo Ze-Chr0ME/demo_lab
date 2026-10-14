@@ -156,6 +156,14 @@ function failMessage(f) {
     : `Could not read this demo: ${f.error}`;
 }
 
+// Low-end PC (setting): the parser's own thread pool gets 2 threads instead of one per core. It is
+// sized the first time a demo is read, so a change applies from the next start of DemoLab. Parsing
+// jobs also use fewer helper threads then (lowEnd in the track and integrity workers).
+function parserThreads(lowEnd) {
+  if (lowEnd) process.env.RAYON_NUM_THREADS = '2';
+  else delete process.env.RAYON_NUM_THREADS;
+}
+
 // Parses each demo at most once: results (and failures) are stored under the demo's content id.
 // Demos are parsed one at a time so a full rescan never runs several parsers at once.
 let parseQueue = Promise.resolve();
@@ -197,7 +205,7 @@ async function demoTrack(file) {
   try { const t = unpackTrack(fs.readFileSync(trackFile)); if (t) return t; } catch {}
   if (!tracking.has(id)) {
     const job = parseQueue.then(() => new Promise((resolve, reject) => {
-      const w = new Worker(path.join(__dirname, 'lib', 'parseWorker.js'), { workerData: { file, mode: 'track', core } });
+      const w = new Worker(path.join(__dirname, 'lib', 'parseWorker.js'), { workerData: { file, mode: 'track', core, lowEnd: s().lowEnd } });
       w.once('message', msg => {
         w.terminate();
         if (!msg.ok) return reject(new Error(`Could not read player positions: ${msg.error}`));
@@ -241,7 +249,7 @@ async function demoIntegrity(file) {
       const dir = await geometryDir();
       if (cached && cachedAim && !meshFor(dir, core.map)) return { facts: cached, aim: cachedAim };
       const run = parseQueue.then(() => new Promise((resolve, reject) => {
-        const w = new Worker(path.join(__dirname, 'lib', 'parseWorker.js'), { workerData: { file, mode: 'integrity', core, geometryDir: dir } });
+        const w = new Worker(path.join(__dirname, 'lib', 'parseWorker.js'), { workerData: { file, mode: 'integrity', core, geometryDir: dir, lowEnd: s().lowEnd } });
         w.on('message', msg => {
           if (msg.progress != null) return send('integrity:progress', { id, progress: msg.progress, phase: 'demo' });
           w.terminate();
@@ -471,6 +479,7 @@ function registerIpc() {
     if (patch.ffmpegPath !== undefined) ffmpegFound = ffmpeg.resolve(next.ffmpegPath);
     if (patch.cs2Dir !== undefined) refreshEnv();
     if (patch.encoder !== undefined && patch.encoder !== old.encoder) encoderReady = ffmpeg.pickEncoder(next.encoder);
+    if (patch.lowEnd !== undefined) parserThreads(next.lowEnd);
     return next;
   });
 
@@ -972,6 +981,7 @@ function findExisting(m) {
 
 app.whenReady().then(() => {
   settings = new Settings(app.getPath('userData'));
+  parserThreads(settings.get().lowEnd);
   store = new DemoStore(app.getPath('userData'), DATA_VERSION);
   utility = new UtilityStore(app.getPath('userData'));
   avatars = new AvatarStore(app.getPath('userData'), { fetch: net.fetch, steamPath: () => env?.steamPath, onUpdate: v => send('avatars:update', v), log });
