@@ -27,6 +27,7 @@ const ICONS = {
   demo: '<path d="M4 5h16v14H4zM4 9h16M9 5v14" fill="none" stroke="currentColor" stroke-width="1.5"/>',
   x: '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
   screen: '<rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  stats: '<path d="M5 20V11M12 20V4M19 20v-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
 };
 
 function toast(msg, kind = '') {
@@ -66,7 +67,7 @@ const state = {
 };
 
 // ---------- Navigation ----------
-document.querySelectorAll('.nav-btn, .brand').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
+document.querySelectorAll('.nav-btn, .brand').forEach(b => b.addEventListener('click', () => { if (b.dataset.view === 'overview') state.who = null; showView(b.dataset.view); }));
 function showView(v) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === `view-${v}`));
@@ -172,7 +173,7 @@ function renderMeCard() {
   const n = state.profile?.matches.length;
   const el = $('#meCard');
   el.title = e?.mySteamId ? `SteamID ${e.mySteamId}` : 'No Steam account found';
-  el.onclick = () => showView(e?.mySteamId ? 'overview' : 'settings');
+  el.onclick = () => { state.who = null; showView(e?.mySteamId ? 'overview' : 'settings'); };
   el.replaceChildren(
     h('div', { class: 'avatar' }, initial(name)),
     h('div', { class: 'me-text' },
@@ -205,12 +206,34 @@ async function loadDemos() {
 async function loadProfile() {
   const p = await api.profile().catch(e => ({ error: e.message, matches: [] }));
   state.profile = p;
+  state.players = null; // the player search index is rebuilt on next use
   renderMeCard();
-  if (state.view === 'overview') renderOverview();
+  if (state.who) loadOther();
+  else if (state.view === 'overview') renderOverview();
   if (state.view === 'maps' && !state.mp.map) renderMaps();
 }
 let profileTimer = 0;
 const reloadProfileSoon = () => { clearTimeout(profileTimer); profileTimer = setTimeout(loadProfile, 1500); };
+
+// Another player's numbers over all my demos they are in, when the overview shows them (player search,
+// teammates, scoreboard). state.who is their SteamID, null for me.
+state.who = null;
+state.other = null;
+const shownProfile = () => (state.who ? state.other : state.profile);
+async function loadOther() {
+  const who = state.who;
+  if (!who) return;
+  const p = await api.profile(who).catch(e => ({ error: e.message, steamid: who, matches: [] }));
+  if (state.who !== who) return;
+  state.other = p;
+  if (state.view === 'overview') renderOverview();
+}
+function openPlayer(steamid) {
+  if (!steamid || steamid === state.env?.mySteamId) state.who = null;
+  else if (state.who !== steamid) { state.who = steamid; state.other = null; loadOther(); }
+  showView('overview');
+  $('#view-overview').scrollTop = 0;
+}
 
 // Parses demos one by one in the background so the list can show map + highlight counts.
 let bgRunning = false;
@@ -497,7 +520,8 @@ function scoreboardView() {
           onclick: () => { state.sbSort = { col: k, dir: sort.col === k ? -sort.dir : -1 }; renderDetail(); },
         }, k, sort.col === k ? (sort.dir < 0 ? ' ▾' : ' ▴') : '')))),
       h('tbody', {}, ...rows.map(p => h('tr', { class: p.steamid === me ? 'me' : '', title: `View the match as ${p.name}`, onclick: pick(p.steamid) },
-        h('td', { class: 'name' }, p.name),
+        h('td', { class: 'name' }, p.name,
+          h('button', { class: 'sb-profile', title: `${p.name}’s stats over all your demos`, onclick: e => { e.stopPropagation(); openPlayer(p.steamid); } }, icon(ICONS.stats))),
         ...cols.map(([, , val, fmt, cls]) => h('td', { class: cls ? cls(p) : '' }, fmt ? fmt(p) : val(p)))))),
     );
   };
@@ -505,7 +529,7 @@ function scoreboardView() {
     h('div', { class: 'section-head' }, h('h3', {}, 'Scoreboard'),
       h('div', { class: 'tabs' }, ...[[false, 'Compact'], [true, 'Detailed']].map(([v, l]) =>
         h('button', { class: detailed === v ? 'on' : '', onclick: () => { state.sbDetailed = v; renderDetail(); } }, l))),
-      h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Click a column to sort it, a player to view the match as them. Hover a column for its meaning.')),
+      h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Click a column to sort it, a player to view the match as them, the bars icon for their stats over all your demos.')),
     ...st.teams.map(t => h('div', { class: 'sb-wrap' }, table(t))),
   ];
 }
@@ -1887,7 +1911,7 @@ state.ov = { mode: 'all', map: 'all', period: 'all' };
 const PERIODS = [['all', 'All time'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['90d', 'Last 90 days'], ['20', 'Last 20 matches'], ['10', 'Last 10 matches']];
 
 function filteredMatches(f = state.ov) {
-  let list = (state.profile?.matches || []).filter(m => (f.mode === 'all' || m.mode === f.mode) && (f.map === 'all' || m.map === f.map));
+  let list = (shownProfile()?.matches || []).filter(m => (f.mode === 'all' || m.mode === f.mode) && (f.map === 'all' || m.map === f.map));
   list.sort((a, b) => b.date - a.date);
   if (/d$/.test(f.period)) { const since = Date.now() - parseInt(f.period, 10) * 86400000; list = list.filter(m => m.date >= since); }
   else if (f.period !== 'all') list = list.slice(0, +f.period);
@@ -2029,9 +2053,17 @@ function scorePanel(t, last10, list) {
 
 function renderOverview() {
   const view = $('#view-overview');
-  const p = state.profile;
+  const p = shownProfile();
+  const other = !!state.who;
   const page = (...body) => view.replaceChildren(h('div', { class: 'page dash-page' }, ...body));
-  if (!p) return page(h('div', { class: 'empty' }, spinner(28), h('h2', {}, 'Loading your stats…')));
+  const back = other ? h('button', { class: 'btn', onclick: () => openPlayer(null) }, '← My stats') : null;
+  if (!p) return page(h('div', { class: 'empty' }, spinner(28), h('h2', {}, other ? 'Loading this player’s stats…' : 'Loading your stats…')));
+  if (other && !p.matches.length) {
+    return page(h('div', { class: 'empty' }, icon(ICONS.demo, 'class="big"'),
+      h('h2', {}, p.error ? 'Could not read this player’s stats' : 'No matches with this player'),
+      h('div', {}, p.error || 'Stats come from your own demos only: this player is in none of the demos read so far.'),
+      h('div', { style: { marginTop: '14px' } }, back)));
+  }
   if (!p.steamid) return page(h('div', { class: 'empty' }, h('h2', {}, 'Which player are you?'), h('div', {}, 'No Steam account was found on this PC. Enter your SteamID64 in Settings → Counter-Strike 2.'),
     h('button', { class: 'btn primary', style: { marginTop: '14px' }, onclick: () => showView('settings') }, 'Open Settings')));
   const pending = state.demos.filter(d => !d.summary && !d.failed).length;
@@ -2051,13 +2083,27 @@ function renderOverview() {
   const last10 = aggregate(list.slice(0, 10));
   const rerender = () => renderOverview();
 
+  // Another player: how often they were on my team or against me (from my own summaries of the same demos).
+  let together = null;
+  if (other) {
+    const mine = new Map((state.profile?.matches || []).map(m => [m.id, m]));
+    const both = list.filter(m => mine.has(m.id));
+    const withMe = both.filter(m => mine.get(m.id).mates?.some(([id]) => id === p.steamid));
+    const wonWith = withMe.filter(m => m.result === 'W').length;
+    together = [
+      withMe.length ? `${withMe.length} with you (${pct(wonWith, withMe.length)}% won)` : null,
+      both.length - withMe.length ? `${both.length - withMe.length} against you` : null,
+    ].filter(Boolean).join(' · ');
+  }
   const head = h('div', { class: 'dash-head' },
     h('div', { class: 'avatar lg' }, initial(p.name || '?')),
     h('div', { class: 'dash-title' },
-      h('h2', {}, p.name || 'Your stats'),
+      h('h2', {}, p.name || 'Your stats', other ? h('span', { class: 'dash-tag', title: `SteamID ${p.steamid}` }, 'Player') : null),
       h('div', { class: 'sub' }, `${t.played} match${t.played === 1 ? '' : 'es'} · ${fmtNum(t.rounds)} rounds`,
+        together ? ` · ${together}` : null,
         pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null)),
     h('span', { class: 'spacer' }),
+    back,
     h('div', { class: 'filters' },
       modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], v => { f.mode = v; rerender(); }) : null,
       select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], v => { f.map = v; rerender(); }),
@@ -2080,7 +2126,7 @@ function renderOverview() {
       weaponCard('Headshot %', Object.entries(t.weapons).filter(([, [k]]) => k >= Math.max(10, t.kills * 0.02)).sort((a, b) => b[1][1] / b[1][0] - a[1][1] / a[1][0]).slice(0, 6),
         ([, [k, hs]]) => [`${pct(hs, k)}%`, hs / k], 'Weapons with at least 10 kills')),
     section('Aim', null, aimCard(list)),
-    section('Teammates', null, matesCard(t)),
+    section(other ? 'Their teammates' : 'Teammates', null, matesCard(t)),
   );
 }
 
@@ -2182,7 +2228,7 @@ function matesCard(t) {
   return card(null, mates.length
     ? h('div', { class: 'mates' }, ...mates.map(m => {
       const wr = pct(m.won, m.played);
-      return h('div', { class: 'mate', title: `${m.won} won · ${m.lost} lost together` },
+      return h('div', { class: 'mate clickable', title: `${m.won} won · ${m.lost} lost together · click for ${m.name}’s stats`, onclick: () => openPlayer(m.id) },
         h('span', { class: 'avatar sm' }, initial(m.name)),
         h('span', { class: 'mate-name' }, m.name),
         h('span', { class: 'bar-note' }, `${m.played} matches`),
@@ -2196,9 +2242,93 @@ function matesCard(t) {
 function openMatch(m) {
   const d = state.demos.find(x => x.id === m.id) || state.demos.find(x => x.path === m.path);
   if (!d) return toast('This demo is no longer in your demo folders.', 'error');
+  const player = state.view === 'overview' ? state.who : null; // seen through the player shown on the overview
   showView('matches');
-  openDemo(d, undefined, 'scoreboard');
+  openDemo(d, player || undefined, 'scoreboard');
 }
+
+// ---------- Player search (top bar) ----------
+// Anyone from my parsed demos, by any name they used, SteamID64 or Steam profile link; opens their stats
+// on the overview. An empty box lists the players I met most.
+state.players = null; // { self, players } from api.players(); dropped whenever the profile reloads
+const ps = { input: $('#playerSearchInput'), list: $('#playerSearchList'), sel: 0, rows: [], id: null, seq: 0 };
+
+function searchPlayers(q, idx) {
+  q = q.trim();
+  const id = /^(?:.*\/profiles\/)?(7656\d{13})\/?$/.exec(q)?.[1] || null;
+  const s = q.toLowerCase();
+  let rows;
+  if (!s) rows = idx.players.filter(p => p.steamid !== idx.self).sort((a, b) => b.matches - a.matches || b.last - a.last);
+  else {
+    rows = idx.players.map(p => {
+      if (id) return [p.steamid === id ? 3 : 0, p];
+      const names = (p.names.length ? p.names : [p.name || '']).map(n => n.toLowerCase());
+      return [names[0].startsWith(s) ? 3 : names[0].includes(s) ? 2 : names.some(n => n.includes(s)) || p.steamid.startsWith(s) ? 1 : 0, p];
+    }).filter(([score]) => score).sort((a, b) => b[0] - a[0] || b[1].matches - a[1].matches).map(([, p]) => p);
+  }
+  return { rows, id };
+}
+
+async function renderPlayerSearch() {
+  const seq = ++ps.seq;
+  if (!state.players) {
+    ps.list.replaceChildren(h('div', { class: 'ps-note' }, spinner(11), ' Reading players…'));
+    ps.list.classList.remove('hidden');
+    state.players = await api.players().catch(() => null);
+  }
+  if (seq !== ps.seq || document.activeElement !== ps.input) return;
+  const idx = state.players;
+  if (!idx) return ps.list.replaceChildren(h('div', { class: 'ps-note' }, 'Could not read the players of your demos.'));
+  const q = ps.input.value.trim();
+  const { rows, id } = searchPlayers(q, idx);
+  ps.rows = rows.slice(0, 8);
+  ps.id = id;
+  ps.sel = clamp(ps.sel, 0, Math.max(0, ps.rows.length - 1));
+  const short = ms => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  const body = ps.rows.map((p, i) => h('button', {
+    class: `ps-row ${i === ps.sel ? 'on' : ''}`, title: `SteamID ${p.steamid}${p.names.length > 1 ? `\nAlso played as: ${p.names.slice(1).join(', ')}` : ''}`,
+    onmousedown: e => { e.preventDefault(); choosePlayer(p.steamid); },
+    onmousemove: () => { if (ps.sel !== i) { ps.sel = i; markPlayerRow(); } },
+  },
+  h('span', { class: 'avatar sm' }, initial(p.name || '?')),
+  h('span', { class: 'ps-main' },
+    h('span', { class: 'ps-name' }, h('b', {}, p.name || p.steamid), p.steamid === idx.self ? h('span', { class: 'ps-you' }, 'you') : null,
+      p.names.length > 1 ? h('span', { class: 'ps-aka' }, `aka ${p.names.slice(1, 3).join(', ')}${p.names.length > 3 ? '…' : ''}`) : null),
+    h('span', { class: 'ps-sub' }, [`${p.matches} match${p.matches === 1 ? '' : 'es'}`, p.with ? `${p.with} with you` : null, p.against ? `${p.against} against you` : null,
+      `last ${short(p.last)}`].filter(Boolean).join(' · ')))));
+  const title = q ? `${rows.length} player${rows.length === 1 ? '' : 's'}${rows.length > ps.rows.length ? `, showing ${ps.rows.length}` : ''}` : 'Players you met most';
+  ps.list.replaceChildren(
+    h('div', { class: 'ps-head' }, title),
+    ...(body.length ? body : [h('div', { class: 'ps-note' }, id
+      ? 'This SteamID is in none of your demos. Stats come from your own demos only.'
+      : idx.players.length ? 'No player with that name in your demos.' : 'No demos read yet.')]));
+  ps.list.classList.remove('hidden');
+}
+const markPlayerRow = () => ps.list.querySelectorAll('.ps-row').forEach((r, i) => r.classList.toggle('on', i === ps.sel));
+
+function choosePlayer(steamid) {
+  ps.input.value = '';
+  ps.input.blur();
+  openPlayer(steamid);
+}
+
+ps.input.addEventListener('focus', () => { ps.sel = 0; renderPlayerSearch(); });
+ps.input.addEventListener('input', () => { ps.sel = 0; renderPlayerSearch(); });
+ps.input.addEventListener('blur', () => { ps.seq++; ps.list.classList.add('hidden'); });
+ps.input.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (ps.rows.length) { ps.sel = (ps.sel + (e.key === 'ArrowDown' ? 1 : -1) + ps.rows.length) % ps.rows.length; markPlayerRow(); }
+  } else if (e.key === 'Enter') {
+    if (ps.rows[ps.sel]) choosePlayer(ps.rows[ps.sel].steamid);
+  } else if (e.key === 'Escape') {
+    ps.input.value = '';
+    ps.input.blur();
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); ps.input.focus(); ps.input.select(); }
+});
 
 // ---------- Maps ----------
 // Every map with parsed demos; per map one big zoomable radar with kills, deaths, damage and grenades

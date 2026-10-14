@@ -23,6 +23,11 @@
       <button class="nav-btn" data-view="clips">Clips<span class="nav-count" id="clipCount"></span></button>
       <button class="nav-btn" data-view="downloads">Downloads<span class="nav-count" id="dlCount"></span></button>
     </nav>
+    <div class="psearch" id="playerSearch">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="playerSearchInput" type="search" placeholder="Search players…" autocomplete="off" spellcheck="false" title="Any player from your demos, by name, SteamID64 or profile link (Ctrl+K)">
+      <div class="psearch-list hidden" id="playerSearchList"></div>
+    </div>
     <div class="spacer"></div>
     <div class="status" id="status"></div>
     <button class="nav-btn nav-icon" data-view="settings" title="Settings">

@@ -1,7 +1,7 @@
 /* global api, state, h, icon, ICONS, toast, guard, mapName, fmtDate, fmtDur, clamp, pct, fmtNum, spinner, card, kv, barList, big,
    select, modal, closeModal, renderDetail, showInReplay, viewInCs2Button, statsPending, radarInfo, radarFrame, radarImage, toPx, viewPt, applyView,
    viewScale, zoomable, newView, resetZoom, RADAR_SIZE, NADE_COLOR, SMOKE_RADIUS, MOLOTOV_RADIUS, utLabel, UT_TYPES, UT_MOVES, UT_CLICKS, utImg,
-   utMoved, renderUtility, onLower, loadProfile, reloadProfileSoon, renderOverview, renderClips, loadClips, playClip, utMapKey */
+   utMoved, renderUtility, onLower, loadProfile, reloadProfileSoon, renderOverview, shownProfile, renderClips, loadClips, playClip, utMapKey */
 'use strict';
 // Coaching views added on top of app.js: the round strip and Economy tab, the Aim tab and its overview
 // section, where you play on each map, the Utility quiz with "Practice in CS2", and "Export for sharing".
@@ -273,7 +273,7 @@ api.onAimBatch(s => {
 api.onProfileChanged(() => reloadProfileSoon());
 
 function aimCard(list) {
-  const p = state.profile;
+  const p = shownProfile();
   const withAim = list.filter(m => m.aim);
   const batch = state.aimBatch?.running ? state.aimBatch : p?.aimBatch?.running ? p.aimBatch : null;
   const missing = p?.aimMissing || 0;
@@ -281,7 +281,7 @@ function aimCard(list) {
     ? h('div', { class: 'aim-batch' }, spinner(12), ` Measuring match ${Math.min(batch.done + 1, batch.total)} of ${batch.total}…`,
       h('button', { class: 'link-btn', onclick: () => guard(() => api.aimBatch('cancel')) }, 'Stop after this one'))
     : missing ? h('button', { class: 'btn', title: 'Goes through every tick of each match once (under a minute per match, in the background). The Integrity tab of those matches is ready afterwards too.',
-      onclick: async () => { state.aimBatch = await guard(() => api.aimBatch('start')) || state.aimBatch; renderOverview(); } },
+      onclick: async () => { state.aimBatch = await guard(() => api.aimBatch('start', state.who || undefined)) || state.aimBatch; renderOverview(); } },
     `Measure ${missing} more match${missing === 1 ? '' : 'es'} (~${Math.max(1, Math.round(missing * 0.9))} min)`) : null;
   if (!withAim.length) {
     return card(null, [h('div', { class: 'muted-note' }, 'Counter-strafing, first-bullet and spray accuracy, crosshair placement and time to damage need one pass over every tick of a match. Open a match’s Aim tab, or measure all your matches at once.'), action], { span: 4 });
