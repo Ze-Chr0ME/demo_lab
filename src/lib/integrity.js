@@ -35,7 +35,8 @@ const SPLIT_MAX = 4;     // parsers at once; more don't read faster (1: 12.9 s, 
 
 const r1 = v => Math.round(v * 10) / 10;
 
-// geometry: a MapGeometry for core.map, or null to fall back on radar spotting.
+// geometry: a MapGeometry for core.map, or null to fall back on radar spotting. lowEnd: one parser
+// and no line-of-sight pool (the "Low-end PC" setting): slower, but about half the memory and threads.
 function extractIntegrity(file, core, opts = {}) {
   const threads = [];
   try {
@@ -46,7 +47,7 @@ function extractIntegrity(file, core, opts = {}) {
 }
 
 // threads: every helper thread started here, stopped once done (or failed).
-function measure(file, core, { geometry = null, onProgress = () => {} }, threads) {
+function measure(file, core, { geometry = null, lowEnd = false, onProgress = () => {} }, threads) {
   const tr = core.tickrate || 64;
   const rounds = core.rounds.filter(r => r.endTick > r.freezeEndTick);
   if (!rounds.length) throw new Error('No rounds in this demo');
@@ -67,9 +68,9 @@ function measure(file, core, { geometry = null, onProgress = () => {} }, threads
   // what the ticks it is asked for need, so 4 parts take less than half the time of one whole) while
   // this thread reads the events. Line of sight is worked out by a pool of threads as soon as each part
   // is in (sight.js).
-  const parts = splitTicks(liveTicks.length);
+  const parts = splitTicks(liveTicks.length, lowEnd ? 1 : SPLIT_MAX);
   const ready = new Int32Array(new SharedArrayBuffer(4 * parts.length)); // per part: 0 reading, 1 done, 2 failed
-  let sight = geometry ? startSight({ geometry, P, buffers, N, maxTick, ticks: liveTicks, parts, ready }) : null;
+  let sight = geometry && !lowEnd ? startSight({ geometry, P, buffers, N, maxTick, ticks: liveTicks, parts, ready }) : null;
   if (sight) threads.push(sight);
   const helpers = parts.length > 1 ? parts.map(([a, b], k) => startTickHelper(file, ids, liveTicks.slice(a, b), maxTick, buffers, ready, k)) : [];
   for (const h of helpers) if (h) threads.push(h);
@@ -267,9 +268,9 @@ function measure(file, core, { geometry = null, onProgress = () => {} }, threads
   return { version: INTEGRITY_VERSION, tickrate: tr, liveTicks: total, los: !!geometry, players, aim: aimFacts };
 }
 
-// [from, to) index ranges of the live ticks, one per parser: up to SPLIT_MAX, at most one per two cores.
-function splitTicks(n) {
-  const k = n >= SPLIT_MIN ? Math.max(1, Math.min(SPLIT_MAX, os.availableParallelism() >> 1)) : 1;
+// [from, to) index ranges of the live ticks, one per parser: up to max, at most one per two cores.
+function splitTicks(n, max) {
+  const k = n >= SPLIT_MIN ? Math.max(1, Math.min(max, os.availableParallelism() >> 1)) : 1;
   return Array.from({ length: k }, (_, i) => [Math.floor(n * i / k), Math.floor(n * (i + 1) / k)]);
 }
 

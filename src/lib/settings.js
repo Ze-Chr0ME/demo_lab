@@ -31,6 +31,7 @@ const DEFAULTS = {
   theme: 'demolab',          // a THEMES id from app.js, or 'custom'
   customTheme: { base: '#0b0f13', accent: '#2fd8a4', data: '', map: '', shot: '', logo: '', pattern: 'dots' }, // data empty = accent; map (a screenshot) or logo for the backdrop
   themeShots: {},            // map theme id → the CS2 screenshot it shows (default: the map's first)
+  lowEnd: false,             // Low-end PC: read demos with fewer threads and less memory (slower)
 };
 
 function merge(base, over) {

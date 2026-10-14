@@ -3755,6 +3755,12 @@ function renderSettings() {
     ),
 
     h('div', { class: 'card' },
+      h('h3', {}, 'Performance'),
+      row('Low-end PC', toggle('Low-end mode', st.lowEnd, v => save({ lowEnd: v })),
+        'Reads demos on about 2 cores, one step at a time, using up to 40% less memory. Measuring a match then takes about 2–3 times as long, building its 2D replay about 1.7 times. Fully applies after restarting DemoLab.'),
+    ),
+
+    h('div', { class: 'card' },
       h('h3', {}, 'Advanced timing & commands'),
       h('div', { class: 'desc' }, 'Increase the startup wait if the first clip fails right after CS2 opens. Setup commands run once when CS2 starts, separated by ";".'),
       row('CS2 startup wait', h('div', { class: 'ctl' }, num(t.startupWait, v => save({ timing: { startupWait: v } }), { max: 300 }), 'seconds')),

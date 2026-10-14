@@ -25,12 +25,13 @@ const PATH_STEP = 2; // grenade path points every 2 ticks (plus every bounce's l
 const r1 = v => Math.round(v * 10) / 10;
 const ri = v => Math.round(v);
 
-function extractTrack(file, core) {
+// lowEnd: one parser at a time (the "Low-end PC" setting), slower but with a lower memory peak.
+function extractTrack(file, core, { lowEnd = false } = {}) {
   const first = core.rounds[0]?.startTick ?? 0;
   const lastRound = core.rounds.at(-1);
   const last = lastRound ? (lastRound.nextStartTick ?? lastRound.endTick + 5 * core.tickrate) : first;
   // Reading the grenades takes most of the time: a helper thread does it while this one reads the rest.
-  const flights = startFlights(file, first, last);
+  const flights = lowEnd ? null : startFlights(file, first, last);
   try {
     return readTrack(file, core, first, last, flights);
   } finally {

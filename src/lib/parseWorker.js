@@ -18,14 +18,14 @@ if (workerData.mode === 'ticks') {
 } else if (workerData.mode === 'integrity') {
   try {
     const geometry = workerData.geometryDir ? loadGeometry(workerData.geometryDir, workerData.core.map) : null;
-    const { aim, ...data } = extractIntegrity(workerData.file, workerData.core, { geometry, onProgress: p => parentPort.postMessage({ progress: p }) });
+    const { aim, ...data } = extractIntegrity(workerData.file, workerData.core, { geometry, lowEnd: !!workerData.lowEnd, onProgress: p => parentPort.postMessage({ progress: p }) });
     parentPort.postMessage({ ok: true, data, aim });
   } catch (err) {
     parentPort.postMessage({ ok: false, error: String(err && err.message || err) });
   }
 } else if (workerData.mode === 'track') {
   try {
-    const buf = packTrack(extractTrack(workerData.file, workerData.core));
+    const buf = packTrack(extractTrack(workerData.file, workerData.core, { lowEnd: !!workerData.lowEnd }));
     parentPort.postMessage({ ok: true, data: buf });
   } catch (err) {
     parentPort.postMessage({ ok: false, error: String(err && err.message || err) });
