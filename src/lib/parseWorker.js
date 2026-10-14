@@ -2,14 +2,17 @@ const { parentPort, workerData } = require('worker_threads');
 const { extractDemo } = require('./demo');
 const { extractRounds } = require('./rounds');
 const { extractTrack, packTrack } = require('./track');
-const { extractIntegrity } = require('./integrity');
+const { extractIntegrity, tickHelper } = require('./integrity');
 const { loadGeometry } = require('./geometry');
 
 // mode 'track': sample player positions for the 2D replay (needs the demo's core data).
 // mode 'integrity': aim and visibility facts for the Integrity and Aim tabs (needs the core data too).
 // mode 'rounds': money, loadouts and callouts per round (for demos read before that existed).
+// mode 'ticks': helper of 'integrity', reads half of the ticks into shared memory (see integrity.js).
 // default: everything the app reads from every demo (core, events, rounds).
-if (workerData.mode === 'integrity') {
+if (workerData.mode === 'ticks') {
+  tickHelper(workerData);
+} else if (workerData.mode === 'integrity') {
   try {
     const geometry = workerData.geometryDir ? loadGeometry(workerData.geometryDir, workerData.core.map) : null;
     const { aim, ...data } = extractIntegrity(workerData.file, workerData.core, { geometry, onProgress: p => parentPort.postMessage({ progress: p }) });

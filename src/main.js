@@ -12,6 +12,7 @@ const { buildHighlights, weaponName } = require('./lib/highlights');
 const { DATA_VERSION } = require('./lib/demo');
 const { DemoStore } = require('./lib/store');
 const { buildMatchStats } = require('./lib/stats');
+const { buildWeapons } = require('./lib/weapons');
 const { heatPoints } = require('./lib/heat');
 const { matchSummary, PROFILE_VERSION } = require('./lib/profile');
 const { unpackTrack } = require('./lib/track');
@@ -96,6 +97,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: Math.max(1100, Math.round(area.width * 0.88)), height: Math.max(700, Math.round(area.height * 0.9)), minWidth: 1100, minHeight: 680,
     backgroundColor: '#0a0e16',
+    show: !process.env.DEMOLAB_HIDDEN, // dev aid: screenshots without a window popping up
     title: 'CS2 DemoLab',
     // The screenshot dev aid (below) needs painting to continue while the window is in the background.
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: !process.env.DEMOLAB_SCREENSHOT },
@@ -571,6 +573,11 @@ function registerIpc() {
     const { core, events } = await demoData(file);
     return buildMatchStats(core, events, mySteamId());
   });
+  // Weapons tab: every hit, kill and shot as rows the renderer filters and adds up.
+  handle('demo:weapons', async file => {
+    const { core, events } = await demoData(file);
+    return buildWeapons(core, events);
+  });
   // Heatmap points for a player in this demo, or in every already-analyzed demo of the same map
   // (scope 'map'; demos not parsed yet are skipped rather than parsed now).
   handle('demo:heat', async (file, steamid, scope) => {
@@ -625,6 +632,7 @@ function registerIpc() {
   handle('art:list', () => themeArt.list());
   handle('art:shot', (name, thumb) => themeArt.shot(name, thumb));
   handle('art:team', code => themeArt.team(code));
+  handle('art:weapon', code => themeArt.weapon(code));
   handle('radar:maps', () => JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'radar', 'maps.json'), 'utf8')));
   handle('demo:rename', (file, name) => { const id = store.idOf(file); store.setName(id, name); return store.name(id); });
 

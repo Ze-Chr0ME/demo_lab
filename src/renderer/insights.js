@@ -176,6 +176,20 @@ const AIM_STATS = [
     tip: 'How far the crosshair was from an enemy’s head the moment they came into view (median). Keep it at head height where enemies appear.' },
 ];
 const aimLevel = (s, v) => (v == null ? '' : s.low ? (v <= s.good ? 'good' : v > s.bad ? 'bad' : 'mid') : (v >= s.good ? 'good' : v < s.bad ? 'bad' : 'mid'));
+const aimMedian = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const i = s.length >> 1; return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2; };
+// Raw aim counts (one match, several, or some rounds) added up → { stat key: [value, samples] }.
+function aimValues(list) {
+  const c = { stop: [0, 0], first: [0, 0], spray: [0, 0], hits: 0, head: 0, ttd: [], xhair: [] };
+  for (const a of list) {
+    for (const k of ['stop', 'first', 'spray']) { c[k][0] += a[k][0]; c[k][1] += a[k][1]; }
+    c.hits += a.hits; c.head += a.head; c.ttd.push(...a.ttd); c.xhair.push(...a.xhair);
+  }
+  return {
+    counterStrafe: [c.stop[1] ? c.stop[0] / c.stop[1] : null, c.stop[1]], firstBullet: [c.first[1] ? c.first[0] / c.first[1] : null, c.first[1]],
+    spray: [c.spray[1] ? c.spray[0] / c.spray[1] : null, c.spray[1]], headHits: [c.hits ? c.head / c.hits : null, c.hits],
+    timeToDamage: [aimMedian(c.ttd), c.ttd.length], crosshair: [aimMedian(c.xhair), c.xhair.length],
+  };
+}
 const CLASS_LABEL = { rifle: 'Rifles', sniper: 'Snipers', pistol: 'Pistols', smg: 'SMGs', shotgun: 'Shotguns', heavy: 'Machine guns' };
 
 function aimData() {
@@ -201,7 +215,7 @@ api.onIntegrityProgress(({ id, progress, phase }) => {
 function aimView() {
   const st = aimData();
   if (!st) return h('div', { class: 'empty' }, spinner(24), h('h2', {}, 'Measuring everyone’s aim…'),
-    h('div', {}, 'Going through every tick of the match (the same pass as the Integrity tab, so that one is ready afterwards too). Only the first time for each match: under a minute. ',
+    h('div', {}, 'Going through every tick of the match (the same pass as the Integrity tab, so that one is ready afterwards too). Only the first time for each match: about 10 seconds. ',
       h('b', { id: 'aim-progress' }, `${Math.round((state.aimProgress || 0) * 100)}%`)));
   if (st.error) return h('div', { class: 'empty' }, h('h2', {}, 'Could not measure this demo'), h('div', { class: 'err-box' }, st.error));
   const { players } = st.value;
@@ -251,6 +265,7 @@ function aimView() {
     h('div', { class: 'section-head' }, h('h3', { class: 'with-avatar' }, avatar(sel.name, sel.steamid, 'sm'), sel.name)),
     tiles,
     classTable ? h('div', { class: 'sb-wrap' }, classTable) : null,
+    aimProgression(sel, st.value),
     h('div', { class: 'section-head' },
       h('div', { class: 'tabs' },
         h('button', { class: tab === 'moving' ? 'on' : '', onclick: () => { state.aimMoments = 'moving'; renderDetail(); } }, `Missed while moving (${sel.moving.length})`),
@@ -261,6 +276,85 @@ function aimView() {
       ? moment(m, `First bullet with the ${weaponLabel(m.weapon)} at ${m.speed} u/s: too fast to be accurate. It missed.`, 'Moving shot')
       : moment(m, `${m.enemy} came into view ${fmtNum(m.dist)} units away with your crosshair ${m.err.toFixed(1)}° from their head, hit you first and killed you.`, 'Caught'))) : h('div', { class: 'integ-none' }, 'Nothing here.'),
   ];
+}
+
+// How a player's aim moved during the match: one stat over the rounds (pooled over a sliding window,
+// since a single round has only a few samples), and every stat early / mid / late in the match.
+const PROG_WINDOW = 5;
+const roundCounts = r => ({ stop: r[1], first: r[2], spray: r[3], hits: r[4], head: r[5], ttd: r[7], xhair: r[8] });
+function aimProgression(sel, v) {
+  const nums = v.roundNums || [];
+  if (!sel.rounds || nums.length < 6) return null;
+  const by = new Map(sel.rounds.map(r => [r[0], roundCounts(r)]));
+  const at = list => aimValues(list.map(n => by.get(n)).filter(Boolean));
+  const s = AIM_STATS.find(x => x.k === state.aimProg) || AIM_STATS[0];
+  const enough = n => n >= Math.max(3, Math.ceil(s.min / 2));
+  const pts = nums.map((n, i) => ({ n, win: at(nums.slice(Math.max(0, i - PROG_WINDOW + 1), i + 1))[s.k], one: at([n])[s.k] }));
+  const whole = at(nums)[s.k];
+
+  // ---- chart
+  const W = 1000, H = 230, L = 46, R = 14, T = 14, B = 26;
+  const isPct = !/timeToDamage|crosshair/.test(s.k);
+  const seen = pts.flatMap(p => [p.win, p.one]).filter(([x, n]) => x != null && n).map(([x]) => x);
+  const step = s.k === 'timeToDamage' ? 100 : 2;
+  const top = isPct ? 1 : Math.ceil(Math.max(s.bad * 1.4, ...seen.map(x => Math.min(x, s.bad * 3))) / step) * step;
+  const X = i => L + (nums.length === 1 ? 0 : i * (W - L - R) / (nums.length - 1));
+  const Y = val => T + (H - T - B) * (1 - Math.min(val, top) / top);
+  const fmt = val => (isPct ? `${Math.round(val * 100)}%` : s.fmt(val));
+  const ticks = isPct ? [0, 0.25, 0.5, 0.75, 1] : [0, top / 2, top];
+  const goodZone = s.low ? [0, s.good] : [s.good, top], badZone = s.low ? [s.bad, top] : [0, s.bad];
+  const zone = ([a, b], cls) => (b > a ? `<rect x="${L}" width="${W - L - R}" y="${Y(b)}" height="${Y(a) - Y(b)}" class="${cls}"/>` : '');
+  let line = '', seg = false;
+  pts.forEach((p, i) => { const [val, n] = p.win; if (val != null && enough(n)) { line += `${seg ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(val).toFixed(1)}`; seg = true; } else seg = false; });
+  const halves = (v.halves || []).map(n => nums.indexOf(n)).filter(i => i > 0)
+    .map(i => `<line x1="${(X(i - 1) + X(i)) / 2}" x2="${(X(i - 1) + X(i)) / 2}" y1="${T}" y2="${H - B}" class="ap-half"/><text x="${(X(i - 1) + X(i)) / 2 + 4}" y="${T + 9}" class="ap-tx">sides switch</text>`).join('');
+  const cols = pts.map((p, i) => {
+    const [w, wn] = p.win, [o, on] = p.one;
+    const tip = `Round ${p.n}\nLast ${Math.min(PROG_WINDOW, i + 1)} rounds: ${w != null && wn ? `${s.fmt(w)} (${wn} sample${wn === 1 ? '' : 's'})` : 'no samples'}\nThis round: ${o != null && on ? `${s.fmt(o)} (${on})` : '—'}`;
+    const half = i ? (X(i) - X(i - 1)) / 2 : (X(1) - X(0)) / 2;
+    return `<g class="ap-r" data-n="${p.n}"><rect x="${X(i) - half}" width="${half * 2}" y="${T}" height="${H - T - B}" class="ap-hit"/>
+      ${o != null && on ? `<circle cx="${X(i)}" cy="${Y(o)}" r="${Math.min(6, 2 + on * 0.6)}" class="ap-one"/>` : ''}
+      ${w != null && enough(wn) ? `<circle cx="${X(i)}" cy="${Y(w)}" r="3.4" class="ap-dot ${aimLevel(s, w)}"/>` : ''}
+      <text x="${X(i)}" y="${H - 8}" class="ap-n">${nums.length <= 30 || p.n % 2 ? p.n : ''}</text><title>${tip}</title></g>`;
+  }).join('');
+  const chart = h('div', { class: 'eco-chart ap-chart', html: `<svg viewBox="0 0 ${W} ${H}">
+    ${zone(goodZone, 'ap-good')}${zone(badZone, 'ap-bad')}
+    ${ticks.map(t => `<line x1="${L}" x2="${W - R}" y1="${Y(t)}" y2="${Y(t)}" class="ap-grid"/><text x="${L - 8}" y="${Y(t) + 3.5}" class="ap-tx ap-y">${fmt(t)}</text>`).join('')}
+    ${whole[0] != null ? `<line x1="${L}" x2="${W - R}" y1="${Y(whole[0])}" y2="${Y(whole[0])}" class="ap-avg"/><text x="${W - R - 4}" y="${Y(whole[0]) - 5}" class="ap-tx ap-avgt">match ${s.fmt(whole[0])}</text>` : ''}
+    ${halves}<path d="${line}" class="ap-line"/>${cols}</svg>` });
+  const rounds = state.rd.data?.value?.rounds;
+  chart.addEventListener('click', e => {
+    const g = e.target.closest('.ap-r'), r = g && rounds?.find(x => x.num === +g.dataset.n);
+    if (r) showInReplay(sel.steamid, r.freezeEndTick + 2 * 64);
+  });
+
+  // ---- early / mid / late
+  const third = Math.ceil(nums.length / 3);
+  const parts = [nums.slice(0, third), nums.slice(third, 2 * third), nums.slice(2 * third)].filter(p => p.length);
+  const label = p => `Rounds ${p[0]}–${p[p.length - 1]}`;
+  const vals = parts.map(p => at(p));
+  const cell = (x, [val, n]) => { const ok = val != null && n >= Math.ceil(x.min / 2); return h('td', { class: ok ? aimLevel(x, val) : 'muted', title: `${n} sample${n === 1 ? '' : 's'}` }, ok ? x.fmt(val) : '—'); };
+  const trend = x => {
+    const [a, an] = vals[0][x.k], [b, bn] = vals[vals.length - 1][x.k], need = Math.ceil(x.min / 2);
+    if (a == null || b == null || an < need || bn < need) return h('td', { class: 'muted' }, '—');
+    const better = x.low ? a - b : b - a, rel = better / Math.max(Math.abs(a), x.low ? 1 : 0.05);
+    if (Math.abs(rel) < 0.08) return h('td', { class: 'muted', title: 'Less than 8% apart' }, '≈ steady');
+    return h('td', { class: better > 0 ? 'good' : 'bad' }, better > 0 ? '▲ better' : '▼ worse');
+  };
+  const table = h('table', { class: 'sb ap-table' },
+    h('thead', {}, h('tr', {}, h('th', { class: 'team' }, 'Stat'), ...parts.map((p, i) => h('th', {}, ['Early', 'Middle', 'Late'][i], h('div', { class: 'ap-sub' }, label(p)))), h('th', { title: 'Late in the match against early' }, 'Trend'))),
+    h('tbody', {}, ...AIM_STATS.map(x => h('tr', { class: x.k === s.k ? 'on' : '', title: 'Show this stat on the chart', onclick: () => { state.aimProg = x.k; renderProg(); } },
+      h('td', { class: 'name' }, x.label), ...vals.map(vv => cell(x, vv[x.k])), trend(x)))));
+
+  const box = h('div', { class: 'ap' },
+    h('div', { class: 'section-head' }, h('h3', {}, 'Progression over the match'),
+      h('div', { class: 'tabs' }, ...AIM_STATS.map(x => h('button', { class: x.k === s.k ? 'on' : '', title: x.tip, onclick: () => { state.aimProg = x.k; renderProg(); } }, x.label))),
+      h('span', { class: 'spacer' }),
+      h('span', { class: 'hint' }, `Line: the last ${PROG_WINDOW} rounds together · rings: each round alone (bigger = more samples)${s.low ? ' · lower is better' : ''}. Click a round for the 2D replay.`)),
+    chart, h('div', { class: 'sb-wrap' }, table));
+  // Switching the stat repaints only this block, so the page keeps its scroll position.
+  function renderProg() { box.replaceWith(aimProgression(sel, v)); }
+  return box;
 }
 
 // Overview: aim over the selected matches (only those that went through the tick pass).
@@ -285,25 +379,14 @@ function aimCard(list) {
       ? [` Stopping once match ${n} of ${batch.total} is measured…`, h('button', { class: 'link-btn', onclick: () => batchCall('resume') }, 'Keep going')]
       : [` Measuring match ${n} of ${batch.total}…`, h('button', { class: 'link-btn', onclick: () => batchCall('cancel') }, 'Stop after this one')])
     : missing ? h('div', { class: 'aim-batch' },
-      h('button', { class: 'btn', title: 'Goes through every tick of each match once (under a minute per match, in the background). The Integrity tab of those matches is ready afterwards too.',
+      h('button', { class: 'btn', title: 'Goes through every tick of each match once (about 10 seconds per match, in the background). The Integrity tab of those matches is ready afterwards too.',
         onclick: () => batchCall('start') },
-      `Measure ${missing} more match${missing === 1 ? '' : 'es'} (~${Math.max(1, Math.round(missing * 0.9))} min)`),
+      `Measure ${missing} more match${missing === 1 ? '' : 'es'} (~${Math.max(1, Math.round(missing / 6))} min)`),
       last ? h('span', {}, `Stopped: ${last.done} of ${last.total} measured.`) : null) : null;
   if (!withAim.length) {
     return card(null, [h('div', { class: 'muted-note' }, 'Counter-strafing, first-bullet and spray accuracy, crosshair placement and time to damage need one pass over every tick of a match. Open a match’s Aim tab, or measure all your matches at once.'), action], { span: 4 });
   }
-  const c = { stop: [0, 0], first: [0, 0], spray: [0, 0], hits: 0, head: 0, ttd: [], xhair: [] };
-  for (const m of withAim) {
-    const a = m.aim;
-    for (const k of ['stop', 'first', 'spray']) { c[k][0] += a[k][0]; c[k][1] += a[k][1]; }
-    c.hits += a.hits; c.head += a.head; c.ttd.push(...a.ttd); c.xhair.push(...a.xhair);
-  }
-  const med = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const i = s.length >> 1; return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2; };
-  const vals = {
-    counterStrafe: [c.stop[1] ? c.stop[0] / c.stop[1] : null, c.stop[1]], firstBullet: [c.first[1] ? c.first[0] / c.first[1] : null, c.first[1]],
-    spray: [c.spray[1] ? c.spray[0] / c.spray[1] : null, c.spray[1]], headHits: [c.hits ? c.head / c.hits : null, c.hits],
-    timeToDamage: [med(c.ttd), c.ttd.length], crosshair: [med(c.xhair), c.xhair.length],
-  };
+  const vals = aimValues(withAim.map(m => m.aim));
   const tiles = h('div', { class: 'aim-tiles' }, ...AIM_STATS.map(s => {
     const [v, n] = vals[s.k];
     const ok = v != null && n >= s.min;

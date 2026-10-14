@@ -489,6 +489,7 @@ function renderDetail() {
         : tab === 'radar' ? radarView()
           : tab === 'economy' ? economyView()
           : tab === 'aim' ? aimView()
+          : tab === 'weapons' ? weaponsView()
           : tab === 'integrity' ? integrityView()
             : highlightsView(a);
   el.replaceChildren(
@@ -497,7 +498,7 @@ function renderDetail() {
   );
 }
 
-const MATCH_TABS = [['scoreboard', 'Scoreboard'], ['duels', 'Duels'], ['economy', 'Economy'], ['aim', 'Aim'], ['heatmap', 'Heatmap'], ['radar', '2D Replay'], ['integrity', 'Integrity'], ['highlights', 'Highlights & clips']];
+const MATCH_TABS = [['scoreboard', 'Scoreboard'], ['duels', 'Duels'], ['economy', 'Economy'], ['aim', 'Aim'], ['weapons', 'Weapons'], ['heatmap', 'Heatmap'], ['radar', '2D Replay'], ['integrity', 'Integrity'], ['highlights', 'Highlights & clips']];
 state.tab = 'scoreboard';
 
 function highlightsView(a) {
@@ -643,7 +644,7 @@ function duelsView() {
 }
 
 // ---------- Integrity (aim and game-sense anomalies) ----------
-// Built once per demo in the main process (about a minute the first time), then cached.
+// Built once per demo in the main process (about 10 seconds the first time), then cached.
 function integrityData() {
   const d = state.demo;
   if (state.integ?.id === d.id) return state.integ;
@@ -675,7 +676,7 @@ const MOMENT_KIND = { snap: 'Aim without mouse', track: 'Followed through a wall
 function integrityView() {
   const st = integrityData();
   if (!st) return h('div', { class: 'empty' }, spinner(24), h('h2', {}, 'Checking every player’s aim…'),
-    h('div', {}, 'Going through every tick of the match: view angles, mouse movement and who could see whom through the map’s walls. Only the first time for each match: it takes under a minute. ',
+    h('div', {}, 'Going through every tick of the match: view angles, mouse movement and who could see whom through the map’s walls. Only the first time for each match: it takes about 10 seconds. ',
       h('b', { id: 'integ-progress' }, integProgressText())));
   if (st.error) return h('div', { class: 'empty' }, h('h2', {}, 'Could not check this demo'), h('div', { class: 'err-box' }, st.error));
 

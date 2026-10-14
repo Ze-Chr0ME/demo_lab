@@ -1,6 +1,7 @@
 // Pictures for the themes, taken from the player's own CS2 install: the map screenshots CS2 shows in
-// its map picker (1080p, several angles per map) and the team logos it uses for tournament stickers.
-// Both sit in pak01_dir.vpk inside Valve's compiled resource files, but as plain PNG / SVG data, so
+// its map picker (1080p, several angles per map), the team logos it uses for tournament stickers and the
+// weapon silhouettes of the kill feed (Weapons tab).
+// All sit in pak01_dir.vpk inside Valve's compiled resource files, but as plain PNG / SVG data, so
 // a small VPK reader is enough (no Source2Viewer). Results are cached in <userData>/theme-art and
 // refreshed when CS2 updates a file (the cache name carries the file's CRC).
 const fs = require('fs');
@@ -8,6 +9,7 @@ const path = require('path');
 
 const SHOTS = 'panorama/images/map_icons/screenshots/1080p/';
 const TEAMS = 'panorama/images/tournaments/teams/';
+const EQUIP = 'panorama/images/icons/equipment/';
 
 // VPK v2 directory: a tree of extension → folder → file name, each with where its bytes live
 // (0x7fff = in the directory file after the tree, else pak01_NNN.vpk) and optional preload bytes.
@@ -76,7 +78,7 @@ class ThemeArt {
     let key;
     try { const st = fs.statSync(file); key = `${file}|${st.mtimeMs}|${st.size}`; } catch { return null; }
     if (key !== this.indexKey) {
-      this.index = readVpkIndex(file, f => f.startsWith(SHOTS) || f.startsWith(TEAMS));
+      this.index = readVpkIndex(file, f => f.startsWith(SHOTS) || f.startsWith(TEAMS) || f.startsWith(EQUIP));
       this.indexKey = key;
     }
     return { file, index: this.index };
@@ -130,6 +132,12 @@ class ThemeArt {
   team(code) {
     if (!/^\w+$/.test(code)) throw new Error('bad team code');
     return this.cached('teams', code, '.svg', `${TEAMS}${code}.vsvg_c`, buf => embeddedSvg(buf));
+  }
+
+  // A weapon's silhouette (the one of the kill feed and buy menu), e.g. 'ak47', 'hegrenade'.
+  weapon(code) {
+    if (!/^\w+$/.test(code)) throw new Error('bad weapon code');
+    return this.cached('weapons', code, '.svg', `${EQUIP}${code}.vsvg_c`, buf => embeddedSvg(buf));
   }
 }
 

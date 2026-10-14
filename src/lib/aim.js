@@ -141,32 +141,38 @@ const accurateSpeed = (w, scoped) => { const s = MAX_SPEED[w] ?? 230; return 0.3
 const median = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 const ratio = (a, b) => (b ? a / b : null);
 
-// One player's numbers in one match (plus the raw counts, so matches can be added up).
-function aimNumbers(f, weapons, tr) {
-  const c = { stop: [0, 0], first: [0, 0], spray: [0, 0], hits: 0, head: 0, shots: 0, ttd: [], xhair: [], byClass: {} };
+// One player's numbers in one match (plus the raw counts, so matches can be added up). With roundOf
+// (tick -> round number), the same counts per round too: the Aim tab's progression over the match.
+function aimNumbers(f, weapons, tr, roundOf = null) {
+  const blank = () => ({ stop: [0, 0], first: [0, 0], spray: [0, 0], hits: 0, head: 0, shots: 0, ttd: [], xhair: [] });
+  const c = { ...blank(), byClass: {} };
   const cls = k => (c.byClass[k] ||= { stop: [0, 0], first: [0, 0], shots: 0, hits: 0 });
+  const perRound = new Map();
+  const inRound = tick => { if (!roundOf) return blank(); const r = roundOf(tick); return perRound.get(r) || perRound.set(r, blank()).get(r); };
+  const tally = (pair, ok, ...more) => { for (const o of [c, ...more]) { o[pair][1]++; if (ok) o[pair][0]++; } };
   let sprayIdx = 0, prevW = -1;
   const moving = [];
   for (const [tick, wi, speed, flags, gap, hit] of f.shots) {
-    const w = weapons[wi], k = CLASS(w), x = cls(k);
+    const w = weapons[wi], k = CLASS(w), x = cls(k), r = inRound(tick);
     sprayIdx = gap <= SPRAY && wi === prevW ? sprayIdx + 1 : 0;
     prevW = wi;
-    c.shots++; x.shots++;
-    if (hit) { c.hits++; x.hits++; if (hit === 2) c.head++; }
+    c.shots++; x.shots++; r.shots++;
+    if (hit) { c.hits++; x.hits++; r.hits++; if (hit === 2) { c.head++; r.head++; } }
     const fresh = gap >= FRESH, air = flags & 1, onTarget = flags & 8;
     if (fresh && !air && STOP_CLASSES.has(k)) {
       const ok = speed <= accurateSpeed(w, flags & 2);
-      c.stop[1]++; x.stop[1]++;
-      if (ok) { c.stop[0]++; x.stop[0]++; } else if (onTarget && !hit) moving.push({ tick, weapon: w, speed });
+      tally('stop', ok, x, r);
+      if (!ok && onTarget && !hit) moving.push({ tick, weapon: w, speed });
     }
-    if (fresh && onTarget && k !== 'shotgun') { c.first[1]++; x.first[1]++; if (hit) { c.first[0]++; x.first[0]++; } }
-    if (sprayIdx >= 3 && onTarget && AUTOMATIC.has(k)) { c.spray[1]++; if (hit) c.spray[0]++; }
+    if (fresh && onTarget && k !== 'shotgun') tally('first', hit, x, r);
+    if (sprayIdx >= 3 && onTarget && AUTOMATIC.has(k)) tally('spray', hit, r);
   }
-  for (const [, , err, , ttd, first] of f.eng) {
-    c.xhair.push(err);
-    if (ttd >= 0 && ttd <= 1.5 * tr && first !== 2) c.ttd.push(Math.round(ttd * 1000 / tr));
+  for (const [tick, , err, , ttd, first] of f.eng) {
+    const r = inRound(tick);
+    c.xhair.push(err); r.xhair.push(err);
+    if (ttd >= 0 && ttd <= 1.5 * tr && first !== 2) { const ms = Math.round(ttd * 1000 / tr); c.ttd.push(ms); r.ttd.push(ms); }
   }
-  return { counts: c, moving };
+  return { counts: c, moving, perRound };
 }
 
 function finalNumbers(c) {
@@ -185,21 +191,25 @@ function summarizeAim(facts, core, mySteamId) {
   const { assignTeams } = require('./stats');
   const tr = facts.tickrate || 64;
   const names = Object.fromEntries(core.players.map(p => [p.steamid, p.name]));
-  const { team } = assignTeams(core.rounds);
+  const { team, sideOfA } = assignTeams(core.rounds);
   const roundOf = tick => { for (let i = core.rounds.length - 1; i >= 0; i--) if (tick >= core.rounds[i].startTick) return core.rounds[i]; return core.rounds[0]; };
   const when = tick => { const r = roundOf(tick); return { round: r.num, clock: Math.max(0, Math.round((tick - r.freezeEndTick) / tr)) }; };
   const players = Object.entries(facts.players).filter(([id, f]) => names[id] && f.shots.length + f.eng.length > 0).map(([id, f]) => {
-    const { counts, moving } = aimNumbers(f, facts.weapons, tr);
+    const { counts, moving, perRound } = aimNumbers(f, facts.weapons, tr, tick => roundOf(tick).num);
+    // Raw counts per round ([round, stop, first, spray, hits, head, shots, ttd, xhair]), pooled by the renderer.
+    const rounds = [...perRound].sort((a, b) => a[0] - b[0]).map(([num, x]) => [num, x.stop, x.first, x.spray, x.hits, x.head, x.shots, x.ttd, x.xhair]);
     const byClass = Object.fromEntries(Object.entries(counts.byClass).map(([k, x]) => [k, {
       shots: x.shots, accuracy: ratio(x.hits, x.shots), counterStrafe: ratio(x.stop[0], x.stop[1]), counterStrafeN: x.stop[1], firstBullet: ratio(x.first[0], x.first[1]), firstBulletN: x.first[1],
     }]));
     // Engagements lost while moving: first bullets at a visible enemy, too fast to be accurate, that missed.
     const moments = moving.map(m => ({ ...m, ...when(m.tick) }));
     const slow = f.eng.filter(e => e[5] === 2 && e[6] === 2).map(e => ({ tick: e[0], enemy: names[e[1]] || 'an enemy', err: e[2], dist: e[3], ...when(e[0]) }));
-    return { steamid: id, name: names[id], team: team[id] || null, mine: id === mySteamId, ...finalNumbers(counts), byClass, moving: moments.slice(0, 40), caught: slow.slice(0, 40) };
+    return { steamid: id, name: names[id], team: team[id] || null, mine: id === mySteamId, ...finalNumbers(counts), byClass, rounds, moving: moments.slice(0, 40), caught: slow.slice(0, 40) };
   });
   players.sort((a, b) => (b.mine - a.mine) || (team[a.steamid] || '').localeCompare(team[b.steamid] || '') || a.name.localeCompare(b.name));
-  return { players, tickrate: tr, myTeam: team[mySteamId] || null, lineOfSight: !!facts.los };
+  // First round of each half after the first (sides switch): markers on the progression chart.
+  const halves = core.rounds.filter((r, i) => i && sideOfA[r.num] !== sideOfA[core.rounds[i - 1].num]).map(r => r.num);
+  return { players, tickrate: tr, myTeam: team[mySteamId] || null, lineOfSight: !!facts.los, roundNums: core.rounds.map(r => r.num), halves };
 }
 
 // Raw counts for the overview, so matches can be added up exactly.
