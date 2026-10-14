@@ -21,6 +21,7 @@ const { MatchDownloader, fetchGcMatches } = require('./lib/matches');
 const { decode } = require('./lib/proto');
 const { Community, signIn, signOut, watchCookies, loginCookieSummary } = require('./lib/community');
 const hlae = require('./lib/hlae');
+const { UtilityStore, steamScreenshots } = require('./lib/utility');
 
 let win;
 let settings;
@@ -34,6 +35,7 @@ let downloader;
 const community = new Community();
 let communityState = 'unknown'; // 'ok' | 'signedOut' | 'unknown' (not checked yet)
 let store; // DemoStore: parsed data, failures and custom names, keyed by demo content
+let utility; // UtilityStore: the Utility page's lineups
 
 // Diagnostics: crashes, unexpected quits and sign-in steps go to <userData>/clipmaker.log.
 function log(...parts) {
@@ -474,7 +476,7 @@ function registerIpc() {
       const a = analysis(it.demoPath, data, steamid || mySteamId());
       const h = a.highlights?.find(x => x.id === it.highlightId);
       if (!h) continue;
-      jobs.push({ demoPath: it.demoPath, demoDate: matchDate(it.demoPath, fs.statSync(it.demoPath)), map: data.map, player: a.player, highlight: h });
+      jobs.push({ demoPath: it.demoPath, demoId: store.idOf(it.demoPath), demoDate: matchDate(it.demoPath, fs.statSync(it.demoPath)), map: data.map, player: a.player, highlight: h });
     }
     if (!jobs.length) throw new Error('Nothing to record.');
 
@@ -540,6 +542,13 @@ function registerIpc() {
     try { await watching; } finally { watching = null; }
     return true;
   });
+
+  handle('utility:list', () => ({ items: utility.list(), imageDir: utility.imageDir }));
+  handle('utility:save', item => utility.save(item));
+  handle('utility:patch', (id, fields) => utility.patch(id, fields));
+  handle('utility:delete', id => utility.remove(id));
+  handle('utility:addImage', img => utility.addImage(img));
+  handle('utility:screenshots', () => steamScreenshots(env.steamPath, mySteamId()));
 
   handle('clips:list', () => library().list());
   handle('clips:delete', async id => {
@@ -671,6 +680,7 @@ function findExisting(m) {
 app.whenReady().then(() => {
   settings = new Settings(app.getPath('userData'));
   store = new DemoStore(app.getPath('userData'), DATA_VERSION);
+  utility = new UtilityStore(app.getPath('userData'));
   refreshEnv();
   ffmpegFound = ffmpeg.resolve(settings.get().ffmpegPath);
   encoderReady = ffmpeg.pickEncoder(settings.get().encoder);

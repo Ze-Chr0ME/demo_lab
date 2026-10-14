@@ -73,6 +73,7 @@ function showView(v) {
   state.view = v;
   if (v === 'overview') renderOverview();
   if (v === 'maps') renderMaps();
+  if (v === 'utility') renderUtility();
   if (v === 'matches' && !state.demo && state.demos[0]) openDemo(state.demos[0]);
   if (v === 'clips') loadClips();
   if (v === 'downloads') loadDownloads();
@@ -83,6 +84,7 @@ function showView(v) {
 function rerender() {
   if (state.view === 'overview') renderOverview();
   if (state.view === 'maps') renderMaps();
+  if (state.view === 'utility') renderUtility();
   if (state.view === 'matches') { renderDemoList(); renderDetail(); }
 }
 
@@ -268,8 +270,8 @@ async function openDemo(d, player, tab) {
   try {
     state.analysis = await api.analyze(d.path, player || undefined);
     state.player = state.analysis.player || null;
-    // preselect strong highlights
-    for (const hl of state.analysis.highlights || []) if (hl.score >= 40) state.selected.add(hl.id);
+    // preselect strong highlights that weren't clipped yet
+    for (const hl of state.analysis.highlights || []) if (hl.score >= 40 && !clipsOf(hl).length) state.selected.add(hl.id);
     state.analysisError = null;
   } catch (e) { state.analysisError = e.message; }
   state.analyzing = false;
@@ -1041,6 +1043,11 @@ function applyRadarJump() {
   const rd = [...data.rounds].reverse().find(r => tick >= r.startTick) || data.rounds[0];
   setRadarRound(rd.num, false);
   R.tick = Math.max(rd.startTick, tick - 2 * data.tickrate);
+  if (R.jumpNade != null) {
+    const n = data.nades.find(x => x.throw?.tick === R.jumpNade);
+    R.jumpNade = null;
+    if (n) R.nade = n.i;
+  }
 }
 
 const radarRound = () => state.radar.data.rounds.find(x => x.num === state.radar.round) || state.radar.data.rounds[0];
@@ -1287,16 +1294,21 @@ function replayThrow(n) {
 function throwTechnique(th) {
   const keys = (th.keys || []).map(k => KEY_LETTER[k]).join(' + ');
   const moving = th.speed != null && th.speed >= 10;
-  let move;
+  let move, kind;
   // The jump key held while already in the air also counts: the jump itself isn't always in the demo.
-  if (th.air && (th.jumpAgo != null ? th.jumpAgo <= 4 : th.jumpKey)) move = moving && keys ? 'Running jump-throw' : 'Jump-throw';
-  else if (th.air) move = th.jumpAgo != null ? `Thrown in the air, ${Math.round(th.jumpAgo / 64 * 1000)} ms after jumping` : 'Thrown while falling';
-  else if (!moving) move = th.duck ? 'Crouching, standing still' : 'Standing still';
-  else if (th.duck) move = 'Crouch-walking';
-  else if (th.walk) move = 'Walking (Shift)';
-  else move = 'Running';
+  if (th.air && (th.jumpAgo != null ? th.jumpAgo <= 4 : th.jumpKey)) {
+    // Crouch held in the air (crouch-jump) is its own lineup technique: the grenade leaves from higher up.
+    kind = th.duck ? 'crouchjump' : moving && keys ? 'runjump' : 'jump';
+    const jump = th.duck ? 'crouching jump-throw' : 'jump-throw';
+    move = moving && keys ? `Running ${jump}` : jump[0].toUpperCase() + jump.slice(1);
+  }
+  else if (th.air) { kind = 'jump'; move = th.jumpAgo != null ? `Thrown in the air, ${Math.round(th.jumpAgo / 64 * 1000)} ms after jumping` : 'Thrown while falling'; }
+  else if (!moving) { kind = th.duck ? 'crouch' : 'stand'; move = th.duck ? 'Crouching, standing still' : 'Standing still'; }
+  else if (th.duck) { kind = 'crouchwalk'; move = 'Crouch-walking'; }
+  else if (th.walk) { kind = 'walk'; move = 'Walking (Shift)'; }
+  else { kind = 'run'; move = 'Running'; }
   const click = th.left && th.right ? 'Left + right click · medium throw' : th.right ? 'Right click · short underhand throw' : 'Left click · full throw';
-  return { move, keys, click };
+  return { move, kind, keys, click };
 }
 
 const setposCmd = th => {
@@ -1382,6 +1394,8 @@ function nadeCard(n) {
     th ? h('button', { class: 'nc-setpos', title: 'Copy. In a private server with sv_cheats 1, paste it in the console to stand where they threw from, aiming the same way.',
       onclick: async () => { await copyText(setposCmd(th)); toast('Copied. Paste it in the console of a private server with sv_cheats 1.', 'ok'); } },
     h('span', { class: 'mono' }, setposCmd(th)), h('span', { class: 'nc-copy' }, 'Copy')) : null,
+    th && n.type !== 'decoy' ? h('button', { class: 'btn nc-btn nc-save', title: 'Keep this throw in your Utility lineups: position, aim and technique are filled in', onclick: () => editLineup(lineupFromNade(n, side, name)) },
+      icon('<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>'), 'Save to Utility') : null,
   );
 }
 
@@ -2229,14 +2243,607 @@ function mapDetail() {
     h('div', { class: 'map-side' }, controls, stats)));
 }
 
+// ---------- Utility (lineups) ----------
+// Grenade lineups to remember: where to stand, where to aim, how to throw, with screenshots. Made by hand
+// (paste CS2's getpos, click the radar) or from a grenade in a match's 2D replay. Stored by main.js.
+const UT_TYPES = [['smoke', 'Smoke'], ['flash', 'Flash'], ['molotov', 'Molotov'], ['he', 'HE']];
+const UT_MOVES = [['stand', 'Standing still'], ['crouch', 'Crouching'], ['jump', 'Jump-throw'], ['crouchjump', 'Crouching jump-throw'], ['runjump', 'Running jump-throw'], ['walk', 'Walking (Shift)'], ['crouchwalk', 'Crouch-walking'], ['run', 'Running']];
+const UT_CLICKS = [['left', 'Left click · full throw'], ['right', 'Right click · short underhand throw'], ['both', 'Left + right click · medium throw']];
+const UT_SORTS = [['new', 'Newest first'], ['name', 'By name'], ['practice', 'Least practiced first']];
+const utLabel = (list, k) => list.find(x => x[0] === k)?.[1] || '';
+// Commands for a private practice server (paste in the console once the map is loaded).
+const PRACTICE_CMDS = 'sv_cheats 1; bot_kick; mp_warmup_end; mp_freezetime 0; mp_roundtime_defuse 60; mp_buy_anywhere 1; mp_maxmoney 60000; mp_startmoney 60000; sv_infinite_ammo 1; ammo_grenade_limit_total 5; sv_grenade_trajectory_prac_pipreview 1; mp_restartgame 1';
+const STAR = '<path d="M12 3.5l2.6 5.3 5.9.9-4.25 4.1 1 5.8L12 16.9l-5.25 2.7 1-5.8L3.5 9.7l5.9-.9z" fill="currentColor"/>';
+const PLUS = '<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>';
+
+state.ut = { items: [], imageDir: '', loaded: false, map: 'all', type: 'all', side: 'both', search: '', sort: 'new', sel: null, floor: 'upper', view: newView() };
+
+async function loadUtility() {
+  const r = await guard(() => api.utilityList());
+  if (r) Object.assign(state.ut, { items: r.items, imageDir: r.imageDir, loaded: true });
+  $('#utilCount').textContent = state.ut.items.length || '';
+  if (state.view === 'utility') renderUtility();
+}
+const utImg = f => api.fileUrl(`${state.ut.imageDir}\\${f}`);
+// Lineups are filed under the radar's map name, so de_ancient_night ones show with de_ancient.
+const utMapKey = m => { const info = radarMaps && radarInfo(m); return info ? radarName(info, m) : m; };
+const utMoved = x => [x.move && utLabel(UT_MOVES, x.move), x.click && { left: 'left click', right: 'right click', both: 'left + right' }[x.click]].filter(Boolean).join(' · ');
+const utSetpos = x => (x.from && x.from[2] != null ? `setpos ${x.from.join(' ')}; setang ${x.angle ? `${x.angle[0]} ${x.angle[1]}` : '0 0'} 0` : null);
+
+function utFiltered(map = state.ut.map) {
+  const u = state.ut, q = u.search;
+  const order = { new: (a, b) => b.createdAt - a.createdAt, name: (a, b) => a.name.localeCompare(b.name), practice: (a, b) => (a.lastPracticed || 0) - (b.lastPracticed || 0) }[u.sort];
+  return u.items.filter(x => (map === 'all' || x.map === map) && (u.type === 'all' || x.type === u.type)
+    && (u.side === 'both' || x.side === u.side || x.side === 'both')
+    && (!q || `${x.name} ${x.aim} ${x.notes} ${mapName(x.map)}`.toLowerCase().includes(q)))
+    .sort((a, b) => (b.fav - a.fav) || order(a, b));
+}
+
+function renderUtility() {
+  const u = state.ut, view = $('#view-utility');
+  if (!u.loaded) return view.replaceChildren(h('div', { class: 'empty' }, spinner(28)));
+  const counts = {};
+  for (const x of u.items) counts[x.map] = (counts[x.map] || 0) + 1;
+  const maps = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || mapName(a).localeCompare(mapName(b)));
+  if (u.map !== 'all' && !counts[u.map]) u.map = 'all';
+  if (u.sel && !u.items.some(x => x.id === u.sel)) u.sel = null;
+
+  const body = h('div', { class: 'ut-body' });
+  const search = h('input', { type: 'search', placeholder: 'Search lineups…', value: u.search, class: 'ut-search',
+    oninput: e => { u.search = e.target.value.toLowerCase(); body.replaceChildren(...utBody()); } });
+  const head = h('div', { class: 'page-head' },
+    h('h2', {}, 'Utility'), h('span', { class: 'dl-head-info' }, 'Your lineups: where to stand, where to aim and how to throw.'),
+    h('span', { class: 'spacer' }),
+    u.items.length ? search : null,
+    h('button', { class: 'btn', title: `Copy commands for a private practice server (sv_cheats, infinite ammo and grenades, grenade preview, no bots). Paste them in the CS2 console after "map ${u.map === 'all' ? 'de_mirage' : u.map}".`,
+      onclick: async () => { await copyText(PRACTICE_CMDS); toast('Practice commands copied. In CS2 start a private map (e.g. "map de_mirage" in the console), then paste them.', 'ok'); } }, 'Copy practice commands'),
+    h('button', { class: 'btn primary', onclick: () => editLineup({ map: u.map !== 'all' ? u.map : undefined }) }, icon(PLUS), 'New lineup'));
+
+  if (!u.items.length) {
+    return view.replaceChildren(h('div', { class: 'page' }, head, h('div', { class: 'empty ut-empty' },
+      icon('<circle cx="11" cy="14.5" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 8.8V6h4v2.8M13 6.5l5-2.5M16.5 12.5h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>', 'class="big"'),
+      h('h2', {}, 'No lineups yet'),
+      h('div', {}, 'Save the smokes, flashes and molotovs you want to remember.'),
+      h('ol', { class: 'ut-howto' },
+        h('li', {}, h('b', {}, 'New lineup'), ': in CS2 stand on the spot, aim, type ', h('kbd', {}, 'getpos'), ' in the console and paste its line. Then click where it lands on the radar.'),
+        h('li', {}, h('b', {}, 'From a match'), ': in a match\'s 2D Replay, click a grenade and press ', h('b', {}, 'Save to Utility'), '. Position, aim and technique are filled in.'),
+        h('li', {}, 'Add screenshots of the spot and the aim point: paste them (Ctrl+V), drop them, or pick your CS2 screenshots (F12).')),
+      h('button', { class: 'btn primary', onclick: () => editLineup() }, icon(PLUS), 'New lineup'))));
+  }
+
+  const chip = (on, label, onclick, extra = {}) => h('button', { class: `chip-toggle ${on ? 'on' : ''}`, onclick, ...extra }, label);
+  const filters = h('div', { class: 'ut-filters' },
+    h('div', { class: 'chips' },
+      chip(u.map === 'all', `All maps (${u.items.length})`, () => { u.map = 'all'; u.sel = null; renderUtility(); }),
+      ...maps.map(m => chip(u.map === m, `${mapName(m)} (${counts[m]})`, () => { u.map = m; u.sel = null; resetZoom(u.view); renderUtility(); }, { style: { '--c': mapColor(m) } }))),
+    h('div', { class: 'ut-filter-row' },
+      h('div', { class: 'tabs' }, ...[['all', 'All'], ...UT_TYPES].map(([k, l]) =>
+        h('button', { class: u.type === k ? 'on' : '', onclick: () => { u.type = k; renderUtility(); } }, k !== 'all' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, l))),
+      h('div', { class: 'tabs' }, ...[['both', 'Both sides'], ['T', 'T'], ['CT', 'CT']].map(([k, l]) =>
+        h('button', { class: `${u.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, onclick: () => { u.side = k; renderUtility(); } }, l))),
+      select(u.sort, UT_SORTS, v => { u.sort = v; renderUtility(); })));
+
+  function utBody() {
+    const list = utFiltered();
+    if (u.map === 'all') {
+      if (!list.length) return [h('div', { class: 'muted-note' }, 'No lineup matches these filters.')];
+      const byMap = maps.map(m => [m, list.filter(x => x.map === m)]).filter(([, l]) => l.length);
+      return byMap.map(([m, l]) => h('div', {},
+        h('div', { class: 'section-head' }, h('h3', {}, mapName(m)), h('span', { class: 'hint' }, `${l.length} lineup${l.length > 1 ? 's' : ''}`),
+          h('button', { class: 'link-btn', onclick: () => { u.map = m; u.sel = null; resetZoom(u.view); renderUtility(); } }, 'Show on the radar')),
+        h('div', { class: 'ut-grid' }, ...l.map(x => utCard(x, () => { u.map = x.map; u.sel = x.id; resetZoom(u.view); renderUtility(); })))));
+    }
+    return [utMapView(list)];
+  }
+  body.replaceChildren(...utBody());
+  view.replaceChildren(h('div', { class: `page ${u.map !== 'all' ? 'map-page' : ''}` }, head, filters, body));
+}
+
+function utCard(x, onclick) {
+  return h('button', { class: `ut-card ${state.ut.sel === x.id ? 'sel' : ''}`, style: { '--c': NADE_COLOR[x.type] }, onclick },
+    h('div', { class: 'ut-thumb', style: x.images[0] ? { backgroundImage: `url("${utImg(x.images[0])}")` } : { '--m': mapColor(x.map) } },
+      x.images[0] ? null : h('span', {}, utLabel(UT_TYPES, x.type)),
+      x.images.length > 1 ? h('span', { class: 'ut-count' }, `${x.images.length} pics`) : null),
+    h('div', { class: 'ut-card-body' },
+      h('div', { class: 'ut-name' }, h('span', { class: 'ut-dot' }), h('span', { class: 'ut-name-t' }, x.name), x.fav ? icon(STAR, 'class="ut-fav-ic"') : null),
+      h('div', { class: 'ut-sub' }, x.side !== 'both' ? h('span', { class: `side-${x.side}` }, x.side) : null, x.side !== 'both' ? ' · ' : '', utLabel(UT_TYPES, x.type), utMoved(x) ? ` · ${utMoved(x)}` : ''),
+      x.aim ? h('div', { class: 'ut-aim' }, x.aim) : null));
+}
+
+// One map: every lineup drawn on the radar, the list (or the picked lineup) beside it.
+function utMapView(list) {
+  const u = state.ut, map = u.map;
+  const info = radarInfo(map);
+  const sel = u.items.find(x => x.id === u.sel) || null;
+  const floors = info?.lowerBelow !== undefined;
+  // Opening a lineup shows its floor; the floor tabs still work while it is open.
+  if (sel && u.floorFor !== sel.id && floors) u.floor = sel.lower ? 'lower' : 'upper';
+  u.floorFor = sel?.id || null;
+  const side = h('div', { class: 'map-side ut-side' },
+    sel ? utDetail(sel) : list.length ? h('div', { class: 'ut-list' }, ...list.map(x => utCard(x, () => { u.sel = x.id; renderUtility(); })))
+      : h('div', { class: 'muted-note' }, 'No lineup on this map matches these filters.'));
+  if (!info) return h('div', { class: 'map-layout' }, h('div', { class: 'map-stage' }, h('div', { class: 'empty' }, h('h2', {}, 'No radar for this map'))), side);
+
+  const frame = radarFrame(info, map, { lower: floors && u.floor === 'lower' });
+  const canvas = h('canvas', { width: 1800, height: 1800 });
+  const shown = sel && !list.includes(sel) ? [...list, sel] : list;
+  let img = null, hover = null;
+  const redraw = () => drawUtility(canvas, img, frame, info, shown, u.sel, hover);
+  radarImage(frame.src).then(i => { img = i; redraw(); });
+
+  // Clicking a throw spot, its flight or where it lands opens the lineup. Where several are under the
+  // cursor (often: thrown from the same spot) a menu lists them.
+  const toCanvas = e => { const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * canvas.width, (e.clientY - r.top) / r.height * canvas.height]; };
+  const lineupsAt = ([mx, my]) => {
+    const reach = 16 * canvas.width / canvas.getBoundingClientRect().width;
+    const hits = [];
+    for (const x of shown) {
+      let bd = Infinity;
+      for (const p of [x.from, x.to, ...(x.path || [])]) {
+        if (!p) continue;
+        const [cx, cy] = viewPt(canvas, u.view, ...toPx(frame, p[0], p[1]));
+        bd = Math.min(bd, Math.hypot(mx - cx, my - cy));
+      }
+      if (bd <= reach) hits.push([x, bd]);
+    }
+    hits.sort((a, b) => a[1] - b[1]);
+    const list = hits.map(([x]) => x);
+    // Lineups thrown from the spot that was hit come along even when zoomed in far enough to separate them.
+    if (list[0]) list.push(...shown.filter(x => !list.includes(x) && utSameSpot(x, list[0])));
+    return list;
+  };
+  let down = null, menu = null;
+  const outside = e => { if (menu && !menu.contains(e.target)) closeMenu(); };
+  const closeMenu = () => { menu?.remove(); menu = null; document.removeEventListener('pointerdown', outside, true); };
+  u.closeMenu = () => { const open = !!menu?.isConnected; closeMenu(); return open; };
+  const openMenu = (e, list) => {
+    closeMenu();
+    const wrapEl = canvas.parentElement, r = wrapEl.getBoundingClientRect(), zoom = r.width / wrapEl.offsetWidth || 1;
+    menu = h('div', { class: 'ut-menu', onpointerleave: () => { hover = null; redraw(); } },
+      h('div', { class: 'ut-menu-head' }, `${list.length} lineups here`),
+      ...list.map(x => h('button', { class: `ut-menu-item ${x.id === u.sel ? 'on' : ''}`, style: { '--c': NADE_COLOR[x.type] },
+        onpointerenter: () => { hover = x.id; redraw(); },
+        onclick: () => { closeMenu(); u.sel = x.id; renderUtility(); } },
+        h('span', { class: 'ut-dot' }),
+        h('span', { class: 'ut-menu-t' }, h('b', {}, x.name),
+          h('span', { class: 'ut-sub' }, [utLabel(UT_TYPES, x.type), x.side !== 'both' ? x.side : '', utLabel(UT_MOVES, x.move)].filter(Boolean).join(' · '))),
+        x.fav ? icon(STAR, 'class="ut-fav-ic"') : null)));
+    wrapEl.append(menu);
+    const mx = (e.clientX - r.left) / zoom, my = (e.clientY - r.top) / zoom;
+    menu.style.left = `${Math.max(4, Math.min(mx + 10, wrapEl.offsetWidth - menu.offsetWidth - 4))}px`;
+    menu.style.top = `${Math.max(4, Math.min(my + 10, wrapEl.offsetHeight - menu.offsetHeight - 4))}px`;
+    setTimeout(() => document.addEventListener('pointerdown', outside, true));
+  };
+  canvas.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+  canvas.addEventListener('click', e => {
+    if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+    const hits = lineupsAt(toCanvas(e));
+    if (hits.length > 1) return openMenu(e, hits);
+    closeMenu();
+    const x = hits[0];
+    if (x ? x.id !== u.sel : u.sel) { u.sel = x?.id || null; renderUtility(); }
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (e.buttons || menu) return;
+    const hits = lineupsAt(toCanvas(e));
+    canvas.style.cursor = hits.length ? 'pointer' : '';
+    canvas.title = hits.length > 1 ? `${hits.length} lineups here: click to choose` : '';
+    if ((hits[0]?.id || null) !== hover) { hover = hits[0]?.id || null; redraw(); }
+  });
+
+  return h('div', { class: 'map-layout' },
+    h('div', { class: 'map-stage' },
+      floors ? h('div', { class: 'tabs' }, ...[['upper', 'Upper floor'], ['lower', 'Lower floor']].map(([k, l]) =>
+        h('button', { class: u.floor === k ? 'on' : '', onclick: () => { u.floor = k; resetZoom(u.view); renderUtility(); } }, l))) : null,
+      zoomable(canvas, u.view, redraw),
+      h('div', { class: 'stage-hint' }, 'Click a lineup to open it · scroll to zoom · drag to move')),
+    side);
+}
+
+// Lineups on a radar: the flight (or a straight line), the throw spot with the aim direction, and
+// what the grenade covers where it lands. The picked one is drawn on top, the others faded.
+function drawUtility(canvas, img, frame, info, list, selId, hoverId, v = state.ut.view) {
+  const ctx = canvas.getContext('2d');
+  const k = canvas.width / RADAR_SIZE * Math.min(1.8, 0.8 + 0.2 * v.k);
+  const px = (x, y) => { const [cx, cy] = viewPt(canvas, v, ...toPx(frame, x, y)); return [cx / k, cy / k]; };
+  const units = w => w / frame.scale * viewScale(canvas, v) / k;
+  const lowerView = frame.src.endsWith('_lower.png');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (img) { applyView(ctx, canvas, v); ctx.globalAlpha = 0.85; ctx.drawImage(img, 0, 0, RADAR_SIZE, RADAR_SIZE); ctx.globalAlpha = 1; }
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const ordered = [...list].sort((a, b) => (a.id === selId) - (b.id === selId) || (a.id === hoverId) - (b.id === hoverId));
+  for (const x of ordered) {
+    const c = NADE_COLOR[x.type];
+    const focus = x.id === selId || x.id === hoverId;
+    const otherFloor = info.lowerBelow !== undefined && !!x.lower !== lowerView;
+    ctx.globalAlpha = otherFloor ? 0.18 : selId && !focus ? 0.3 : 1;
+    const from = x.from && px(x.from[0], x.from[1]), to = x.to && px(x.to[0], x.to[1]);
+    // Flight
+    if (from && to) {
+      ctx.strokeStyle = c; ctx.lineWidth = focus ? 3 : 2;
+      ctx.beginPath();
+      if (x.path?.length > 1) x.path.forEach((p, i) => { const [a, b] = px(p[0], p[1]); i ? ctx.lineTo(a, b) : ctx.moveTo(a, b); });
+      else { ctx.setLineDash([6, 6]); ctx.moveTo(...from); ctx.lineTo(...to); }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // Landing: smoke and fire at their real size, flashes and HEs as a burst.
+    if (to) {
+      const r = x.type === 'smoke' ? units(SMOKE_RADIUS) : x.type === 'molotov' ? units(MOLOTOV_RADIUS) : 0;
+      if (r) {
+        ctx.fillStyle = c + (focus ? '55' : '33'); ctx.strokeStyle = c; ctx.lineWidth = focus ? 2.5 : 1.5;
+        ctx.beginPath(); ctx.arc(...to, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      } else {
+        ctx.fillStyle = c; ctx.strokeStyle = '#0a0e16'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let i = 0; i < 16; i++) { const a = i * Math.PI / 8, rr = i % 2 ? 4 : 9; ctx.lineTo(to[0] + Math.cos(a) * rr, to[1] + Math.sin(a) * rr); }
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+    }
+    // Throw spot, with a tick pointing where you aim
+    if (from) {
+      if (x.angle) {
+        const yaw = x.angle[1] * Math.PI / 180;
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(...from); ctx.lineTo(from[0] + Math.cos(yaw) * 17, from[1] - Math.sin(yaw) * 17); ctx.stroke();
+      }
+      ctx.fillStyle = c; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(...from, focus ? 7 : 5.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+    if (focus && (to || from)) {
+      const at = to || from;
+      ctx.font = '700 13px "Segoe UI", sans-serif'; ctx.textAlign = 'center';
+      ctx.lineWidth = 4; ctx.strokeStyle = '#05080ecc'; ctx.fillStyle = '#fff';
+      ctx.strokeText(x.name, at[0], at[1] - 16); ctx.fillText(x.name, at[0], at[1] - 16);
+    }
+  }
+  // How many lineups share a throw spot (they overlap into one dot).
+  ctx.globalAlpha = 1;
+  const groups = [];
+  for (const x of list) {
+    if (!x.from || (info.lowerBelow !== undefined && !!x.lower !== lowerView)) continue;
+    const p = px(x.from[0], x.from[1]);
+    const g = groups.find(g => Math.hypot(g.p[0] - p[0], g.p[1] - p[1]) < 9);
+    if (g) g.n++; else groups.push({ p, n: 1 });
+  }
+  ctx.font = '800 10.5px "Segoe UI", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const { p, n } of groups) {
+    if (n < 2) continue;
+    const bx = p[0] + 8, by = p[1] - 8;
+    ctx.fillStyle = '#4f8dff'; ctx.strokeStyle = '#0a0e16'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(bx, by, 7.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.fillText(n, bx, by + 0.5);
+  }
+  ctx.textBaseline = 'alphabetic';
+}
+
+// Thrown from the same place: within about a player's width, on the same floor.
+const SAME_SPOT = 48;
+const utSameSpot = (a, b) => a !== b && a.id !== b.id && a.map === b.map && !!a.from && !!b.from
+  && Math.hypot(a.from[0] - b.from[0], a.from[1] - b.from[1]) < SAME_SPOT
+  && (a.from[2] == null || b.from[2] == null ? !!a.lower === !!b.lower : Math.abs(a.from[2] - b.from[2]) < 64);
+
+function utDetail(x) {
+  const u = state.ut;
+  const tech = h('div', { class: 'nc-tech' },
+    h('div', { class: 'nc-move' }, utLabel(UT_MOVES, x.move) || 'Technique not set'),
+    x.click ? h('div', { class: 'nc-click' }, utLabel(UT_CLICKS, x.click)) : null);
+  const fact = (k, v, title) => h('div', { class: 'nc-fact', title }, h('span', { class: 'k' }, k), h('span', { class: 'v' }, v));
+  const dist = x.from && x.to ? Math.round(Math.hypot(x.to[0] - x.from[0], x.to[1] - x.from[1])) : null;
+  const setpos = utSetpos(x);
+  const sameSpot = u.items.filter(y => utSameSpot(x, y));
+  const demo = x.source && (state.demos.find(d => d.id === x.source.demoId) || state.demos.find(d => d.path === x.source.demoPath));
+  let profile = null;
+  if (x.path?.length > 2 && x.path.every(p => p[2] != null)) {
+    profile = h('canvas', { class: 'nc-profile', width: 560, height: 170 });
+    requestAnimationFrame(() => drawProfile(profile, { type: x.type, pts: x.path.map(p => [0, ...p]), bounces: [] }));
+  }
+  const patch = async (fields, msg) => {
+    const it = await guard(() => api.utilityPatch(x.id, fields), msg);
+    if (it) { Object.assign(x, it); renderUtility(); }
+  };
+  const watch = h('button', { class: 'btn nc-btn', title: 'Opens the match in CS2 (through HLAE) in the thrower\'s eyes, 5 s before the throw, and pauses when the grenade leaves the hand' }, icon(ICONS.screen), 'Watch in CS2');
+  watch.onclick = async () => {
+    watch.disabled = true;
+    toast('Opening the demo in CS2. The first time takes a minute or two (CS2 starts, then loads the demo).');
+    try { await api.watchDemo(demo.path, { tick: x.source.tick, name: x.source.player, lead: 5, pause: true }); toast('CS2 plays the throw and pauses when the grenade leaves the hand.', 'ok'); }
+    catch (e) { toast(e.message.replace(/^.*HLAE_MISSING:\s*/, ''), 'error'); }
+    watch.disabled = false;
+  };
+
+  return h('div', { class: 'nade-card ut-detail', style: { '--c': NADE_COLOR[x.type] } },
+    h('div', { class: 'nc-head' },
+      h('span', { class: 'nc-dot' }),
+      h('div', { class: 'nc-title' },
+        h('div', { class: 'nc-type' }, x.name),
+        h('div', { class: 'nc-who' }, utLabel(UT_TYPES, x.type), ' · ', mapName(x.map), x.side !== 'both' ? [' · ', h('span', { class: `side-${x.side}` }, x.side)] : ' · both sides')),
+      h('button', { class: `nc-close ut-star ${x.fav ? 'on' : ''}`, title: x.fav ? 'Unpin' : 'Pin to the top', onclick: () => patch({ fav: !x.fav }) }, icon(STAR)),
+      h('button', { class: 'nc-close', title: 'Back to the list (Esc)', onclick: () => { u.sel = null; renderUtility(); } }, icon(ICONS.x))),
+    x.images.length ? h('div', { class: 'ut-shots' },
+      h('img', { class: 'ut-cover', src: utImg(x.images[0]), onclick: () => utLightbox(x, 0) }),
+      x.images.length > 1 ? h('div', { class: 'ut-thumbs' }, ...x.images.slice(1).map((f, i) => h('img', { src: utImg(f), onclick: () => utLightbox(x, i + 1) }))) : null) : null,
+    tech,
+    x.aim ? h('div', { class: 'ut-aim-box' }, h('span', { class: 'k' }, 'Aim'), x.aim) : null,
+    h('div', { class: 'nc-facts' },
+      x.angle ? fact('Aim', `${Math.abs(x.angle[0]).toFixed(1)}° ${x.angle[0] <= 0 ? 'up' : 'down'}`, `Pitch ${x.angle[0]}°, yaw ${x.angle[1]}°`) : null,
+      dist != null ? fact('Distance', `${fmtNum(dist)} u`) : null,
+      fact('Practiced', x.practiced ? `${x.practiced}×` : 'Never', x.lastPracticed ? `Last time: ${fmtDate(x.lastPracticed)}` : null),
+      x.source ? fact('From', x.source.player || 'a demo', demo ? `${demoTitle(demo)} · ${fmtDate(demo.date)}` : 'The demo is no longer in your folders') : null),
+    x.notes ? h('div', { class: 'ut-notes' }, x.notes) : null,
+    sameSpot.length ? h('div', { class: 'ut-same' },
+      h('span', { class: 'k' }, `Also thrown from here (${sameSpot.length})`),
+      ...sameSpot.map(y => h('button', { class: 'ut-same-item', style: { '--c': NADE_COLOR[y.type] }, onclick: () => { u.sel = y.id; renderUtility(); } },
+        h('span', { class: 'ut-dot' }), h('span', { class: 'ut-name-t' }, y.name), h('span', { class: 'ut-sub' }, utLabel(UT_TYPES, y.type))))) : null,
+    profile,
+    setpos ? h('button', { class: 'nc-setpos', title: 'Copy. In a private server with sv_cheats 1, paste it in the console to stand on the spot, aiming the same way.',
+      onclick: async () => { await copyText(setpos); toast('Copied. Paste it in the console of a private server with sv_cheats 1.', 'ok'); } },
+    h('span', { class: 'mono' }, setpos), h('span', { class: 'nc-copy' }, 'Copy')) : null,
+    demo ? h('div', { class: 'nc-actions' },
+      h('button', { class: 'btn nc-btn', title: 'Open the match\'s 2D replay at this throw', onclick: () => utOpenReplay(x, demo) }, icon(ICONS.play), '2D replay'),
+      watch) : null,
+    h('div', { class: 'nc-actions' },
+      h('button', { class: 'btn primary nc-btn', title: 'Count one more practice session', onclick: () => patch({ practiced: true }, 'Nice. Marked as practiced.') }, icon(ICONS.check), 'Practiced'),
+      h('button', { class: 'btn nc-btn', onclick: () => editLineup(x) }, icon(PENCIL), 'Edit'),
+      h('button', { class: 'btn nc-btn danger ut-del', title: 'Delete this lineup', onclick: () => deleteLineup(x) }, icon(ICONS.trash))));
+}
+
+function utOpenReplay(x, d) {
+  state.radar.jump = x.source.tick;
+  state.radar.jumpNade = x.source.tick;
+  showView('matches');
+  openDemo(d, undefined, 'radar');
+}
+
+function utLightbox(x, i) {
+  const show = () => {
+    const n = x.images.length;
+    modal([
+      h('img', { class: 'ut-big', src: utImg(x.images[i]) }),
+      h('div', { class: 'video-foot' },
+        h('div', { class: 't' }, x.name, h('span', { class: 'muted' }, n > 1 ? `  ·  ${i + 1} / ${n}` : '')),
+        n > 1 ? h('button', { class: 'btn', onclick: () => { i = (i + n - 1) % n; show(); } }, '‹ Previous') : null,
+        n > 1 ? h('button', { class: 'btn', onclick: () => { i = (i + 1) % n; show(); } }, 'Next ›') : null,
+        h('button', { class: 'btn', onclick: () => closeModal() }, 'Close')),
+    ], { wide: true });
+  };
+  show();
+}
+
+function deleteLineup(x) {
+  modal([
+    h('h2', {}, `Delete "${x.name}"?`),
+    h('p', {}, x.images.length ? `The lineup and its ${x.images.length} picture${x.images.length > 1 ? 's' : ''} are deleted for good.` : 'The lineup is deleted for good.'),
+    h('div', { class: 'actions' },
+      h('button', { class: 'btn', onclick: () => closeModal() }, 'Cancel'),
+      h('button', { class: 'btn danger', onclick: async () => {
+        closeModal();
+        if (await guard(() => api.utilityDelete(x.id), 'Lineup deleted.')) { state.ut.sel = null; loadUtility(); }
+      } }, icon(ICONS.trash), 'Delete')),
+  ]);
+}
+
+// "setpos 1.2 3.4 5.6;setang 7.8 9.0 0" as printed by getpos (or getpos_exact) in the CS2 console.
+function parseGetpos(s) {
+  const n = '(-?\\d+(?:\\.\\d+)?)';
+  const p = new RegExp(`setpos(?:_exact)?\\s+${n}\\s+${n}\\s+${n}`).exec(s || '');
+  const a = new RegExp(`setang(?:_exact)?\\s+${n}\\s+${n}`).exec(s || '');
+  return { from: p ? p.slice(1, 4).map(Number) : null, angle: a ? a.slice(1, 3).map(Number) : null };
+}
+
+// A lineup saved from a grenade in the 2D replay (side and player as shown on its card).
+function lineupFromNade(n, side, player) {
+  const th = n.throw, data = state.radar.data, a = state.analysis;
+  const tech = throwTechnique(th);
+  const from = th.air && th.jumpPos ? th.jumpPos : th.pos;
+  const step = Math.max(1, Math.ceil(n.pts.length / 200));
+  const info = radarInfo(a.map);
+  return {
+    name: `${NADE_LABEL[n.type]} · ${player}`,
+    map: utMapKey(a.map), type: n.type, side: side || 'both',
+    from: from.map(v => Math.round(v * 10) / 10), angle: [th.pitch, th.yaw], to: n.land.slice(1).map(v => Math.round(v)),
+    path: n.pts.filter((_, i) => i % step === 0 || i === n.pts.length - 1).map(p => p.slice(1)),
+    lower: !!info && onLower(info, from[2]),
+    move: tech.kind, click: th.left && th.right ? 'both' : th.right ? 'right' : 'left',
+    aim: '', notes: `${tech.move} · ${tech.click}${tech.keys ? ` · holding ${tech.keys}` : ''}. Seen in round ${n.round} (${clockLabel(data, radarRound(), th.tick)}).`,
+    images: [],
+    source: { demoPath: state.demo.path, demoId: state.demo.id, tick: th.tick, player },
+  };
+}
+
+// New lineup (seed without id, possibly prefilled) or edit of an existing one.
+function editLineup(seed = {}) {
+  const u = state.ut;
+  const d = { type: 'smoke', side: 'T', move: 'stand', click: 'left', name: '', aim: '', notes: '', images: [], from: null, to: null, angle: null, ...JSON.parse(JSON.stringify(seed)) };
+  const knownMaps = Object.keys(radarMaps || {}).filter(m => !/_(night|v\d)$/.test(m));
+  d.map = d.map || u.items[0]?.map || (knownMaps.includes('de_mirage') ? 'de_mirage' : knownMaps[0]) || 'de_mirage';
+  const pick = { mode: d.from ? 'to' : 'from', view: newView(), floor: d.lower ? 'lower' : 'upper' };
+  const isNew = !d.id;
+
+  const seg = (list, key, onchange) => {
+    const wrap = h('div', { class: 'tabs' });
+    const paint = () => wrap.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', list[i][0] === d[key]));
+    wrap.append(...list.map(([k, l]) => h('button', { class: key === 'side' && k !== 'both' ? `side-${k}` : '', onclick: () => { d[key] = k; paint(); onchange?.(); } },
+      key === 'type' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, l)));
+    paint();
+    return wrap;
+  };
+  const field = (label, ctl, hint) => h('div', { class: 'ut-field' }, h('label', {}, label), ctl, hint ? h('div', { class: 'hint' }, hint) : null);
+
+  // Position: pasted getpos line, and/or clicks on the radar.
+  const posStatus = h('div', { class: 'hint' });
+  const paintPos = () => {
+    const f = d.from, t = d.to;
+    posStatus.replaceChildren(
+      f ? h('span', { class: 'good' }, `Throw spot ${Math.round(f[0])}, ${Math.round(f[1])}${f[2] != null ? `, ${Math.round(f[2])}` : ' (from the radar)'}`) : h('span', {}, 'No throw spot yet'),
+      d.angle ? ` · aim ${d.angle[0]}°, ${d.angle[1]}°` : '',
+      ' · ', t ? h('span', { class: 'good' }, 'landing spot set') : h('span', {}, 'no landing spot yet'));
+  };
+  const getpos = h('input', { type: 'text', class: 'mono', placeholder: 'setpos -1234.5 567.8 -160.0;setang 4.2 -120.6 0.0', value: d.from?.[2] != null ? utSetpos(d) : '',
+    oninput: e => {
+      const r = parseGetpos(e.target.value);
+      if (!r.from) return;
+      d.from = r.from; d.angle = r.angle || d.angle;
+      d.path = null; // a moved throw spot no longer matches the recorded flight
+      const info = radarInfo(d.map);
+      if (info) { d.lower = onLower(info, r.from[2]); pick.floor = d.lower ? 'lower' : 'upper'; }
+      pick.mode = 'to';
+      paintPos(); radarBox.replaceChildren(pickRadar());
+    } });
+
+  const radarBox = h('div', { class: 'ut-pick' });
+  function pickRadar() {
+    const info = radarInfo(d.map);
+    if (!info) return h('div', { class: 'muted-note' }, `No radar image for ${mapName(d.map)}: positions can only come from getpos.`);
+    const floors = info.lowerBelow !== undefined;
+    const frame = radarFrame(info, d.map, { lower: floors && pick.floor === 'lower' });
+    const canvas = h('canvas', { width: 1200, height: 1200 });
+    let img = null;
+    const others = u.items.filter(x => x.map === d.map && x.id !== d.id);
+    const redraw = () => drawUtility(canvas, img, frame, info, [...others, { ...d, id: '__edit', name: d.name || 'This lineup' }], '__edit', null, pick.view);
+    radarImage(frame.src).then(i => { img = i; redraw(); });
+    let down = null;
+    canvas.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+    canvas.addEventListener('click', e => {
+      if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+      const r = canvas.getBoundingClientRect(), v = pick.view;
+      const rx = v.x + (e.clientX - r.left) / r.width * RADAR_SIZE / v.k, ry = v.y + (e.clientY - r.top) / r.height * RADAR_SIZE / v.k;
+      const w = [Math.round(frame.x + rx * frame.scale), Math.round(frame.y - ry * frame.scale), null];
+      if (pick.mode === 'from') {
+        d.from = w; d.angle = null; d.path = null; getpos.value = '';
+        if (floors) d.lower = pick.floor === 'lower';
+        pick.mode = 'to';
+      } else {
+        d.to = w;
+        d.path = null; // a hand-placed spot no longer matches the recorded flight
+      }
+      paintMode(); paintPos(); redraw();
+    });
+    const modeTabs = h('div', { class: 'tabs' }, ...[['from', 'Throw spot'], ['to', 'Landing spot']].map(([k, l]) => h('button', { 'data-k': k, onclick: () => { pick.mode = k; paintMode(); } }, l)));
+    const paintMode = () => modeTabs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === pick.mode));
+    paintMode();
+    return h('div', {},
+      h('div', { class: 'ut-pick-head' }, h('span', { class: 'hint' }, 'A click sets the'), modeTabs, h('span', { class: 'spacer' }),
+        floors ? h('div', { class: 'tabs' }, ...[['upper', 'Upper'], ['lower', 'Lower']].map(([k, l]) =>
+          h('button', { class: pick.floor === k ? 'on' : '', onclick: () => { pick.floor = k; resetZoom(pick.view); radarBox.replaceChildren(pickRadar()); } }, l))) : null),
+      zoomable(canvas, pick.view, redraw));
+  }
+
+  // Pictures: pasted, dropped, browsed or picked from the CS2 screenshots.
+  const shots = h('div', { class: 'ut-edit-imgs' });
+  const paintShots = () => shots.replaceChildren(...d.images.map((f, i) => h('div', { class: 'ut-edit-img' },
+    h('img', { src: utImg(f) }),
+    i === 0 ? h('span', { class: 'ut-cover-tag' }, 'Cover') : h('button', { class: 'ut-img-btn left', title: 'Make it the cover', onclick: () => { d.images.unshift(...d.images.splice(i, 1)); paintShots(); } }, '★'),
+    h('button', { class: 'ut-img-btn', title: 'Remove', onclick: () => { d.images.splice(i, 1); paintShots(); } }, icon(ICONS.x)))),
+  drop);
+  const addFiles = async files => {
+    for (const f of files) {
+      if (!f.type.startsWith('image/')) continue;
+      const ext = f.type.split('/')[1].replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+      const name = await guard(async () => api.utilityAddImage({ bytes: new Uint8Array(await f.arrayBuffer()), ext }));
+      if (name) d.images.push(name);
+    }
+    paintShots();
+  };
+  const fileInput = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', multiple: true, style: { display: 'none' }, onchange: e => addFiles([...e.target.files]) });
+  const drop = h('button', { class: 'ut-drop', title: 'Paste with Ctrl+V, drop images here, or click to browse', onclick: () => fileInput.click() },
+    icon(PLUS), h('span', {}, 'Paste, drop', h('br'), 'or browse'));
+  const csShots = h('div', { class: 'ut-cs-shots' });
+  const loadCsShots = async () => {
+    csShots.replaceChildren(spinner(16));
+    const list = await guard(() => api.utilityScreenshots()) || [];
+    csShots.replaceChildren(...(list.length ? list.map(s => h('button', { class: 'ut-cs-shot', title: `${fmtDate(s.time)} · click to add`,
+      onclick: async e => {
+        const b = e.currentTarget; b.disabled = true;
+        const name = await guard(() => api.utilityAddImage({ file: s.file }));
+        if (name) { d.images.push(name); paintShots(); b.classList.add('added'); } else b.disabled = false;
+      } }, h('img', { src: api.fileUrl(s.thumb), loading: 'lazy' }), h('span', {}, new Date(s.time).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))))
+      : [h('div', { class: 'muted-note' }, 'No CS2 screenshots found. In game, press F12 (Steam\'s screenshot key) to take one.')]));
+  };
+  const onPaste = e => {
+    const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
+    if (!files.length) return;
+    e.preventDefault();
+    addFiles(files);
+  };
+  const onDrop = e => { e.preventDefault(); addFiles([...(e.dataTransfer?.files || [])]); };
+  const onDragOver = e => e.preventDefault();
+  document.addEventListener('paste', onPaste);
+  const cleanup = () => document.removeEventListener('paste', onPaste);
+
+  const name = h('input', { type: 'text', value: d.name, placeholder: 'e.g. Window smoke from T spawn', maxlength: 120, oninput: e => { d.name = e.target.value; } });
+  const save = async () => {
+    if (!d.name.trim()) { name.focus(); return toast('Give the lineup a name.', 'error'); }
+    const it = await guard(() => api.utilitySave(d), isNew ? (state.view === 'utility' ? 'Lineup saved.' : 'Saved to Utility.') : 'Lineup updated.');
+    if (!it) return;
+    cleanup();
+    closeModal();
+    Object.assign(u, { map: it.map, sel: it.id });
+    loadUtility(); // saving from a 2D replay stays there; the Utility page opens on this lineup
+  };
+  const m = modal(h('div', { class: 'ut-editor', ondrop: onDrop, ondragover: onDragOver },
+    h('div', { class: 'ut-editor-head' }, h('h2', {}, isNew ? 'New lineup' : 'Edit lineup'),
+      d.source && isNew ? h('span', { class: 'hint' }, `From ${d.source.player}'s throw — position, aim and technique are filled in.`) : null),
+    h('div', { class: 'ut-editor-grid' },
+      h('div', { class: 'ut-editor-form' },
+        field('Name', name),
+        h('div', { class: 'ut-field-row' },
+          field('Map', select(d.map, [...new Set([d.map, ...knownMaps])].map(m => [m, mapName(m)]), v => { d.map = v; resetZoom(pick.view); radarBox.replaceChildren(pickRadar()); })),
+          field('Side', seg([['T', 'T'], ['CT', 'CT'], ['both', 'Both']], 'side'))),
+        field('Grenade', seg(UT_TYPES, 'type', () => radarBox.replaceChildren(pickRadar()))),
+        field('Position', getpos, h('span', {}, 'In CS2, stand on the spot and aim, type ', h('kbd', {}, 'getpos'), ' in the console and paste the line here. Or click the radar.')),
+        posStatus,
+        h('div', { class: 'ut-field-row' },
+          field('Movement', select(d.move, UT_MOVES, v => { d.move = v; })),
+          field('Mouse', select(d.click, UT_CLICKS, v => { d.click = v; }))),
+        field('Where to aim', h('input', { type: 'text', value: d.aim, maxlength: 500, placeholder: 'e.g. Crosshair on the left edge of the antenna, bottom of the cloud', oninput: e => { d.aim = e.target.value; } })),
+        field('Notes', h('textarea', { rows: 3, maxlength: 4000, placeholder: 'Timing, what it blocks, who throws it…', oninput: e => { d.notes = e.target.value; } }, d.notes)),
+        field('Pictures', h('div', {}, shots, fileInput), 'The spot you stand on and your crosshair are the two that help most. The first picture is the cover.'),
+        h('details', { class: 'ut-cs-details', ontoggle: e => { if (e.target.open && !csShots.childElementCount) loadCsShots(); } },
+          h('summary', {}, 'Add from your CS2 screenshots'), csShots)),
+      radarBox),
+    h('div', { class: 'actions' },
+      h('button', { class: 'btn', onclick: () => closeModal(cleanup) }, 'Cancel'),
+      h('button', { class: 'btn primary', onclick: save }, icon(ICONS.check), isNew ? 'Save lineup' : 'Save changes'))), { wide: true, onClose: cleanup });
+  m.classList.add('ut-modal');
+  paintPos();
+  paintShots();
+  radarBox.replaceChildren(pickRadar());
+  if (isNew && !d.name) setTimeout(() => name.focus(), 50);
+}
+
+document.addEventListener('keydown', e => {
+  if (state.view !== 'utility' || e.key !== 'Escape' || !$('#overlay').classList.contains('hidden')) return;
+  if (state.ut.closeMenu?.() || !state.ut.sel) return;
+  state.ut.sel = null;
+  renderUtility();
+});
+
 // ---------- Highlights & recording ----------
+// Clips in the library recorded from this highlight: same demo, round and point-of-view player.
+// Clips made before demo ids were stored only know the demo's file name and the player's name.
+function clipsOf(hl) {
+  const d = state.demo, p = state.analysis?.player;
+  if (!d || !p) return [];
+  const base = d.path.split(/[\\/]/).pop();
+  return (state.clips || []).filter(c => c.kind === 'clip' && c.round === hl.round
+    && (c.demoId ? c.demoId === d.id : c.demo === base)
+    && (c.steamid ? c.steamid === p.steamid : c.player === p.name));
+}
+
 function highlightCard(hl) {
   const sel = state.selected.has(hl.id);
-  return h('div', { class: `hl ${sel ? 'selected' : ''}`, onclick: () => { sel ? state.selected.delete(hl.id) : state.selected.add(hl.id); renderDetail(); } },
+  const done = clipsOf(hl);
+  const clipped = done.length ? h('span', {
+    class: 'tag clipped',
+    title: `Already in your clips: ${done.map(c => c.file.split(/[\\/]/).pop()).join(', ')}. Recording it again makes a duplicate.`,
+  }, icon(ICONS.check), done.length > 1 ? `Clipped ×${done.length}` : 'Already clipped') : null;
+  return h('div', { class: `hl ${sel ? 'selected' : ''} ${done.length ? 'is-clipped' : ''}`, onclick: () => { sel ? state.selected.delete(hl.id) : state.selected.add(hl.id); renderDetail(); } },
     h('div', { class: 'check' }, icon(ICONS.check)),
     h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, hl.round), h('div', { class: `l side-${hl.side}` }, hl.side)),
     h('div', {},
-      h('div', { class: 'hl-title' }, ...hl.tags.map(t => h('span', { class: `tag ${t.type}` }, t.label))),
+      h('div', { class: 'hl-title' }, ...hl.tags.map(t => h('span', { class: `tag ${t.type}` }, t.label)), clipped),
       h('div', { class: 'kills' }, ...hl.kills.map(k => h('div', { class: 'kill' },
         h('span', { class: 'w' }, k.weapon),
         k.headshot ? h('span', { class: 'hs' }, 'HS') : null,
@@ -2264,8 +2871,10 @@ function estimateSeconds(hls) {
 function actionBar() {
   const hls = (state.analysis?.highlights || []).filter(x => state.selected.has(x.id));
   const n = hls.length;
+  const dup = hls.filter(x => clipsOf(x).length).length;
   return h('div', { class: 'action-bar' },
-    h('div', { class: 'info' }, n ? h('span', {}, h('b', {}, `${n} highlight${n > 1 ? 's' : ''}`), ` selected · about ${Math.ceil(estimateSeconds(hls) / 60)} min to record`) : 'Select highlights to record'),
+    h('div', { class: 'info' }, n ? h('span', {}, h('b', {}, `${n} highlight${n > 1 ? 's' : ''}`), ` selected · about ${Math.ceil(estimateSeconds(hls) / 60)} min to record`,
+      dup ? h('span', { class: 'dup-warn' }, ` · ${dup} already clipped`) : null) : 'Select highlights to record'),
     h('span', { class: 'spacer' }),
     h('button', { class: 'btn primary', disabled: !n || !!state.recording, onclick: () => confirmRecord(hls) }, icon(ICONS.rec), `Record ${n || ''} clip${n === 1 ? '' : 's'}`),
   );
@@ -2290,13 +2899,18 @@ function confirmRecord(hls) {
     h('li', {}, 'CS2 runs with ', h('code', {}, '-insecure'), ' (no VAC servers) and ', h('b', {}, 'is closed automatically'), ' when done. Never join matches from that session.'),
     h('li', {}, 'Clips are saved to ', h('code', {}, state.env.outputDir)),
   ];
+  const dup = hls.filter(x => clipsOf(x).length);
+  const fresh = hls.filter(x => !dup.includes(x));
   modal([
     h('h2', {}, `Record ${hls.length} clip${hls.length > 1 ? 's' : ''}?`),
     h('p', {}, `CS2 will play the demo in the background and HLAE will record each highlight frame by frame. This takes about ${mins} minute${mins > 1 ? 's' : ''}.`),
+    dup.length ? h('div', { class: 'warn-box' }, h('b', {}, `${dup.length === hls.length ? (dup.length > 1 ? 'All of these were' : 'This one was') : `${dup.length} of these ${dup.length > 1 ? 'were' : 'was'}`} already clipped`),
+      ` (round${dup.length > 1 ? 's' : ''} ${dup.map(x => x.round).join(', ')}). Recording ${dup.length > 1 ? 'them' : 'it'} again makes duplicates.`) : null,
     h('ul', { class: 'steps' }, ...steps),
     h('div', { class: 'actions' },
       h('button', { class: 'btn', onclick: () => closeModal() }, 'Cancel'),
-      h('button', { class: 'btn primary', onclick: () => startRecord(hls) }, icon(ICONS.rec), 'Start recording'),
+      dup.length && fresh.length ? h('button', { class: 'btn', onclick: () => startRecord(fresh) }, `Skip clipped · record ${fresh.length}`) : null,
+      h('button', { class: 'btn primary', onclick: () => startRecord(hls) }, icon(ICONS.rec), dup.length ? `Record all ${hls.length}` : 'Start recording'),
     ),
   ]);
 }
@@ -2352,7 +2966,7 @@ function renderRecording(u) {
         : h('button', { class: 'btn danger', onclick: () => api.cancelRecord() }, 'Cancel'),
     ),
   ], { onClose: false });
-  if (done) { refreshEnv(); loadClipCount(); }
+  if (done) { refreshEnv(); loadClipCount().then(() => { if (state.view === 'matches' && state.demo) renderDetail(); }); }
 }
 api.onRecord(u => renderRecording(u));
 
@@ -2797,6 +3411,7 @@ function renderDownloads() {
   renderOverview();
   renderDetail();
   loadClipCount();
+  loadUtility();
   api.listDownloads().then(r => { Object.assign(state.dl, r); updateDlCount(); }).catch(() => {});
   await loadDemos();
   setInterval(refreshEnv, 10000);
