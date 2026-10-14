@@ -1,6 +1,6 @@
 // Aim and game-sense anomalies per player, the raw material of the Integrity tab. Built in a worker
 // the first time a match's Integrity tab is opened (one extra pass over every tick of the demo,
-// under a minute), then read from <id>.integrity.json.
+// about 10 seconds), then read from <id>.integrity.json.
 //
 // What a demo tells us, per player and tick: the view angles the client sent, the mouse movement of
 // the last input frame of that tick (already multiplied by the player's sensitivity: one unit turns
@@ -11,6 +11,8 @@
 // From that, only facts are stored here (moments with what happened and counters); how suspicious
 // they are is decided by scoreIntegrity() at read time, so thresholds can change without reading the
 // demo again. Nothing here proves cheating: these are moments worth watching.
+const path = require('path');
+const { Worker } = require('worker_threads');
 const parser = require('./parser');
 const { AimCollector } = require('./aim');
 
@@ -27,6 +29,15 @@ const LIST_MAX = 60;          // moments kept per kind and player
 const NOT_GUNS = /grenade|flashbang|molotov|incgrenade|inferno|decoy|knife|bayonet|c4|taser|world/;
 // Points on the target checked for line of sight: [sideways offset × 14 units, height]
 const BODY = [[0, 62], [0, 45], [0, 20], [1, 50], [-1, 50]];
+
+// flags: 1 alive, 2 CT, 4 T, 8 server set the view angles, 16 scoped, 32 crouching, 64 no usercmd, 128 in the air
+const ALIVE = 1, CT = 2, T = 4, FORCED = 8, SCOPED = 16, DUCK = 32, NOCMD = 64, AIR = 128;
+const PROPS = ['X', 'Y', 'Z', 'usercmd_viewangle_x', 'usercmd_viewangle_y', 'usercmd_mouse_dx', 'usercmd_mouse_dy', 'is_alive', 'team_num', 'ducking',
+  'usercmd_consumed_server_angle_changes', 'approximate_spotted_by', 'is_scoped', 'is_airborne'];
+// Per player, per tick arrays, in shared memory so a helper thread can fill part of the ticks.
+const LAYOUT = [['x', Float32Array, NaN], ['y', Float32Array, NaN], ['z', Float32Array, NaN], ['pitch', Float32Array, NaN], ['yaw', Float32Array, NaN],
+  ['mouse', Float32Array, 0], ['flags', Uint8Array, 0], ['spottedBy', Uint32Array, 0]];
+const SPLIT_MIN = 20000; // live ticks from which reading them with two parsers at once pays off
 
 const wrap = d => ((d + 540) % 360) - 180;
 const deg = r => r * 180 / Math.PI;
@@ -48,31 +59,15 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
   const idx = new Map(ids.map((id, i) => [id, i]));
   const N = ids.length;
   if (N > 32) throw new Error('Too many players for the integrity check');
-  const nan = () => new Float32Array(maxTick).fill(NaN);
-  const P = ids.map(() => ({ x: nan(), y: nan(), z: nan(), pitch: nan(), yaw: nan(), mouse: new Float32Array(maxTick), flags: new Uint8Array(maxTick), spottedBy: new Uint32Array(maxTick) }));
-  // flags: 1 alive, 2 CT, 4 T, 8 server set the view angles, 16 scoped, 32 crouching, 64 no usercmd, 128 in the air
-  const ALIVE = 1, CT = 2, T = 4, FORCED = 8, SCOPED = 16, DUCK = 32, NOCMD = 64, AIR = 128;
-
-  const props = ['X', 'Y', 'Z', 'usercmd_viewangle_x', 'usercmd_viewangle_y', 'usercmd_mouse_dx', 'usercmd_mouse_dy', 'is_alive', 'team_num', 'ducking',
-    'usercmd_consumed_server_angle_changes', 'approximate_spotted_by', 'is_scoped', 'is_airborne'];
-  const CHUNK = 30000;
-  for (let i = 0; i < liveTicks.length; i += CHUNK) {
-    const ticks = liveTicks.slice(i, i + CHUNK);
-    for (const r of parser.parseTicks(file, props, ticks)) {
-      const p = idx.get(r.steamid);
-      if (p === undefined) continue;
-      const a = P[p], t = r.tick;
-      a.x[t] = r.X; a.y[t] = r.Y; a.z[t] = r.Z;
-      if (r.usercmd_viewangle_y != null) { a.pitch[t] = r.usercmd_viewangle_x; a.yaw[t] = r.usercmd_viewangle_y; }
-      a.mouse[t] = Math.hypot(r.usercmd_mouse_dx || 0, r.usercmd_mouse_dy || 0);
-      a.flags[t] = (r.is_alive ? ALIVE : 0) | (r.team_num === 3 ? CT : r.team_num === 2 ? T : 0) | (r.usercmd_consumed_server_angle_changes ? FORCED : 0)
-        | (r.is_scoped ? SCOPED : 0) | (r.ducking ? DUCK : 0) | (r.usercmd_viewangle_y == null ? NOCMD : 0) | (r.is_airborne ? AIR : 0);
-      let m = 0;
-      for (const s of r.approximate_spotted_by || []) { const q = idx.get(s); if (q !== undefined) m |= 1 << q; }
-      a.spottedBy[t] = m >>> 0;
-    }
-    onProgress(Math.min(1, (i + CHUNK) / liveTicks.length) * 0.7);
-  }
+  const { P, buffers } = tickArrays(N, maxTick);
+  onProgress(0.02);
+  // The second half of the match is read by a helper thread at the same time (each parser only
+  // decodes what the ticks it is asked for need, so two halves take about 2/3 of the time of one whole).
+  const split = liveTicks.length >= SPLIT_MIN ? liveTicks.length >> 1 : liveTicks.length;
+  const helper = split < liveTicks.length ? startTickHelper(file, ids, liveTicks.slice(split), maxTick, buffers) : null;
+  readTicks(file, ids, helper ? liveTicks.slice(0, split) : liveTicks, P);
+  if (helper && !helper.join()) readTicks(file, ids, liveTicks.slice(split), P);
+  onProgress(0.7);
 
   // ---- events: shots and footsteps (what an enemy gives away by sound), hits and kills
   const events = parser.parseEvents(file, ['weapon_fire', 'player_footstep', 'player_hurt', 'player_death'], [], []).filter(e => e.tick < maxTick);
@@ -113,6 +108,7 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
   // Can p see any part of q (walls only: smokes, doors and view direction are not considered)?
   // Cached per tick; without map geometry the radar spotting decides.
   const losCache = new Int8Array(N * N);
+  const wallHint = new Int32Array(N * N * BODY.length).fill(-1); // per ray (eye of p, a body point of q): the triangle that last blocked it
   let losTick = -1;
   function los(p, q, t) {
     if (!geometry) return ((P[q].spottedBy[t] >>> p) & 1) === 1;
@@ -124,7 +120,10 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
     const dx = b.x[t] - ex, dy = b.y[t] - ey, L = Math.hypot(dx, dy) || 1, sx = -dy / L * 14, sy = dx / L * 14;
     const h = b.flags[t] & DUCK ? 0.75 : 1;
     let v = 0;
-    for (const [s, z] of BODY) if (!geometry.blocked(ex, ey, ez, b.x[t] + s * sx, b.y[t] + s * sy, b.z[t] + z * h)) { v = 1; break; }
+    for (let j = 0; j < BODY.length; j++) {
+      const [s, z] = BODY[j];
+      if (!geometry.blocked(ex, ey, ez, b.x[t] + s * sx, b.y[t] + s * sy, b.z[t] + z * h, wallHint, k * BODY.length + j)) { v = 1; break; }
+    }
     losCache[k] = v;
     losCache[q * N + p] = v; // eye-to-body is close enough to symmetric for "could they see each other"
     return v === 1;
@@ -282,6 +281,69 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
   return { version: INTEGRITY_VERSION, tickrate: tr, liveTicks: total, los: !!geometry, players, aim: aimFacts };
 }
 
+function tickArrays(N, maxTick, shared = null) {
+  const buffers = shared || Array.from({ length: N }, () => LAYOUT.map(([, Type]) => new SharedArrayBuffer(Type.BYTES_PER_ELEMENT * maxTick)));
+  const P = buffers.map(b => Object.fromEntries(LAYOUT.map(([k, Type, fill], i) => {
+    const a = new Type(b[i]);
+    if (!shared && fill !== 0) a.fill(fill);
+    return [k, a];
+  })));
+  return { P, buffers };
+}
+
+// Reads the given ticks into P. One call, as columns: no JS object per row (3× faster than chunks of rows).
+function readTicks(file, ids, ticks, P) {
+  const idx = new Map(ids.map((id, i) => [id, i]));
+  const c = parser.parseTicks(file, PROPS, ticks, null, true);
+  for (let i = 0, rows = c.tick.length; i < rows; i++) {
+    const p = idx.get(c.steamid[i]);
+    if (p === undefined) continue;
+    const a = P[p], t = c.tick[i], yaw = c.usercmd_viewangle_y[i];
+    a.x[t] = c.X[i]; a.y[t] = c.Y[i]; a.z[t] = c.Z[i];
+    if (yaw != null) { a.pitch[t] = c.usercmd_viewangle_x[i]; a.yaw[t] = yaw; }
+    a.mouse[t] = Math.hypot(c.usercmd_mouse_dx[i] || 0, c.usercmd_mouse_dy[i] || 0);
+    a.flags[t] = (c.is_alive[i] ? ALIVE : 0) | (c.team_num[i] === 3 ? CT : c.team_num[i] === 2 ? T : 0) | (c.usercmd_consumed_server_angle_changes[i] ? FORCED : 0)
+      | (c.is_scoped[i] ? SCOPED : 0) | (c.ducking[i] ? DUCK : 0) | (yaw == null ? NOCMD : 0) | (c.is_airborne[i] ? AIR : 0);
+    let m = 0;
+    for (const s of c.approximate_spotted_by[i] || []) { const q = idx.get(s); if (q !== undefined) m |= 1 << q; }
+    a.spottedBy[t] = m >>> 0;
+  }
+}
+
+// A thread that reads some ticks into the shared arrays (parseWorker.js, mode 'ticks'). join() blocks
+// until it is done and says whether it worked; if not, the caller reads those ticks itself. The ticks
+// of the two threads never overlap, so they write to different places of the arrays.
+function startTickHelper(file, ids, ticks, maxTick, buffers) {
+  const flag = new Int32Array(new SharedArrayBuffer(4)); // 0 working, 1 done, 2 failed
+  let w;
+  try {
+    w = new Worker(path.join(__dirname, 'parseWorker.js'), { workerData: { mode: 'ticks', file, ids, ticks, maxTick, buffers, flag: flag.buffer } });
+    w.unref();
+    w.on('error', () => {});
+  } catch { return null; }
+  return {
+    join() {
+      // The event loop is blocked meanwhile, so the helper reports through the flag, never by message.
+      while (Atomics.load(flag, 0) === 0) if (Atomics.wait(flag, 0, 0, 10 * 60000) === 'timed-out') break;
+      const ok = Atomics.load(flag, 0) === 1;
+      if (!ok) w.terminate();
+      return ok;
+    },
+  };
+}
+
+// parseWorker.js, mode 'ticks': the helper's side.
+function tickHelper({ file, ids, ticks, maxTick, buffers, flag }) {
+  const f = new Int32Array(flag);
+  try {
+    readTicks(file, ids, ticks, tickArrays(ids.length, maxTick, buffers).P);
+    Atomics.store(f, 0, 1);
+  } catch {
+    Atomics.store(f, 0, 2);
+  }
+  Atomics.notify(f, 0);
+}
+
 function closeTrack(o, tk, target) {
   // Followed for at least half a second while the enemy moved across at least 10° of the view.
   if (tk.n >= 8 && tk.sweep >= 10 && o.hidden.tracks.length < LIST_MAX) {
@@ -403,4 +465,4 @@ function scoreIntegrity(facts, core, mySteamId) {
   return { players, tickrate: tr, myTeam: team[mySteamId] || null, lineOfSight: !!facts.los };
 }
 
-module.exports = { extractIntegrity, scoreIntegrity, INTEGRITY_VERSION };
+module.exports = { extractIntegrity, scoreIntegrity, tickHelper, INTEGRITY_VERSION };

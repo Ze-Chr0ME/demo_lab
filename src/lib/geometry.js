@@ -82,11 +82,15 @@ class MapGeometry {
     this.stack = new Int32Array(128);
   }
 
-  // True when a wall (any triangle) crosses the segment from A to B.
-  blocked(ax, ay, az, bx, by, bz) {
+  // True when a wall (any triangle) crosses the segment from A to B. hints[slot], when given, is a
+  // triangle to try first and is set to the one found: rays from one player to another hit the same
+  // wall from tick to tick, so most blocked rays end after a single triangle test instead of a walk
+  // down the tree. The answer is the same either way (any hit means blocked).
+  blocked(ax, ay, az, bx, by, bz, hints = null, slot = 0) {
     const dx = bx - ax, dy = by - ay, dz = bz - az;
+    if (hints && hints[slot] >= 0 && this.hits(hints[slot] * 9, ax, ay, az, dx, dy, dz)) return true;
     const ix = 1 / dx, iy = 1 / dy, iz = 1 / dz;
-    const B = this.box, N = this.node, T = this.tri, st = this.stack;
+    const B = this.box, N = this.node, st = this.stack;
     let sp = 0;
     st[sp++] = 0;
     while (sp) {
@@ -99,23 +103,28 @@ class MapGeometry {
       const l = N[n * 3];
       if (l >= 0) { st[sp++] = l; st[sp++] = N[n * 3 + 1]; continue; }
       for (let i = N[n * 3 + 1], e = i + N[n * 3 + 2]; i < e; i++) {
-        const o = i * 9;
-        const e1x = T[o + 3], e1y = T[o + 4], e1z = T[o + 5], e2x = T[o + 6], e2y = T[o + 7], e2z = T[o + 8];
-        const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
-        const det = e1x * px + e1y * py + e1z * pz;
-        if (det > -1e-9 && det < 1e-9) continue;
-        const inv = 1 / det;
-        const sx = ax - T[o], sy = ay - T[o + 1], sz = az - T[o + 2];
-        const uu = (sx * px + sy * py + sz * pz) * inv;
-        if (uu < 0 || uu > 1) continue;
-        const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x;
-        const vv = (dx * qx + dy * qy + dz * qz) * inv;
-        if (vv < 0 || uu + vv > 1) continue;
-        const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
-        if (t > 1e-4 && t < 1 - 1e-4) return true;
+        if (this.hits(i * 9, ax, ay, az, dx, dy, dz)) { if (hints) hints[slot] = i; return true; }
       }
     }
     return false;
+  }
+
+  // Möller–Trumbore: does the triangle at offset o in this.tri cross A + t·D for t in (0, 1)?
+  hits(o, ax, ay, az, dx, dy, dz) {
+    const T = this.tri;
+    const e1x = T[o + 3], e1y = T[o + 4], e1z = T[o + 5], e2x = T[o + 6], e2y = T[o + 7], e2z = T[o + 8];
+    const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+    const det = e1x * px + e1y * py + e1z * pz;
+    if (det > -1e-9 && det < 1e-9) return false;
+    const inv = 1 / det;
+    const sx = ax - T[o], sy = ay - T[o + 1], sz = az - T[o + 2];
+    const uu = (sx * px + sy * py + sz * pz) * inv;
+    if (uu < 0 || uu > 1) return false;
+    const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x;
+    const vv = (dx * qx + dy * qy + dz * qz) * inv;
+    if (vv < 0 || uu + vv > 1) return false;
+    const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+    return t > 1e-4 && t < 1 - 1e-4;
   }
 }
 
