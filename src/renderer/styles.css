@@ -109,11 +109,24 @@ svg { width: 18px; height: 18px; flex: none; }
 /* ---------- Top bar ---------- */
 .topbar { flex: none; height: 58px; display: flex; align-items: center; gap: 14px; padding: 0 var(--gutter); position: relative; z-index: 10;
   background: color-mix(in srgb, var(--bg-2) 82%, transparent); border-bottom: 1px solid var(--line); backdrop-filter: blur(12px); }
-.brand { display: flex; align-items: center; gap: 10px; border: 0; background: none; padding: 0; cursor: pointer; color: var(--text); flex: none; }
-.brand-mark { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); }
-.brand-mark svg { width: 18px; height: 18px; }
-.brand-name { font-weight: 500; font-size: 16.5px; letter-spacing: .1px; }
-.brand-name b { font-weight: 800; color: var(--accent); }
+/* Logo: chamfered accent badge (crosshair + play) and a slanted wordmark, LAB on an accent tag */
+.brand { display: flex; align-items: center; gap: 11px; border: 0; background: none; padding: 0; cursor: pointer; color: var(--text); flex: none; }
+.brand-mark { width: 32px; height: 32px; overflow: visible; transition: filter .25s;
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--glow) 38%, transparent)) drop-shadow(0 2px 3px #0008); }
+.bm-hi { stop-color: var(--accent-2); }
+.bm-lo { stop-color: color-mix(in oklab, var(--accent), #000 28%); }
+.bm-badge { fill: url(#bmFill); }
+.bm-edge { fill: none; stroke: #fff; stroke-opacity: .45; stroke-width: 1; stroke-linejoin: miter; }
+.bm-reticle { fill: none; stroke: var(--accent-ink); stroke-width: 2; stroke-linecap: round; transform-origin: 16px 16px; transition: transform .45s cubic-bezier(.3, 1.5, .5, 1); }
+.bm-play { fill: var(--accent-ink); stroke: var(--accent-ink); stroke-width: 1.2; stroke-linejoin: round; }
+.brand:hover .brand-mark { filter: drop-shadow(0 0 12px color-mix(in srgb, var(--glow) 65%, transparent)) drop-shadow(0 2px 3px #0008); }
+.brand:hover .bm-reticle { transform: rotate(90deg); }
+.brand-name { display: flex; align-items: center; transform: skewX(-9deg); font: 800 17px/1 var(--display); letter-spacing: 1.6px; }
+.bn-demo { color: var(--text); }
+.bn-lab { margin-left: 4px; padding: 3px 5px 3px 6.6px; border-radius: 3px; color: var(--accent-ink);
+  background: linear-gradient(135deg, var(--accent-2), color-mix(in oklab, var(--accent), #000 18%));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--glow) 30%, transparent), inset 0 1px 0 #ffffff59; }
+@media (prefers-reduced-motion: reduce) { .bm-reticle { transition: none; } }
 .topnav { display: flex; align-self: stretch; gap: 2px; margin-left: 18px; min-width: 0; }
 .nav-btn { display: flex; align-items: center; gap: 8px; padding: 0 14px; border: 0; background: none; color: var(--muted); cursor: pointer; font-weight: 600; font-size: 14px; position: relative; white-space: nowrap; }
 .nav-btn:hover { color: var(--text); }

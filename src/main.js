@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Worker } = require('worker_threads');
@@ -508,6 +508,8 @@ function handle(name, fn) {
 }
 
 function registerIpc() {
+  // The taskbar icon: the logo in the theme's colors, drawn by the renderer (windowIcon in app.js).
+  handle('window:icon', async png => { const img = nativeImage.createFromDataURL(png); if (!img.isEmpty() && win && !win.isDestroyed()) win.setIcon(img); });
   handle('env:get', async () => (await encoderReady, {
     ...env, ffmpeg: ffmpegFound, encoder: ffmpeg.encoder,
     outputDir: outputDir(), mySteamId: mySteamId(), cs2Running: hlae.cs2Pids().length > 0,
