@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const ffmpeg = require('./ffmpeg');
 const { HlaeSession, FFMPEG_OPTS } = require('./hlae');
+const { clipKills } = require('./share');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -79,7 +80,7 @@ class Recorder {
     const send = async cmds => { this.check(); await session.send(cmds); };
     const raws = [];
     const total = jobs.length;
-    const tmpDir = path.join(this.env.csgoDir, 'clipmaker_tmp');
+    const tmpDir = path.join(this.env.csgoDir, 'demolab_tmp');
     const rawRoot = path.join(this.s.outputDir, '_raw');
 
     try {
@@ -92,7 +93,7 @@ class Recorder {
         await this.wait(t.startupWait);
       }
 
-      const preset = `clipmaker_${ffmpeg.encoder}`;
+      const preset = `demolab_${ffmpeg.encoder}`;
       const opts = `${FFMPEG_OPTS[ffmpeg.encoder] || FFMPEG_OPTS.libx264} {QUOTE}{AFX_STREAM_PATH}\\\\video.mp4{QUOTE}`;
       await send([
         'demo_ui_mode 0', 'r_show_build_info 0', 'cl_trueview_show_status 0', 'cl_hud_telemetry_frametime_show 0',
@@ -133,12 +134,12 @@ class Recorder {
               `mirv_cmd addAtTick ${seg.start} mirv_streams record start`,
               `mirv_cmd addAtTick ${seg.end} mirv_streams record end`,
               `mirv_cmd addAtTick ${seg.end} demo_pause`,
-              `mirv_cmd addAtTick ${seg.end} echo CLIPMAKER_DONE_${id}`,
+              `mirv_cmd addAtTick ${seg.end} echo DEMOLAB_DONE_${id}`,
             ]);
             session.mark();
             await send([`demo_gototick ${Math.max(1, seg.start - 192)}`, 'demo_resume']);
             const seconds = (seg.end - seg.start) / 64;
-            if (!(await session.waitFor(new RegExp(`^CLIPMAKER_DONE_${id}`, 'm'), Math.max(120, seconds * 8 + 60) * 1000, cancelled))) {
+            if (!(await session.waitFor(new RegExp(`^DEMOLAB_DONE_${id}`, 'm'), Math.max(120, seconds * 8 + 60) * 1000, cancelled))) {
               this.check();
               throw new Error(`Recording round ${h.round} did not finish. CS2 may have stopped responding.`);
             }
@@ -203,6 +204,8 @@ class Recorder {
       // which highlight this is, so the match view can mark it as already clipped
       demoId: job.demoId, steamid: job.player.steamid, highlightId: h.id,
       matchDate: job.demoDate, duration: info.duration, createdAt: Date.now(),
+      // kills with their time in the clip, for slow motion and the kill feed when exporting for sharing
+      kills: clipKills(h).map(k => ({ t: Math.round(k.t * 100) / 100, victim: k.victim, weapon: k.weapon, headshot: k.headshot })),
     };
   }
 }

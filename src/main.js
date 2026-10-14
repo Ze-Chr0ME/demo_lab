@@ -16,6 +16,10 @@ const { heatPoints } = require('./lib/heat');
 const { matchSummary, PROFILE_VERSION } = require('./lib/profile');
 const { unpackTrack } = require('./lib/track');
 const { INTEGRITY_VERSION, scoreIntegrity } = require('./lib/integrity');
+const { AIM_VERSION, summarizeAim, aimTotals } = require('./lib/aim');
+const { ROUNDS_VERSION } = require('./lib/rounds');
+const { buildRounds, roundPositions } = require('./lib/economy');
+const share = require('./lib/share');
 const { ensureGeometry } = require('./lib/geometry');
 const { MatchDownloader, fetchGcMatches } = require('./lib/matches');
 const { decode } = require('./lib/proto');
@@ -37,9 +41,24 @@ let communityState = 'unknown'; // 'ok' | 'signedOut' | 'unknown' (not checked y
 let store; // DemoStore: parsed data, failures and custom names, keyed by demo content
 let utility; // UtilityStore: the Utility page's lineups
 
-// Diagnostics: crashes, unexpected quits and sign-in steps go to <userData>/clipmaker.log.
+// The app used to be called CS2 ClipMaker: its data folder (parsed demos, settings, HLAE, Steam sign-in,
+// lineups) moves over once. Electron has already created the new folder, empty, by the time this runs.
+(function adoptOldDataFolder() {
+  const dir = app.getPath('userData');
+  const old = path.join(app.getPath('appData'), 'cs2-clipmaker');
+  try {
+    if (!fs.existsSync(old) || fs.readdirSync(dir).length) return;
+    fs.rmdirSync(dir);
+    fs.renameSync(old, dir);
+    try { fs.renameSync(path.join(dir, 'clipmaker.log'), path.join(dir, 'demolab.log')); } catch {}
+  } catch {
+    app.setPath('userData', old); // something holds a file open: keep using the old folder this time
+  }
+})();
+
+// Diagnostics: crashes, unexpected quits and sign-in steps go to <userData>/demolab.log.
 function log(...parts) {
-  try { fs.appendFileSync(path.join(app.getPath('userData'), 'clipmaker.log'), `[${new Date().toISOString()}] ${parts.join(' ')}\n`); } catch {}
+  try { fs.appendFileSync(path.join(app.getPath('userData'), 'demolab.log'), `[${new Date().toISOString()}] ${parts.join(' ')}\n`); } catch {}
 }
 crashReporter.start({ uploadToServer: false });
 process.on('uncaughtException', e => log('uncaughtException', e.stack || e));
@@ -73,23 +92,23 @@ function createWindow() {
   win = new BrowserWindow({
     width: Math.max(1100, Math.round(area.width * 0.88)), height: Math.max(700, Math.round(area.height * 0.9)), minWidth: 1100, minHeight: 680,
     backgroundColor: '#0a0e16',
-    title: 'CS2 ClipMaker',
+    title: 'CS2 DemoLab',
     // The screenshot dev aid (below) needs painting to continue while the window is in the background.
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: !process.env.CLIPMAKER_SCREENSHOT },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: !process.env.DEMOLAB_SCREENSHOT },
   });
-  // Dev aid: CLIPMAKER_SIZE=2560x1440 sets the window's content size (layout checks for other monitors).
-  if (process.env.CLIPMAKER_SIZE) win.setContentSize(...process.env.CLIPMAKER_SIZE.split('x').map(Number));
+  // Dev aid: DEMOLAB_SIZE=2560x1440 sets the window's content size (layout checks for other monitors).
+  if (process.env.DEMOLAB_SIZE) win.setContentSize(...process.env.DEMOLAB_SIZE.split('x').map(Number));
   win.on('closed', () => log('main window closed'));
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
-  // Dev aid: CLIPMAKER_SCREENSHOT=<file.png> saves a capture of the window after load.
-  if (process.env.CLIPMAKER_SCREENSHOT) {
+  // Dev aid: DEMOLAB_SCREENSHOT=<file.png> saves a capture of the window after load.
+  if (process.env.DEMOLAB_SCREENSHOT) {
     win.webContents.on('console-message', (_e, level, message) => { if (level >= 2) console.log('[renderer]', message); });
     win.webContents.once('did-finish-load', () => setTimeout(async () => {
-      if (process.env.CLIPMAKER_EVAL) { await win.webContents.executeJavaScript(process.env.CLIPMAKER_EVAL).catch(e => console.log('[eval]', e.message)); await new Promise(r => setTimeout(r, 2500)); }
-      fs.writeFileSync(process.env.CLIPMAKER_SCREENSHOT, (await win.webContents.capturePage()).toPNG());
-      if (!process.env.CLIPMAKER_KEEP_OPEN) app.quit();
-    }, +(process.env.CLIPMAKER_DELAY || 6000)));
+      if (process.env.DEMOLAB_EVAL) { await win.webContents.executeJavaScript(process.env.DEMOLAB_EVAL).catch(e => console.log('[eval]', e.message)); await new Promise(r => setTimeout(r, 2500)); }
+      fs.writeFileSync(process.env.DEMOLAB_SCREENSHOT, (await win.webContents.capturePage()).toPNG());
+      if (!process.env.DEMOLAB_KEEP_OPEN) app.quit();
+    }, +(process.env.DEMOLAB_DELAY || 6000)));
   }
 }
 
@@ -199,22 +218,22 @@ function geometryDir() {
 }
 const meshFor = (dir, map) => dir && fs.existsSync(path.join(dir, `${map}.mesh`));
 
-// Aim and visibility facts for the Integrity tab: built once per demo (same queue), then read from
-// <id>.integrity.json. Progress goes to the renderer as integrity:progress. Facts made without map
-// geometry are rebuilt once the geometry is there.
+// Aim and visibility facts for the Integrity and Aim tabs: one pass over every tick, built once per
+// demo (same queue), then read from <id>.integrity.json and <id>.aim.json. Progress goes to the
+// renderer as integrity:progress. Facts made without map geometry are rebuilt once the geometry is there.
 const checking = new Map();
 async function demoIntegrity(file) {
   const core = await parseDemo(file);
   const id = store.idOf(file);
   const out = store.integrityFile(id);
-  let cached = null;
-  try { const d = JSON.parse(fs.readFileSync(out, 'utf8')); if (d.version === INTEGRITY_VERSION) cached = d; } catch {}
-  if (cached?.los) return { core, facts: cached };
+  const cached = store.readExtra(out, INTEGRITY_VERSION);
+  const cachedAim = store.readExtra(store.aimFile(id), AIM_VERSION);
+  if (cached?.los && cachedAim) return { core, facts: cached, aim: cachedAim };
   if (!checking.has(id)) {
     const job = (async () => {
       if (!fs.existsSync(path.join(app.getPath('userData'), 'geometry', 'manifest.json'))) send('integrity:progress', { id, progress: 0, phase: 'geometry' });
       const dir = await geometryDir();
-      if (cached && !meshFor(dir, core.map)) return cached;
+      if (cached && cachedAim && !meshFor(dir, core.map)) return { facts: cached, aim: cachedAim };
       const run = parseQueue.then(() => new Promise((resolve, reject) => {
         const w = new Worker(path.join(__dirname, 'lib', 'parseWorker.js'), { workerData: { file, mode: 'integrity', core, geometryDir: dir } });
         w.on('message', msg => {
@@ -222,7 +241,8 @@ async function demoIntegrity(file) {
           w.terminate();
           if (!msg.ok) return reject(new Error(`Could not check this demo: ${msg.error}`));
           fs.writeFileSync(out, JSON.stringify(msg.data));
-          resolve(msg.data);
+          fs.writeFileSync(store.aimFile(id), JSON.stringify(msg.aim));
+          resolve({ facts: msg.data, aim: msg.aim });
         });
         w.once('error', reject);
       }));
@@ -231,8 +251,54 @@ async function demoIntegrity(file) {
     })().finally(() => checking.delete(id));
     checking.set(id, job);
   }
-  return { core, facts: await checking.get(id) };
+  return { core, ...(await checking.get(id)) };
 }
+
+// Money, loadouts and callouts per round (lib/rounds.js). New demos get them with the first parse;
+// demos read before that get them here, in the same one-at-a-time queue (about a second each).
+const roundsJobs = new Map();
+async function demoRounds(file) {
+  const core = await parseDemo(file);
+  const id = store.idOf(file);
+  const cached = store.readExtra(store.roundsFile(id), ROUNDS_VERSION);
+  if (cached) return cached;
+  if (!roundsJobs.has(id)) {
+    const job = parseQueue.then(() => new Promise((resolve, reject) => {
+      const w = new Worker(path.join(__dirname, 'lib', 'parseWorker.js'), { workerData: { file, mode: 'rounds', core } });
+      w.once('message', msg => {
+        w.terminate();
+        if (!msg.ok) return reject(new Error(`Could not read the money and positions: ${msg.error}`));
+        fs.writeFileSync(store.roundsFile(id), JSON.stringify(msg.data));
+        resolve(msg.data);
+      });
+      w.once('error', reject);
+    })).finally(() => roundsJobs.delete(id));
+    roundsJobs.set(id, job);
+    parseQueue = job.catch(() => {});
+  }
+  return roundsJobs.get(id);
+}
+
+// The CS2 that "View in CS2" and "Practice in CS2" drive through HLAE: reused while it stays open.
+async function viewerSession() {
+  const cfg = s();
+  let session = viewer?.session;
+  if (!session?.sock) {
+    session = new hlae.HlaeSession({
+      dir: hlaeDir(), cs2Dir: env.cs2Dir, port: cfg.hlae.port, width: cfg.hlae.width, height: cfg.hlae.height,
+      ffmpegPath: ffmpegFound || 'ffmpeg', log: m => log('watch:', m),
+    });
+    const { launched } = await session.start(() => false);
+    viewer = { session, demo: null, map: null };
+    if (launched) await new Promise(r => setTimeout(r, cfg.timing.startupWait * 1000));
+  }
+  return session;
+}
+
+// A private practice server: no bots, infinite grenades, grenade trajectory preview, buy anywhere.
+const PRACTICE = ['sv_cheats 1', 'bot_kick', 'mp_warmup_end', 'mp_freezetime 0', 'mp_roundtime_defuse 60', 'mp_buy_anywhere 1', 'mp_buytime 9999',
+  'mp_maxmoney 60000', 'mp_startmoney 60000', 'sv_infinite_ammo 1', 'ammo_grenade_limit_total 5', 'sv_grenade_trajectory_prac_pipreview 1', 'mp_restartgame 1'];
+const GIVE = { smoke: 'weapon_smokegrenade', flash: 'weapon_flashbang', he: 'weapon_hegrenade', molotov: 'weapon_molotov' };
 
 async function demoData(file) {
   let core = await parseDemo(file);
@@ -291,6 +357,74 @@ function summaryOf(id, steamid) {
   const value = matchSummary(core, events, steamid);
   store.setDerived(key, PROFILE_VERSION, value);
   return value;
+}
+
+// Where I played each round (Maps page) and my aim counts (overview): also computed once per demo and
+// kept in derived.json, but only once the extra facts they come from exist.
+const POS_VERSION = 1, AIM_SUM_VERSION = 1;
+function positionsOf(id, steamid) {
+  const key = `pos|${id}|${steamid}`;
+  const cached = store.derived(key, POS_VERSION);
+  if (cached !== undefined) return cached;
+  const facts = store.readExtra(store.roundsFile(id), ROUNDS_VERSION);
+  const core = facts && store.readCore(id), events = core && store.readEvents(id);
+  if (!events) return undefined;
+  const value = roundPositions(core, events, facts, steamid);
+  store.setDerived(key, POS_VERSION, value);
+  return value;
+}
+function aimSummaryOf(id, steamid) {
+  const key = `aim|${id}|${steamid}`;
+  const cached = store.derived(key, AIM_SUM_VERSION);
+  if (cached !== undefined) return cached;
+  const facts = store.readExtra(store.aimFile(id), AIM_VERSION);
+  if (!facts) return undefined;
+  const value = aimTotals(facts, steamid);
+  store.setDerived(key, AIM_SUM_VERSION, value);
+  return value;
+}
+
+// Demos read before the round facts existed get them in the background; the renderer reloads the
+// profile once they are done.
+let roundsFill = null;
+const roundsFailed = new Set(); // demo ids whose round facts could not be read (not retried until restart)
+function fillRounds(files) {
+  files = files.filter(f => !roundsFailed.has(store.idOf(f)));
+  if (roundsFill || !files.length) return;
+  let added = 0;
+  roundsFill = (async () => {
+    for (const f of files) {
+      try { await demoRounds(f); added++; } catch (e) { roundsFailed.add(store.idOf(f)); log('rounds failed', path.basename(f), e.message); }
+    }
+  })().finally(() => { roundsFill = null; if (added) send('profile:changed', {}); });
+}
+
+// "Analyze aim" on the overview: the tick pass for every match of mine that doesn't have it yet, one by one.
+let aimBatch = null;
+function aimBatchStatus() { return aimBatch ? { running: true, total: aimBatch.total, done: aimBatch.done, current: aimBatch.current } : { running: false }; }
+async function runAimBatch() {
+  const me = mySteamId();
+  const seen = new Set();
+  const todo = scanDemos().filter(d => {
+    if (seen.has(d.id)) return false;
+    seen.add(d.id);
+    return summaryOf(d.id, me) && !store.readExtra(store.aimFile(d.id), AIM_VERSION);
+  });
+  aimBatch = { total: todo.length, done: 0, current: null, cancelled: false };
+  send('aim:batch', aimBatchStatus());
+  try {
+    for (const d of todo) {
+      if (aimBatch.cancelled) break;
+      aimBatch.current = d.id;
+      send('aim:batch', aimBatchStatus());
+      try { await demoIntegrity(d.path); } catch (e) { log('aim batch:', path.basename(d.path), e.message); }
+      aimBatch.done++;
+      send('aim:batch', aimBatchStatus());
+    }
+  } finally {
+    aimBatch = null;
+    send('aim:batch', { running: false, finished: true });
+  }
 }
 
 function highlightOpts() {
@@ -358,13 +492,26 @@ function registerIpc() {
     const me = mySteamId();
     const matches = [];
     const seen = new Set();
+    const noRounds = [];
+    let aimMissing = 0;
     for (const d of scanDemos()) {
       if (seen.has(d.id)) continue;
       seen.add(d.id);
       const sum = me ? summaryOf(d.id, me) : null;
-      if (sum) matches.push({ id: d.id, path: d.path, date: d.date, customName: d.customName, ...sum });
+      if (!sum) continue;
+      const positions = positionsOf(d.id, me);
+      if (positions === undefined && !roundsFailed.has(d.id)) noRounds.push(d.path);
+      const aim = aimSummaryOf(d.id, me);
+      if (aim === undefined) aimMissing++;
+      matches.push({ id: d.id, path: d.path, date: d.date, customName: d.customName, ...sum, positions: positions || null, aim: aim || null });
     }
-    return { steamid: me, name: matches[0]?.name || env.steamUser?.name || '', matches };
+    fillRounds(noRounds);
+    return { steamid: me, name: matches[0]?.name || env.steamUser?.name || '', matches, aimMissing, aimBatch: aimBatchStatus(), positionsPending: noRounds.length };
+  });
+  handle('aim:batch', action => {
+    if (action === 'start' && !aimBatch) runAimBatch().catch(e => log('aim batch failed', e.message));
+    if (action === 'cancel' && aimBatch) aimBatch.cancelled = true;
+    return aimBatchStatus();
   });
 
   // Heatmap points of every parsed demo on one map, for me (who = steamid) or for everyone (who = 'all').
@@ -427,6 +574,18 @@ function registerIpc() {
   handle('demo:integrity', async file => {
     const { core, facts } = await demoIntegrity(file);
     return scoreIntegrity(facts, core, mySteamId());
+  });
+  // Aim tab: counter-strafing, accuracy, crosshair placement and time to damage (same pass as Integrity).
+  handle('demo:aim', async file => {
+    const { core, aim } = await demoIntegrity(file);
+    return summarizeAim(aim, core, mySteamId());
+  });
+  // Round strip and Economy tab. Without the money facts (unreadable) the rounds still come back, without buys.
+  handle('demo:rounds', async (file, steamid) => {
+    const { core, events } = await demoData(file);
+    let facts = null;
+    try { facts = await demoRounds(file); } catch (e) { log('rounds:', e.message); }
+    return buildRounds(core, events, facts, steamid || mySteamId());
   });
   handle('radar:maps', () => JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'radar', 'maps.json'), 'utf8')));
   handle('demo:rename', (file, name) => { const id = store.idOf(file); store.setName(id, name); return store.name(id); });
@@ -511,23 +670,14 @@ function registerIpc() {
     const missing = hlae.missingFiles(hlaeDir());
     if (missing.length) throw new Error(`HLAE_MISSING: Viewing demos in CS2 needs HLAE, which is not installed or incomplete in ${hlaeDir()} (missing: ${missing.join(', ')}). Install it from the Highlights & clips tab or Settings → Recording.`);
     watching = (async () => {
-      const cfg = s();
-      let session = viewer?.session;
-      if (!session?.sock) {
-        session = new hlae.HlaeSession({
-          dir: hlaeDir(), cs2Dir: env.cs2Dir, port: cfg.hlae.port, width: cfg.hlae.width, height: cfg.hlae.height,
-          ffmpegPath: ffmpegFound || 'ffmpeg', log: m => log('watch:', m),
-        });
-        const { launched } = await session.start(() => false);
-        viewer = { session, demo: null };
-        if (launched) await new Promise(r => setTimeout(r, cfg.timing.startupWait * 1000));
-      }
+      const session = await viewerSession();
       if (viewer.demo !== file) {
         session.mark();
-        await session.send([`playdemo "${demoRef(env.csgoDir, file, path.join(env.csgoDir, 'clipmaker_watch'))}"`]);
+        await session.send([`playdemo "${demoRef(env.csgoDir, file, path.join(env.csgoDir, 'demolab_watch'))}"`]);
         if (!(await session.waitFor(/Demo is version|Signon traffic "DEMO"/, 180000, () => false))) throw new Error('CS2 did not load the demo within 3 minutes.');
         await new Promise(r => setTimeout(r, 3000));
         viewer.demo = file;
+        viewer.map = null;
       }
       if (tick == null) tick = (await parseDemo(file)).rounds[0]?.startTick ?? 1;
       const who = String(name || '').replace(/[";]/g, '');
@@ -537,6 +687,45 @@ function registerIpc() {
         ...(who ? [`mirv_cmd addAtTick ${start + 32} spec_player "${who}"`, `mirv_cmd addAtTick ${start + 36} spec_mode 2`] : []),
         ...(pause ? [`mirv_cmd addAtTick ${Math.round(tick)} demo_pause`] : []),
         `demo_gototick ${start}`, 'demo_resume',
+      ]);
+    })();
+    try { await watching; } finally { watching = null; }
+    return true;
+  });
+
+  // "Practice in CS2": opens the lineup's map on a private practice server in the HLAE CS2 and puts the
+  // player on the throw spot, aiming the same way, with the grenade in hand. Later lineups on the same
+  // map only teleport.
+  handle('practice:goto', async ({ map, from, angle, type, side }) => {
+    if (recorder) throw new Error('A recording is running. Wait until it has finished.');
+    if (watching) throw new Error('CS2 is still busy with the previous request. Wait a moment.');
+    if (!env.csgoDir) throw new Error('CS2 installation not found. Set it in Settings.');
+    if (!/^[a-z0-9_]+$/i.test(map || '') || !Array.isArray(from) || from.length < 3 || from.some(v => !Number.isFinite(v))) throw new Error('This lineup has no exact throw spot (paste the getpos line in Edit).');
+    const missing = hlae.missingFiles(hlaeDir());
+    if (missing.length) throw new Error(`HLAE_MISSING: Practicing in CS2 needs HLAE, which is not installed or incomplete in ${hlaeDir()} (missing: ${missing.join(', ')}). Install it from Settings → Recording.`);
+    const ang = Array.isArray(angle) && angle.every(Number.isFinite) ? angle : [0, 0];
+    watching = (async () => {
+      const session = await viewerSession();
+      if (viewer.map !== map) {
+        await session.send([`map ${map}`]);
+        // Loaded once the player exists: getpos answers with a setpos line.
+        let ready = false;
+        for (const until = Date.now() + 150000; !ready && Date.now() < until;) {
+          await new Promise(r => setTimeout(r, 3000));
+          session.mark();
+          await session.send(['sv_cheats 1', 'getpos']);
+          ready = !!(await session.waitFor(/setpos(?:_exact)?\s+-?\d/, 2500, () => false));
+        }
+        if (!ready) throw new Error(`CS2 did not finish loading ${map} within 2.5 minutes.`);
+        await session.send([...PRACTICE, `jointeam ${side === 'CT' ? 3 : 2} 1`]);
+        await new Promise(r => setTimeout(r, 2500));
+        viewer.map = map;
+        viewer.demo = null;
+      }
+      const give = type === 'molotov' && side === 'CT' ? 'weapon_incgrenade' : GIVE[type];
+      await session.send([
+        ...(give ? [`give ${give}`, `use ${give}`] : []),
+        `setpos ${from.map(v => v.toFixed(2)).join(' ')}`, `setang ${ang[0]} ${ang[1]} 0`,
       ]);
     })();
     try { await watching; } finally { watching = null; }
@@ -561,6 +750,64 @@ function registerIpc() {
   });
   handle('shell:reveal', file => { shell.showItemInFolder(file); return true; });
   handle('shell:open', file => shell.openPath(file));
+
+  // Kill times of a clip for "Export for sharing". Clips recorded before kill times were saved get them
+  // from their highlight, as long as it still has the clip's length (the timing settings may have changed).
+  async function clipKillsOf(c) {
+    if (c.kills) return c.kills;
+    if (!c.demoId || !c.highlightId) return null;
+    const d = scanDemos().find(x => x.id === c.demoId);
+    if (!d) return null;
+    const data = await parseDemo(d.path);
+    const h = analysis(d.path, data, c.steamid).highlights?.find(x => x.id === c.highlightId);
+    if (!h || Math.abs(h.duration - (c.duration || 0)) > 0.75) return null;
+    return share.clipKills(h, data.tickrate || 64).map(k => ({ t: k.t, victim: k.victim, weapon: k.weapon, headshot: k.headshot }));
+  }
+  handle('clips:shareInfo', async id => {
+    const c = library().list().find(x => x.id === id);
+    if (!c) throw new Error('This clip is no longer in the library.');
+    return { kills: c.kind === 'clip' ? await clipKillsOf(c).catch(() => null) : null };
+  });
+  // opts: { format, slowmo, speed, title, subtitle, feed, music: { file, volume, gameVolume } | null }
+  handle('clips:share', async (id, opts) => {
+    const lib = library();
+    const c = lib.list().find(x => x.id === id);
+    if (!c) throw new Error('This clip is no longer in the library.');
+    if (!ffmpegFound) throw new Error('ffmpeg not found. Set its path in Settings.');
+    if (opts.music?.file && !fs.existsSync(opts.music.file)) throw new Error('The music file was not found.');
+    const kills = c.kind === 'clip' ? await clipKillsOf(c).catch(() => null) : null;
+    const lastKill = kills?.at(-1);
+    const dir = path.join(outputDir(), 'Shared');
+    fs.mkdirSync(dir, { recursive: true });
+    const label = { vertical: 'vertical', verticalFit: 'vertical', square: 'square' }[opts.format] || 'share';
+    const base = `${path.basename(c.file, '.mp4')} (${label})`.replace(/[<>:"/\\|?*]/g, '');
+    let file = path.join(dir, base + '.mp4');
+    for (let n = 2; fs.existsSync(file); n++) file = path.join(dir, `${base} ${n}.mp4`);
+    send('share:update', { state: 'running', progress: 0 });
+    try {
+      const r = await share.exportShare(c.file, file, {
+        format: opts.format,
+        slowmo: opts.slowmo && lastKill ? { at: lastKill.t, speed: opts.speed || 0.5 } : null,
+        title: (opts.title || '').trim(), subtitle: (opts.subtitle || '').trim(),
+        feed: opts.feed && kills ? kills.map(k => ({ t: k.t, text: `${c.player || 'You'}  [${k.weapon}]  ${k.victim}${k.headshot ? '  (HS)' : ''}` })) : [],
+        music: opts.music?.file ? opts.music : null,
+        onProgress: p => send('share:update', { state: 'running', progress: p }),
+      });
+      const thumb = path.join(outputDir(), '.thumbs', path.basename(file, '.mp4') + '.jpg');
+      fs.mkdirSync(path.dirname(thumb), { recursive: true });
+      await ffmpeg.thumbnail(file, thumb, Math.min(2, r.duration / 2)).catch(() => {});
+      const item = lib.add({
+        ...c, id: `s${Date.now().toString(36)}`, kind: 'share', sourceId: c.id, sourceKind: c.kind, file, thumb: fs.existsSync(thumb) ? thumb : null,
+        format: opts.format || 'original', width: r.width, height: r.height, duration: r.duration, createdAt: Date.now(),
+        title: c.title,
+      });
+      send('share:update', { state: 'done', progress: 1 });
+      return item;
+    } catch (e) {
+      send('share:update', { state: 'error', error: e.message });
+      throw e;
+    }
+  });
 
   handle('montage:make', async (ids, name) => {
     const lib = library();

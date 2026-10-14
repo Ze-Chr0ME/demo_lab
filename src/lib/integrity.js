@@ -12,6 +12,7 @@
 // they are is decided by scoreIntegrity() at read time, so thresholds can change without reading the
 // demo again. Nothing here proves cheating: these are moments worth watching.
 const parser = require('./parser');
+const { AimCollector } = require('./aim');
 
 const INTEGRITY_VERSION = 2;
 const SPOT_MEMORY = 128;      // an enemy the team saw (or had on the radar) in the last 2 s counts as known
@@ -49,11 +50,11 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
   if (N > 32) throw new Error('Too many players for the integrity check');
   const nan = () => new Float32Array(maxTick).fill(NaN);
   const P = ids.map(() => ({ x: nan(), y: nan(), z: nan(), pitch: nan(), yaw: nan(), mouse: new Float32Array(maxTick), flags: new Uint8Array(maxTick), spottedBy: new Uint32Array(maxTick) }));
-  // flags: 1 alive, 2 CT, 4 T, 8 server set the view angles, 16 scoped, 32 crouching, 64 no usercmd
-  const ALIVE = 1, CT = 2, T = 4, FORCED = 8, SCOPED = 16, DUCK = 32, NOCMD = 64;
+  // flags: 1 alive, 2 CT, 4 T, 8 server set the view angles, 16 scoped, 32 crouching, 64 no usercmd, 128 in the air
+  const ALIVE = 1, CT = 2, T = 4, FORCED = 8, SCOPED = 16, DUCK = 32, NOCMD = 64, AIR = 128;
 
   const props = ['X', 'Y', 'Z', 'usercmd_viewangle_x', 'usercmd_viewangle_y', 'usercmd_mouse_dx', 'usercmd_mouse_dy', 'is_alive', 'team_num', 'ducking',
-    'usercmd_consumed_server_angle_changes', 'approximate_spotted_by', 'is_scoped'];
+    'usercmd_consumed_server_angle_changes', 'approximate_spotted_by', 'is_scoped', 'is_airborne'];
   const CHUNK = 30000;
   for (let i = 0; i < liveTicks.length; i += CHUNK) {
     const ticks = liveTicks.slice(i, i + CHUNK);
@@ -65,7 +66,7 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
       if (r.usercmd_viewangle_y != null) { a.pitch[t] = r.usercmd_viewangle_x; a.yaw[t] = r.usercmd_viewangle_y; }
       a.mouse[t] = Math.hypot(r.usercmd_mouse_dx || 0, r.usercmd_mouse_dy || 0);
       a.flags[t] = (r.is_alive ? ALIVE : 0) | (r.team_num === 3 ? CT : r.team_num === 2 ? T : 0) | (r.usercmd_consumed_server_angle_changes ? FORCED : 0)
-        | (r.is_scoped ? SCOPED : 0) | (r.ducking ? DUCK : 0) | (r.usercmd_viewangle_y == null ? NOCMD : 0);
+        | (r.is_scoped ? SCOPED : 0) | (r.ducking ? DUCK : 0) | (r.usercmd_viewangle_y == null ? NOCMD : 0) | (r.is_airborne ? AIR : 0);
       let m = 0;
       for (const s of r.approximate_spotted_by || []) { const q = idx.get(s); if (q !== undefined) m |= 1 << q; }
       a.spottedBy[t] = m >>> 0;
@@ -128,6 +129,9 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
     losCache[q * N + p] = v; // eye-to-body is close enough to symmetric for "could they see each other"
     return v === 1;
   }
+
+  // Aim mechanics (aim.js) are collected in the same pass.
+  const aimc = new AimCollector({ ids, P, tr, los, F: { ALIVE, CT, T, SCOPED, DUCK, AIR, NOCMD } });
 
   // ---- how much angle the recorded mouse usually accounts for, per player. The demo only keeps the
   // mouse movement of a tick's last input frame, so players with many frames per tick turn more
@@ -222,6 +226,7 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
       for (let q = 0; q < N; q++) {
         if (!alive(q, t) || !enemies(p, q, t)) { tracks[p].delete(q); wasVisible[p][q] = 0; continue; }
         const visible = los(p, q, t);
+        aimc.sight(p, q, t, visible);
         const appeared = visible && !wasVisible[p][q];
         wasVisible[p][q] = visible ? 1 : 0;
         const unknown = t - knownBefore[q][team] > SPOT_MEMORY;
@@ -273,7 +278,8 @@ function extractIntegrity(file, core, { geometry = null, onProgress = () => {} }
 
   const players = {};
   ids.forEach((id, p) => { players[id] = { ratio: r1(ratio[p]), ...out[p] }; });
-  return { version: INTEGRITY_VERSION, tickrate: tr, liveTicks: total, los: !!geometry, players };
+  const aimFacts = { ...aimc.finish(events, maxTick), los: !!geometry };
+  return { version: INTEGRITY_VERSION, tickrate: tr, liveTicks: total, los: !!geometry, players, aim: aimFacts };
 }
 
 function closeTrack(o, tk, target) {

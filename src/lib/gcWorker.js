@@ -65,7 +65,7 @@ async function main() {
         if (retrieve(gc, type, dest, dest.length, got) !== 0) break;
         const msgType = (type[0] & ~PROTO_FLAG) >>> 0;
         const hdrLen = dest.readUInt32LE(4);
-        if (process.env.CLIPMAKER_GC_DEBUG) process.stderr.write(`[gc] got ${msgType} (${got[0]} bytes)
+        if (process.env.DEMOLAB_GC_DEBUG) process.stderr.write(`[gc] got ${msgType} (${got[0]} bytes)
 `);
         pending.push({ type: msgType, body: dest.subarray(8 + hdrLen, got[0]) });
       }

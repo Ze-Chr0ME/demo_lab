@@ -28,6 +28,8 @@ const DEFAULTS = {
   montage: { fade: 0.25 },
   downloads: { auto: true, intervalMin: 30 },
   uiScale: 0,                // 0 = automatic (bigger on 1440p and up), else a zoom factor like 1.1
+  theme: 'demolab',          // a THEMES id from app.js, or 'custom'
+  customTheme: { base: '#0b0f13', accent: '#2fd8a4', data: '', art: '' }, // data/art empty = accent / no radar
 };
 
 function merge(base, over) {

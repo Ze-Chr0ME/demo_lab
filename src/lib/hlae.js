@@ -83,7 +83,7 @@ class HlaeSession {
   async start(isCancelled) {
     if (!isInstalled(this.dir)) throw new Error(`HLAE not found in ${this.dir}. Set its folder in Settings → Recording.`);
     if (await this.connectOnce()) { this.log('Reusing the running HLAE CS2 session'); return { launched: false }; }
-    if (cs2Pids().length) throw new Error('CS2 is already running normally. Close it so ClipMaker can start it through HLAE (needed to record clips and to open demos at a given moment).');
+    if (cs2Pids().length) throw new Error('CS2 is already running normally. Close it so DemoLab can start it through HLAE (needed to record clips and to open demos at a given moment).');
 
     this.writeFfmpegIni();
     const f = hlaeFiles(this.dir);
@@ -146,7 +146,7 @@ const https = require('https');
 
 function getJson(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'cs2-clipmaker', Accept: 'application/vnd.github+json' }, timeout: 20000 }, res => {
+    https.get(url, { headers: { 'User-Agent': 'cs2-demolab', Accept: 'application/vnd.github+json' }, timeout: 20000 }, res => {
       let body = '';
       res.on('data', d => { body += d; });
       res.on('end', () => {
@@ -170,7 +170,7 @@ async function downloadWithRetry(url, file, attempts = 3) {
 
 function download(url, file, redirects = 5) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'cs2-clipmaker' }, timeout: 30000 }, res => {
+    https.get(url, { headers: { 'User-Agent': 'cs2-demolab' }, timeout: 30000 }, res => {
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirects > 0) {
         res.resume();
         return resolve(download(new URL(res.headers.location, url).toString(), file, redirects - 1));

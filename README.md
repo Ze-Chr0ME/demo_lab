@@ -1,9 +1,10 @@
-# CS2 ClipMaker
+# CS2 DemoLab
 
-Stats, replays and highlight clips from your CS2 demos, all on your PC. It reads each demo once and shows
-an **overview dashboard** of your play (K/D, rating, clutches, opening duels, maps, weapons, teammates),
-a **scoreboard, duels, heatmap and 2D replay** for every match, and **zoomable per-map heatmaps** of
-kills, deaths, damage and grenades across all your matches. It also finds your **multi-kills
+A lab for your CS2 demos, all on your PC: stats, replays, lineups and highlight clips. It reads each
+demo once and shows an **overview dashboard** of your play (K/D, rating, clutches, opening duels, maps,
+weapons, teammates), a **scoreboard, duels, heatmap, 2D replay and integrity check** for every match,
+**zoomable per-map heatmaps** of kills, deaths, damage and grenades across all your matches, and a
+**Utility** library for the grenade lineups you want to remember. It also finds your **multi-kills
 (3K/4K/ace)**, **clutches** and **special kills** (no-scopes, wallbangs, through smoke, while flashed,
 knife, Zeus, collaterals) and records them as clips: CS2 replays those moments through
 [HLAE](https://www.advancedfx.org/), which records them in the background, and ffmpeg turns the
@@ -17,27 +18,41 @@ You need:
 - **[Node.js](https://nodejs.org) 22.12+** (LTS).
 - **ffmpeg** with `ffprobe`, for example the
   [gyan.dev essentials build](https://www.gyan.dev/ffmpeg/builds/) or `winget install Gyan.FFmpeg`.
-  ClipMaker looks for it on your `PATH`, in `C:\ffmpeg\bin` and in `C:\ffmpeg`. Anywhere else, set it
+  DemoLab looks for it on your `PATH`, in `C:\ffmpeg\bin` and in `C:\ffmpeg`. Anywhere else, set it
   in **Settings → Output → ffmpeg**. `ffprobe.exe` has to sit next to `ffmpeg.exe`.
 - **[Visual C++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe)**, used by the
   demo parser (usually already installed by Steam games).
 
 Then:
 
-1. Double-click **`Start ClipMaker.bat`**. The first launch runs `npm install` and downloads Electron,
+1. Double-click **`Start DemoLab.bat`**. The first launch runs `npm install` and downloads Electron,
    which takes a few minutes. You can also run `npm install` and then `npm start` from a terminal.
-2. In **Settings → Recording**, click **Check for updates → Install HLAE**. ClipMaker downloads
-   [HLAE](https://www.advancedfx.org/) into `%APPDATA%\cs2-clipmaker\hlae`. If an antivirus
+2. In **Settings → Recording**, click **Check for updates → Install HLAE**. DemoLab downloads
+   [HLAE](https://www.advancedfx.org/) into `%APPDATA%\cs2-demolab\hlae`. If an antivirus
    quarantines it (HLAE injects into CS2), restore it or add an exclusion for that folder.
 3. The status panel at the bottom left should show CS2, Steam, ffmpeg and HLAE in green.
 
+DemoLab used to be called CS2 ClipMaker. On its first start it moves `%APPDATA%\cs2-clipmaker` to
+`%APPDATA%\cs2-demolab`, so parsed demos, settings, HLAE, the Steam sign-in and lineups carry over.
+
 ## Overview
 
-The app opens on the **Overview**: your K/D and ≈ HLTV 2.0 rating (with how your last 10 matches compare),
-clutch success per 1v1…1v5, recent results, win rate, HS%, ADR, KAST, opening duels per side, your maps,
-a rating-per-match chart, your best weapons, multi-kills and utility, rounds won per side and the
-teammates you play with most. Filter it by mode (5v5, Wingman, Rush), map and period. Click a recent
-match or a point on the chart to open that match, or a map to open it in **Maps**.
+The app opens on the **Overview**. On the left, your ≈ HLTV 2.0 rating with a breakdown (win rate, K/D,
+ADR, KAST, HS%) and your last 10 results. On the right, twelve stat tiles (K/D, ADR, KAST, HS%, kills,
+deaths and assists per round, opening duels, multi-kill rounds, trades, utility damage, enemies flashed),
+each with a histogram of that stat over your matches: the dashed line is the whole selection, the solid
+one your last 10 matches. Below: rating per match, your last matches, clutches per 1v1…1v5, opening duels
+and rounds won per side, multi-kills, maps, weapons and the teammates you play with most. Filter it by
+mode (5v5, Wingman, Rush), map and period. Click a result, a recent match or a point on the chart to open
+that match, or a map to open it in **Maps**.
+
+## Themes
+
+**Settings → Theme** recolors the whole app: DemoLab's own themes, team colors (Vitality, Team Spirit,
+NAVI, FaZe, G2, MOUZ, Falcons, Liquid, Astralis, Cloud9, Eternal Fire) and maps (Dust II, Mirage,
+Inferno, Nuke, Ancient, Anubis, Overpass, Vertigo, Train, Office), which also fade the map's radar into
+the background. **Your own** builds a theme from a background, an accent and a highlight color, with an
+optional map behind it. Themes only use colors, no team logos.
 
 ## Maps
 
@@ -57,7 +72,7 @@ than on 1920 × 1080. **Settings → Display** can set the size by hand.
 ## Making clips
 
 1. In CS2, download your matches from **Watch → Your Matches** (or let the **Downloads** tab do it,
-   see below). They show up in ClipMaker automatically.
+   see below). They show up in DemoLab automatically.
 2. **Close CS2.** Recording needs its own CS2 session started through HLAE.
 3. Open a match in **Matches** and go to its **Highlights & clips** tab. The 2★-and-up highlights are
    pre-selected, and you can tick or untick any.
@@ -105,17 +120,17 @@ Each match opens on its scoreboard and has five tabs:
   don't show in a single match.
 - **Highlights & clips**: the clips to record (see above).
 
-To give a match a name in ClipMaker, double-click it in the list or click the pencil next to its
+To give a match a name in DemoLab, double-click it in the list or click the pencil next to its
 title. The file keeps its own name.
 
 ### Each demo is read only once
 
 Demos are recognized by their content (size plus a hash of the first and last 256 KB), not by their
-file name. Renaming, moving or copying a demo, or a changed file date, never makes ClipMaker read it
-again. The results are stored in `%APPDATA%\cs2-clipmaker\demo-data` along with custom names and demos
+file name. Renaming, moving or copying a demo, or a changed file date, never makes DemoLab read it
+again. The results are stored in `%APPDATA%\cs2-demolab\demo-data` along with custom names and demos
 that couldn't be read. The stored data is raw facts (kills, damage, shots, grenades with positions), and
 the stats are computed from it when shown, so a new stat or a formula change doesn't require reading
-the demos again. Demos are re-read only when a ClipMaker update changes what is extracted from them.
+the demos again. Demos are re-read only when a DemoLab update changes what is extracted from them.
 
 The radar images come from CS2's own files and are bundled in `src/renderer/radar`. After Valve changes
 a map, regenerate them with `node scripts/extract-radars.js <Source2Viewer-CLI.exe> <...gamecsgo>`
@@ -124,18 +139,18 @@ a map, regenerate them with `node scripts/extract-radars.js <Source2Viewer-CLI.e
 
 ## How recording works
 
-- ClipMaker starts CS2 in a window through HLAE with `-insecure` (no VAC servers) and `-afxFixNetCon`
+- DemoLab starts CS2 in a window through HLAE with `-insecure` (no VAC servers) and `-afxFixNetCon`
   (so CS2's console port works on Windows), and sends commands over that port. CS2 never needs focus.
 - HLAE's `mirv_streams` records frames straight from the game engine at a fixed frame rate (60 fps by
   default) and encodes them with ffmpeg. `mirv_cmd` starts and stops each recording on the exact demo
   tick.
 - CS2 is **always closed** when the recording ends. Never use an HLAE/`-insecure` CS2 session to join
   matches.
-- HLAE has to match the installed CS2 version. ClipMaker checks for new HLAE releases at startup and
+- HLAE has to match the installed CS2 version. DemoLab checks for new HLAE releases at startup and
   every 6 hours, and shows a notice when one is available. After a CS2 update, install it from
   **Settings → Recording**.
 - Resolution and frame rate are set in **Settings → Recording**. HLAE is looked for in
-  `%APPDATA%\cs2-clipmaker\hlae`, then in the project's `tools\hlae`. **Browse** points to another
+  `%APPDATA%\cs2-demolab\hlae`, then in the project's `tools\hlae`. **Browse** points to another
   folder.
 
 ## Automatic match downloads
@@ -145,7 +160,7 @@ folder, under CS2's own file names:
 
 1. **Steam Community match history.** These are your private Personal Game Data pages
    (`steamcommunity.com/my/gcpd/730/?tab=matchhistoryscrimmage`). This is the **only** place that
-   lists **Scrimmage** and **Rush** replays. ClipMaker reads the Scrimmage, Rush, Premier, Competitive
+   lists **Scrimmage** and **Rush** replays. DemoLab reads the Scrimmage, Rush, Premier, Competitive
    and Wingman tabs. Click **Sign in to Steam** once: it opens Steam's own login page in a separate
    window, so the app never sees your password. The sign-in is remembered, and **Sign out** clears it.
 2. **Valve's recent-match list.** This goes through the Steam client already running on your PC,
@@ -170,13 +185,13 @@ folder, under CS2's own file names:
 | The first clip fails right after CS2 opens | Raise **CS2 startup wait** in **Settings → Advanced timing & commands** |
 | "HLAE did not produce a video file" | Check the ffmpeg path in **Settings → Output** |
 | Clips cut long pauses during clutches | Raise **Cut gaps longer than** in **Settings → Highlights** (e.g. 60s) |
-| Steam Community sign-in doesn't stick | Look at `%APPDATA%\cs2-clipmaker\clipmaker.log` |
+| Steam Community sign-in doesn't stick | Look at `%APPDATA%\cs2-demolab\demolab.log` |
 
 Demos from game modes that are newer than the demo parser may not be readable.
 
 ## Demo parser (Rush support)
 
-The official `@laihoe/demoparser2` (0.42.0) can't read Rush (`rush_001`) demos. ClipMaker ships its own
+The official `@laihoe/demoparser2` (0.42.0) can't read Rush (`rush_001`) demos. DemoLab ships its own
 build in `vendor/demoparser2/`: upstream master `45ca85a` plus `rush-fixes.patch`. The patch makes two
 changes:
 
@@ -187,7 +202,7 @@ changes:
 
 On all 53 non-Rush demos tested, the output is byte-for-byte identical to the npm package, and all 10
 Rush demos parse. `src/lib/parser.js` loads the vendored build and falls back to the npm package if it
-is missing or can't be loaded (for example without the Visual C++ runtime); set `CLIPMAKER_PARSER=npm`
+is missing or can't be loaded (for example without the Visual C++ runtime); set `DEMOLAB_PARSER=npm`
 to force the npm package.
 
 To rebuild it: install Rust, clone LaihoE/demoparser, apply the patch, make
