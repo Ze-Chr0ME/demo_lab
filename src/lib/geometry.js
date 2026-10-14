@@ -1,7 +1,7 @@
 // Map collision geometry for line-of-sight checks: can a player at A see a point B, or is a wall in
 // the way? The meshes come from the awpy-data project (github.com/pnxenopoulos/awpy-data), which
 // exports each map's world_physics from CS2 and decimates it; one geometry.zip holds every map.
-// ClipMaker downloads that zip once into <userData>/geometry/ (see ensureGeometry) and checks it
+// DemoLab downloads that zip once into <userData>/geometry/ (see ensureGeometry) and checks it
 // against the release manifest's sha256.
 //
 // .mesh (AWMH, little-endian): "AWMH", u32 version 1, u32 vertex count, u32 triangle count,
@@ -163,7 +163,7 @@ function unzip(buf) {
 async function ensureGeometry(dir, fetch, log = () => {}) {
   const done = path.join(dir, 'manifest.json');
   if (fs.existsSync(done)) return dir;
-  const rel = await (await fetch(RELEASES, { headers: { 'User-Agent': 'cs2-clipmaker', Accept: 'application/vnd.github+json' } })).json();
+  const rel = await (await fetch(RELEASES, { headers: { 'User-Agent': 'cs2-demolab', Accept: 'application/vnd.github+json' } })).json();
   const asset = n => rel.assets?.find(a => a.name === n)?.browser_download_url;
   if (!asset('geometry.zip') || !asset('manifest.json')) throw new Error('The map geometry release has no geometry.zip');
   const manifest = await (await fetch(asset('manifest.json'))).json();

@@ -9,7 +9,9 @@
 //   <id>.json         core data: rounds, rosters, kills (highlights, lists, duplicate detection)
 //   <id>.events.json  damage, shots, flashes, grenades, bomb (scoreboard, heatmap)
 //   <id>.track.bin    2D replay: sampled player positions, grenade flights, shots, bomb events; built on first use
+//   <id>.rounds.json  money, loadouts and callouts per round (economy, round strip, positions)
 //   <id>.integrity.json  aim and visibility facts for the Integrity tab; built on first use
+//   <id>.aim.json     aim mechanics (Aim tab), built in the same pass as the integrity facts
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -98,8 +100,9 @@ class DemoStore {
     return data;
   }
 
-  write(id, { core, events }) {
+  write(id, { core, events, rounds }) {
     fs.writeFileSync(path.join(this.dir, `${id}.events.json`), JSON.stringify(events));
+    if (rounds) fs.writeFileSync(this.roundsFile(id), JSON.stringify(rounds));
     fs.writeFileSync(path.join(this.dir, `${id}.json`), JSON.stringify(core));
     this.core.set(id, core);
     this.events.delete(id);
@@ -131,6 +134,13 @@ class DemoStore {
 
   trackFile(id) { return path.join(this.dir, `${id}.track.bin`); }
   integrityFile(id) { return path.join(this.dir, `${id}.integrity.json`); }
+  roundsFile(id) { return path.join(this.dir, `${id}.rounds.json`); }
+  aimFile(id) { return path.join(this.dir, `${id}.aim.json`); }
+
+  // A JSON file of one of the extra passes, or null when missing or written by an older version.
+  readExtra(file, version) {
+    try { const d = JSON.parse(fs.readFileSync(file, 'utf8')); return d.version === version ? d : null; } catch { return null; }
+  }
 }
 
 module.exports = { DemoStore, fingerprint };

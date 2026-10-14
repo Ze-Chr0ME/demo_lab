@@ -66,7 +66,7 @@ const state = {
 };
 
 // ---------- Navigation ----------
-document.querySelectorAll('.nav-btn').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
+document.querySelectorAll('.nav-btn, .brand').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
 function showView(v) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === `view-${v}`));
@@ -102,6 +102,57 @@ function applyScale() {
 let scaleTimer = 0;
 window.addEventListener('resize', () => { clearTimeout(scaleTimer); scaleTimer = setTimeout(applyScale, 150); });
 
+// ---------- Themes ----------
+// Colors only, no logos. base: background (all surfaces and lines are derived from it in styles.css),
+// accent: buttons, active tab, rating and charts; data: selection and data highlights when they should
+// differ from the accent; art: a radar image faded into the top corner.
+const THEMES = [
+  { id: 'demolab', group: 'DemoLab', name: 'DemoLab', base: '#0b0f13', accent: '#2fd8a4' },
+  { id: 'classic', group: 'DemoLab', name: 'Classic', base: '#0a0e16', accent: '#ff9d2e', data: '#4f8dff' },
+  { id: 'midnight', group: 'DemoLab', name: 'Midnight', base: '#0c0b16', accent: '#9d8bff' },
+  { id: 'graphite', group: 'DemoLab', name: 'Graphite', base: '#0e0f11', accent: '#d9dee5' },
+  { id: 'vitality', group: 'Teams', name: 'Vitality', base: '#0b0a05', accent: '#ffe500' },
+  { id: 'spirit', group: 'Teams', name: 'Team Spirit', base: '#0a0a0b', accent: '#f2f2f2', data: '#a7b0bd' },
+  { id: 'navi', group: 'Teams', name: 'NAVI', base: '#080b11', accent: '#fff200' },
+  { id: 'faze', group: 'Teams', name: 'FaZe Clan', base: '#0e0a0a', accent: '#e8392c' },
+  { id: 'g2', group: 'Teams', name: 'G2 Esports', base: '#0b0b0c', accent: '#ff2b2b', data: '#ececec' },
+  { id: 'mouz', group: 'Teams', name: 'MOUZ', base: '#0f0a0c', accent: '#ff3352' },
+  { id: 'falcons', group: 'Teams', name: 'Team Falcons', base: '#07100b', accent: '#00c46a' },
+  { id: 'liquid', group: 'Teams', name: 'Team Liquid', base: '#08101c', accent: '#3fa0ff' },
+  { id: 'astralis', group: 'Teams', name: 'Astralis', base: '#0a0d18', accent: '#ff2d3c' },
+  { id: 'cloud9', group: 'Teams', name: 'Cloud9', base: '#071017', accent: '#19b5ff' },
+  { id: 'eternalfire', group: 'Teams', name: 'Eternal Fire', base: '#100b07', accent: '#ff7a1a' },
+  { id: 'dust2', group: 'Maps', name: 'Dust II', base: '#120f0a', accent: '#e6b872', art: 'de_dust2' },
+  { id: 'mirage', group: 'Maps', name: 'Mirage', base: '#110e0b', accent: '#eda35c', art: 'de_mirage' },
+  { id: 'inferno', group: 'Maps', name: 'Inferno', base: '#130c0a', accent: '#ec7546', art: 'de_inferno' },
+  { id: 'nuke', group: 'Maps', name: 'Nuke', base: '#0a0f15', accent: '#ffd23f', data: '#5aa9e6', art: 'de_nuke' },
+  { id: 'ancient', group: 'Maps', name: 'Ancient', base: '#09100c', accent: '#8fcf6a', art: 'de_ancient' },
+  { id: 'anubis', group: 'Maps', name: 'Anubis', base: '#0c0f10', accent: '#e9c25a', data: '#3cc3bd', art: 'de_anubis' },
+  { id: 'overpass', group: 'Maps', name: 'Overpass', base: '#0a0f10', accent: '#6cc4cc', art: 'de_overpass' },
+  { id: 'vertigo', group: 'Maps', name: 'Vertigo', base: '#0a0e14', accent: '#8ec5ff', art: 'de_vertigo' },
+  { id: 'train', group: 'Maps', name: 'Train', base: '#0d0e10', accent: '#e2683b', data: '#b8c0cc', art: 'de_train' },
+  { id: 'office', group: 'Maps', name: 'Office', base: '#0b0e12', accent: '#bfe3ff', art: 'cs_office' },
+];
+const CUSTOM_THEME = { id: 'custom', group: 'Custom', name: 'Custom', base: '#0b0f13', accent: '#2fd8a4', data: '', art: '' };
+const themeById = id => (id === 'custom' ? { ...CUSTOM_THEME, ...state.settings?.customTheme, id: 'custom', name: 'Custom' } : THEMES.find(t => t.id === id) || THEMES[0]);
+// Text on the accent color: dark on light accents (Vitality yellow), white on dark ones (FaZe red).
+function inkFor(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.3 ? '#0a0a0a' : '#ffffff';
+}
+function applyTheme(t) {
+  const st = document.documentElement.style;
+  st.setProperty('--base', t.base);
+  st.setProperty('--accent', t.accent);
+  st.setProperty('--accent-ink', inkFor(t.accent));
+  if (t.data) st.setProperty('--blue', t.data); else st.removeProperty('--blue');
+  if (t.art) st.setProperty('--art', `url("radar/${t.art}.png")`); else st.removeProperty('--art');
+  try { localStorage.setItem('theme', JSON.stringify(t)); } catch {}
+}
+// The last theme is cached so the window opens in it before the settings have loaded.
+try { const t = JSON.parse(localStorage.getItem('theme')); if (t?.base) applyTheme(t); } catch {}
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
 // ---------- Status ----------
 function renderStatus() {
   const e = state.env;
@@ -110,21 +161,23 @@ function renderStatus() {
     ['ffmpeg', e.ffmpeg ? 'ok' : 'bad', e.ffmpeg ? (e.encoder || '').replace('h264_', '').replace('lib', '') : 'Missing'],
     ['Recorder', e.hlae?.installed ? 'ok' : 'bad', e.hlae?.installed ? `HLAE ${e.hlae.version}` : 'HLAE missing'],
   ];
-  $('#status').replaceChildren(...rows.map(([k, cls, v]) => h('div', { class: 'status-row' }, h('span', { class: `dot ${cls}` }), k, h('b', { title: v }, v))));
+  $('#status').replaceChildren(...rows.map(([k, cls, v]) => h('div', { class: 'status-row', title: `${k}: ${v}` }, h('span', { class: `dot ${cls}` }), h('span', { class: 'lbl' }, k))));
   renderMeCard();
 }
 
-// The signed-in player at the top of the sidebar.
+// The signed-in player at the right of the top bar.
 function renderMeCard() {
   const e = state.env;
   const name = state.profile?.name || e?.steamUser?.name || 'Unknown player';
   const n = state.profile?.matches.length;
-  $('#meCard').replaceChildren(
-    h('div', { class: 'avatar' }, (name.replace(/[^\p{L}\p{N}]/gu, '')[0] || '?').toUpperCase()),
+  const el = $('#meCard');
+  el.title = e?.mySteamId ? `SteamID ${e.mySteamId}` : 'No Steam account found';
+  el.onclick = () => showView(e?.mySteamId ? 'overview' : 'settings');
+  el.replaceChildren(
+    h('div', { class: 'avatar' }, initial(name)),
     h('div', { class: 'me-text' },
-      h('div', { class: 'me-name', title: name }, name),
-      h('div', { class: 'me-sub' }, e?.mySteamId ? (n != null ? `${n} match${n === 1 ? '' : 'es'} analyzed` : 'Steam account') : 'Set your SteamID in Settings')),
-    h('span', { class: `dot ${e?.mySteamId ? 'ok' : 'bad'}`, title: e?.mySteamId ? `SteamID ${e.mySteamId}` : 'No Steam account found' }),
+      h('div', { class: 'me-name' }, name),
+      h('div', { class: `me-sub ${e?.mySteamId ? '' : 'bad'}` }, e?.mySteamId ? (n != null ? `${n} match${n === 1 ? '' : 'es'} analyzed` : 'Steam account') : 'Set your SteamID in Settings')),
   );
 }
 
@@ -316,7 +369,7 @@ function renderDetail() {
         h('div', { class: 'hero-kicker' }, mapName(a.map), a.playerFound ? h('span', { class: `result-pill r-${res}` }, res === 'w' ? 'Win' : res === 'l' ? 'Loss' : 'Draw') : null),
         h('div', { class: 'title-row' },
           h('h1', {}, d.customName || mapName(a.map)),
-          h('button', { class: 'icon-btn rename', title: 'Rename this match (only in ClipMaker, the file keeps its name)', onclick: e => editName(d, e.currentTarget.previousSibling) }, icon(PENCIL))),
+          h('button', { class: 'icon-btn rename', title: 'Rename this match (only in DemoLab, the file keeps its name)', onclick: e => editName(d, e.currentTarget.previousSibling) }, icon(PENCIL))),
         h('div', { class: 'sub' }, `${fmtDate(d.date)} · ${a.rounds} rounds · ${fmtSize(d.size)}`),
       ),
       a.playerFound ? h('div', { class: 'stat-row' },
@@ -342,15 +395,17 @@ function renderDetail() {
     : tab === 'duels' ? duelsView()
       : tab === 'heatmap' ? heatmapView()
         : tab === 'radar' ? radarView()
+          : tab === 'economy' ? economyView()
+          : tab === 'aim' ? aimView()
           : tab === 'integrity' ? integrityView()
             : highlightsView(a);
   el.replaceChildren(
-    h('div', { class: 'detail-scroll' }, hero, tabs, ...[body].flat()),
+    h('div', { class: 'detail-scroll' }, hero, roundStrip(), tabs, ...[body].flat()),
     ...(tab === 'highlights' ? [actionBar()] : []),
   );
 }
 
-const MATCH_TABS = [['scoreboard', 'Scoreboard'], ['duels', 'Duels'], ['heatmap', 'Heatmap'], ['radar', '2D Replay'], ['integrity', 'Integrity'], ['highlights', 'Highlights & clips']];
+const MATCH_TABS = [['scoreboard', 'Scoreboard'], ['duels', 'Duels'], ['economy', 'Economy'], ['aim', 'Aim'], ['heatmap', 'Heatmap'], ['radar', '2D Replay'], ['integrity', 'Integrity'], ['highlights', 'Highlights & clips']];
 state.tab = 'scoreboard';
 
 function highlightsView(a) {
@@ -1881,35 +1936,96 @@ function card(title, body, { span = 1, extra = null, cls = '' } = {}) {
     title ? h('div', { class: 'dcard-head' }, h('h4', {}, title), h('span', { class: 'spacer' }), extra) : null,
     ...[body].flat());
 }
-// Circular gauge: frac of the circle filled, the value in the middle.
-function ring(frac, value, cls, sub) {
-  const r = 54, c = 2 * Math.PI * r;
-  return h('div', { class: `ring ${cls}` },
-    h('div', { class: 'ring-svg', html: `<svg viewBox="0 0 128 128"><circle cx="64" cy="64" r="${r}" class="ring-bg"/><circle cx="64" cy="64" r="${r}" class="ring-fg" stroke-dasharray="${(c * clamp(frac, 0, 1)).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 64 64)"/></svg>` }),
-    h('div', { class: 'ring-v' }, value, sub ? h('div', { class: 'ring-sub' }, sub) : null));
-}
-const pie = (frac, cls = '') => h('div', { class: `pie ${cls}`, style: { '--p': `${(clamp(frac || 0, 0, 1) * 100).toFixed(1)}%` } });
 const qualityClass = (v, good, bad) => (v >= good ? 'good' : v < bad ? 'bad' : 'mid');
-function trend(now, before, digits = 2, suffix = '') {
-  if (before == null || now == null || !Number.isFinite(before)) return null;
-  const d = now - before;
-  const cls = Math.abs(d) < 10 ** -digits ? 'flat' : d > 0 ? 'up' : 'down';
-  return h('span', { class: `trend ${cls}`, title: 'Last 10 matches compared to the whole selection' }, cls === 'up' ? '▲ ' : cls === 'down' ? '▼ ' : '', `last 10: ${now.toFixed(digits)}${suffix}`);
-}
 function kv(rows) {
   return h('div', { class: 'kv' }, ...rows.map(([k, v, cls]) => h('div', { class: 'kv-row' }, h('span', {}, k), h('b', { class: cls || '' }, v))));
 }
 function barList(rows, { empty = 'Nothing yet' } = {}) {
   if (!rows.length) return h('div', { class: 'muted-note' }, empty);
   return h('div', { class: 'bars' }, ...rows.map(r => h('div', { class: `bar-row ${r.onclick ? 'clickable' : ''}`, onclick: r.onclick, title: r.title },
-    h('div', { class: 'bar-top' }, r.lead || null, h('span', { class: 'bar-label' }, r.label), h('span', { class: 'spacer' }), h('b', { class: r.cls || '' }, r.value)),
+    h('div', { class: 'bar-top' }, r.lead || null, h('span', { class: 'bar-label' }, r.label), h('span', { class: 'spacer' }), r.note ? h('span', { class: 'bar-note' }, r.note) : null, h('b', { class: r.cls || '' }, r.value)),
     h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${r.fillCls || ''}`, style: { width: `${clamp(r.frac, 0, 1) * 100}%` } })))));
 }
-const ICON = {
-  trophy: '<path d="M7 4h10v4a5 5 0 0 1-10 0zM7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3M12 13v4M8 20h8M9.5 17h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
-  head: '<circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" stroke-width="1.7"/>',
-  burst: '<path d="M12 3l2 5 5-2-2 5 4 3-5 1 1 5-5-3-4 4v-5l-5-1 4-3-2-5 5 2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
-};
+const initial = name => (name.replace(/[^\p{L}\p{N}]/gu, '')[0] || '?').toUpperCase();
+const big = (value, unit, note) => h('div', { class: 'big-line' }, h('span', { class: 'big' }, value, unit ? h('small', {}, unit) : null), note ? h('span', { class: 'big-note' }, note) : null);
+
+// The stat tiles: one value per match (null when it doesn't apply, e.g. no opening duel) for the
+// histogram, and the value of the whole selection (weighted by rounds, from aggregate()).
+const per = (a, b) => (b ? a / b : null);
+const TILES = [
+  { k: 'K/D ratio', d: 2, m: m => (m.deaths ? m.kills / m.deaths : m.kills), t: t => t.kd },
+  { k: 'ADR', d: 1, m: m => per(m.damage, m.rounds), t: t => t.adr },
+  { k: 'KAST', u: '%', d: 1, m: m => per(100 * m.kastRounds, m.rounds), t: t => per(100 * t.kastRounds, t.rounds) },
+  { k: 'Headshot %', u: '%', d: 1, m: m => per(100 * m.hsKills, m.kills), t: t => per(100 * t.hs, t.kills) },
+  { k: 'Kills / round', d: 2, m: m => per(m.kills, m.rounds), t: t => per(t.kills, t.rounds) },
+  { k: 'Deaths / round', d: 2, low: true, m: m => per(m.deaths, m.rounds), t: t => per(t.deaths, t.rounds) },
+  { k: 'Opening duels won', u: '%', d: 0, m: m => per(100 * m.firstKills, m.firstKills + m.firstDeaths), t: t => per(100 * t.fk, t.fk + t.fd) },
+  { k: 'Multi-kill rounds', u: '%', d: 1, m: m => per(100 * Object.values(m.multi).reduce((a, b) => a + b, 0), m.rounds), t: t => per(100 * Object.values(t.multi).reduce((a, b) => a + b, 0), t.rounds) },
+  { k: 'Assists / round', d: 2, m: m => per(m.assists, m.rounds), t: t => per(t.assists, t.rounds) },
+  { k: 'Trade kills / round', d: 2, m: m => per(m.tradeKills, m.rounds), t: t => per(t.trades, t.rounds) },
+  { k: 'Utility damage / round', d: 1, m: m => per(m.utilityDamage, m.rounds), t: t => per(t.utility, t.rounds) },
+  { k: 'Enemies flashed / round', d: 2, m: m => per(m.enemiesFlashed, m.rounds), t: t => per(t.flashed, t.rounds) },
+];
+
+// Distribution of a stat over the selected matches, with the selection's average and the last 10 matches
+// as dashed lines.
+function histogram(vals, avg, recent) {
+  const W = 120, H = 38, n = 16;
+  const s = [...vals].sort((a, b) => a - b);
+  const q = f => s[Math.min(s.length - 1, Math.floor(f * s.length))];
+  let lo = q(0.03), hi = q(0.97);
+  if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
+  const bins = new Array(n).fill(0);
+  for (const v of vals) bins[clamp(Math.floor((v - lo) / (hi - lo) * n), 0, n - 1)]++;
+  const max = Math.max(1, ...bins);
+  const x = v => (clamp((v - lo) / (hi - lo), 0, 1) * W).toFixed(1);
+  const bw = W / n, avgBin = clamp(Math.floor((avg - lo) / (hi - lo) * n), 0, n - 1);
+  const bars = bins.map((c, i) => c ? `<rect x="${(i * bw + 0.8).toFixed(1)}" width="${(bw - 1.6).toFixed(1)}" y="${(H - 2 - (H - 6) * c / max).toFixed(1)}" height="${((H - 6) * c / max).toFixed(1)}" class="${i === avgBin ? 'on' : ''}"/>` : '').join('');
+  const mark = (v, cls) => (v == null ? '' : `<line x1="${x(v)}" x2="${x(v)}" y1="0" y2="${H}" class="${cls}"/>`);
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="histo">${bars}<line x1="0" x2="${W}" y1="${H - 1}" y2="${H - 1}" class="base"/>${mark(avg, 'avg')}${mark(recent, 'rec')}</svg>`;
+}
+
+function statTile(def, list, t, last10) {
+  const vals = list.map(def.m).filter(v => v != null && Number.isFinite(v));
+  const avg = def.t(t), rec = list.length > 10 ? def.t(last10) : null;
+  const fmt = v => (v == null ? '—' : v.toFixed(def.d));
+  const better = rec == null || avg == null || Math.abs(rec - avg) < 10 ** -def.d ? null : (rec > avg) !== !!def.low;
+  return h('div', { class: 'tile', title: `${def.k}: distribution over ${vals.length} match${vals.length === 1 ? '' : 'es'}\nWhite line: the whole selection (${fmt(avg)}${def.u || ''})${rec != null ? `\nSolid line: your last 10 matches (${fmt(rec)}${def.u || ''})` : ''}` },
+    h('div', { class: 'tile-k' }, def.k),
+    h('div', { class: 'tile-row' },
+      h('div', { class: 'tile-v' }, fmt(avg), def.u && avg != null ? h('small', {}, def.u) : null),
+      h('div', { class: `tile-sub ${better == null ? '' : better ? 'up' : 'down'}` }, rec == null ? '' : [better == null ? null : h('b', {}, rec > avg ? '▲ ' : '▼ '), `last 10: ${fmt(rec)}${def.u || ''}`])),
+    vals.length >= 3 ? h('div', { class: 'tile-chart', html: histogram(vals, avg ?? 0, rec) }) : null);
+}
+
+const RATING_LEVELS = [[1.2, 'Excellent'], [1.08, 'Good'], [0.95, 'Average'], [0.85, 'Below average'], [-Infinity, 'Poor']];
+// Left panel: the rating as the headline number, with what it is made of.
+function scorePanel(t, last10, list) {
+  const r = t.rating;
+  const level = r == null ? null : RATING_LEVELS.find(([min]) => r >= min)[1];
+  const kast = per(100 * t.kastRounds, t.rounds) || 0, hs = per(100 * t.hs, t.kills) || 0, wr = pct(t.won, t.played);
+  const row = (label, value, frac, cls, title) => h('div', { class: 'sp-row', title },
+    h('div', { class: 'sp-row-top' }, h('span', { class: `sp-dot ${cls}` }), label, h('span', { class: 'spacer' }), h('b', { class: cls }, value)),
+    h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${cls}`, style: { width: `${clamp(frac, 0, 1) * 100}%` } })));
+  const last = list.slice(0, 10);
+  return h('aside', { class: 'score-panel' },
+    h('div', { class: 'sp-k', title: 'Approximation of HLTV Rating 2.0 (HLTV does not publish its formula; usually within ±0.02)' }, 'Rating ≈ HLTV 2.0'),
+    h('div', { class: 'sp-v' }, r == null ? '—' : r.toFixed(2)),
+    level ? h('div', { class: 'sp-level' }, level) : null,
+    h('div', { class: 'bar-track sp-bar' }, h('div', { class: 'bar-fill', style: { width: `${clamp((r ?? 0) / 2, 0, 1) * 100}%` } })),
+    list.length > 10 && last10.rating != null && r != null ? h('div', { class: `sp-trend ${last10.rating > r + 0.005 ? 'up' : last10.rating < r - 0.005 ? 'down' : ''}` },
+      `${last10.rating > r + 0.005 ? '▲' : last10.rating < r - 0.005 ? '▼' : '='} ${last10.rating.toFixed(2)} over the last 10 matches`) : null,
+    h('div', { class: 'sp-label' }, 'Breakdown'),
+    row('Win rate', `${wr}%`, wr / 100, qualityClass(wr, 52, 45), `${t.won} won · ${t.lost} lost${t.tied ? ` · ${t.tied} tied` : ''}`),
+    row('K/D', t.kd.toFixed(2), t.kd / 2, qualityClass(t.kd, 1.05, 0.95), `${fmtNum(t.kills)} kills · ${fmtNum(t.deaths)} deaths`),
+    row('ADR', t.adr.toFixed(0), t.adr / 120, qualityClass(t.adr, 80, 65), `${fmtNum(t.damage)} damage in ${fmtNum(t.rounds)} rounds`),
+    row('KAST', `${kast.toFixed(0)}%`, kast / 100, qualityClass(kast, 72, 64), 'Rounds with a kill, assist, survival or trade'),
+    row('Headshot %', `${hs.toFixed(0)}%`, hs / 100, qualityClass(hs, 45, 33), `${fmtNum(t.hs)} headshot kills`),
+    h('div', { class: 'sp-label' }, 'Form'),
+    h('div', { class: 'form' }, ...last.map(m => h('button', { class: `form-m r-${m.result}`, onclick: () => openMatch(m),
+      title: `${mapName(m.map)} · ${m.score[0]}:${m.score[1]} · ${fmtDate(m.date)}${m.rating != null ? `\nRating ${m.rating.toFixed(2)}` : ''}` }, m.result))),
+  );
+}
 
 function renderOverview() {
   const view = $('#view-overview');
@@ -1936,6 +2052,7 @@ function renderOverview() {
   const rerender = () => renderOverview();
 
   const head = h('div', { class: 'dash-head' },
+    h('div', { class: 'avatar lg' }, initial(p.name || '?')),
     h('div', { class: 'dash-title' },
       h('h2', {}, p.name || 'Your stats'),
       h('div', { class: 'sub' }, `${t.played} match${t.played === 1 ? '' : 'es'} · ${fmtNum(t.rounds)} rounds`,
@@ -1948,84 +2065,57 @@ function renderOverview() {
   );
   if (!list.length) return page(head, h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.')));
 
-  const kdCls = qualityClass(t.kd, 1.05, 0.95);
-  const rtCls = t.rating == null ? '' : qualityClass(t.rating, 1.05, 0.95);
-  const cards = [
-    card('K/D', ring(t.kd / 2, t.kd.toFixed(2), kdCls, list.length > 10 ? trend(last10.kd, t.kd) : null), { cls: 'center' }),
-    card('Rating', ring((t.rating ?? 0) / 2, t.rating == null ? '—' : t.rating.toFixed(2), rtCls, list.length > 10 ? trend(last10.rating, t.rating) : null),
-      { cls: 'center', extra: h('span', { class: 'hint', title: 'Approximation of HLTV Rating 2.0 (HLTV does not publish its formula; usually within ±0.02)' }, '≈ HLTV 2.0') }),
-    clutchCard(t),
-    recentCard(list),
-    overallCard(t),
-    entryCard(t),
-    mapsCard(t),
-    trendCard(list),
-    weaponCard('Most kills', Object.entries(t.weapons).sort((a, b) => b[1][0] - a[1][0]).slice(0, 6), ([, [k]], max) => [fmtNum(k), k / max]),
-    weaponCard('Headshot %', Object.entries(t.weapons).filter(([, [k]]) => k >= Math.max(10, t.kills * 0.02)).sort((a, b) => b[1][1] / b[1][0] - a[1][1] / a[1][0]).slice(0, 6),
-      ([, [k, hs]]) => [`${pct(hs, k)}%`, hs / k], 'Weapons with at least 10 kills'),
-    multiCard(t),
-    sidesCard(t),
-    matesCard(t),
-  ];
-  page(head, h('div', { class: 'dash' }, ...cards));
+  const section = (title, extra, ...cards) => h('section', { class: 'ov-sec' }, h('div', { class: 'sec' }, h('h3', {}, title), extra), h('div', { class: 'dash' }, ...cards));
+  page(head,
+    h('div', { class: 'ov-top' },
+      scorePanel(t, last10, list),
+      h('div', { class: 'ov-stats' },
+        h('div', { class: 'sec' }, h('h3', {}, 'Stats overview'),
+          h('span', { class: 'hint legend-inline' }, h('i', { class: 'lg-avg' }), 'selection', list.length > 10 ? [h('i', { class: 'lg-rec' }), 'last 10'] : null)),
+        h('div', { class: 'tiles' }, ...TILES.map(d => statTile(d, list, t, last10))))),
+    section('Recent form', null, trendCard(list), recentCard(list)),
+    section('Rounds & duels', null, clutchCard(t), entryCard(t), sidesCard(t), multiCard(t)),
+    section('Maps & weapons', null, mapsCard(t),
+      weaponCard('Most kills', Object.entries(t.weapons).sort((a, b) => b[1][0] - a[1][0]).slice(0, 6), ([, [k]], max) => [fmtNum(k), k / max]),
+      weaponCard('Headshot %', Object.entries(t.weapons).filter(([, [k]]) => k >= Math.max(10, t.kills * 0.02)).sort((a, b) => b[1][1] / b[1][0] - a[1][1] / a[1][0]).slice(0, 6),
+        ([, [k, hs]]) => [`${pct(hs, k)}%`, hs / k], 'Weapons with at least 10 kills')),
+    section('Aim', null, aimCard(list)),
+    section('Teammates', null, matesCard(t)),
+  );
 }
 
 function clutchCard(t) {
-  return card('Clutch success', [
-    h('div', { class: 'big-line' }, h('span', { class: 'big-pre' }, '1vX'), h('span', { class: 'big' }, `${pct(t.clutchWon, t.clutchPlayed)}%`),
-      h('span', { class: 'big-note' }, `${t.clutchWon} won of ${t.clutchPlayed}`)),
-    h('div', { class: 'clutch-grid' }, ...[1, 2, 3, 4, 5].map(n => {
+  return card('Clutches', [
+    big(`${pct(t.clutchWon, t.clutchPlayed)}`, '%', `${t.clutchWon} won of ${t.clutchPlayed}`),
+    barList([1, 2, 3, 4, 5].map(n => {
       const [w, p] = t.clutch[n];
-      return h('div', { class: 'clutch-col', title: `1v${n}: won ${w} of ${p}` },
-        h('div', { class: 'cl-k' }, `1v${n}`), pie(p ? w / p : 0), h('div', { class: 'cl-v' }, `${pct(w, p)}%`), h('div', { class: 'cl-n' }, `W ${w} · L ${p - w}`));
+      return { label: `1v${n}`, note: `${w}/${p}`, value: p ? `${pct(w, p)}%` : '—', frac: p ? w / p : 0, title: `1v${n}: won ${w} of ${p}` };
     })),
   ]);
 }
 
 function recentCard(list) {
-  const last = list.slice(0, 10);
-  const r = aggregate(last);
-  return card('Recent matches', [
-    h('div', { class: 'recent' }, ...last.map(m => h('button', { class: `recent-m r-${m.result}`, title: `${mapName(m.map)} · ${m.score[0]}:${m.score[1]} · ${fmtDate(m.date)}\nK/D ${m.kills}/${m.deaths}${m.rating != null ? ` · rating ${m.rating.toFixed(2)}` : ''}`, onclick: () => openMatch(m) },
-      mapThumb(m.map), h('span', { class: 'rdot' }), h('span', { class: 'rscore' }, `${m.score[0]}:${m.score[1]}`)))),
-    kv([
-      ['Last ' + last.length, `${r.won}W · ${r.lost}L${r.tied ? ` · ${r.tied}T` : ''}`],
-      ['Rating', r.rating == null ? '—' : r.rating.toFixed(2), r.rating == null ? '' : ratingClass(r.rating)],
-      ['K/D · ADR', `${r.kd.toFixed(2)} · ${r.adr.toFixed(0)}`],
-    ]),
-  ], { extra: h('button', { class: 'link-btn', onclick: () => showView('matches') }, 'All matches →') });
-}
-
-function overallCard(t) {
-  const big = (ic, k, v, cls = '') => h('div', { class: 'big-stat' }, h('span', { class: 'big-ic' }, icon(ic)), h('div', {}, h('div', { class: 'k' }, k), h('div', { class: `v ${cls}` }, v)));
-  return card(null, [
-    h('div', { class: 'big-stats' },
-      big(ICON.trophy, 'Win rate', `${pct(t.won, t.played)}%`, pct(t.won, t.played) >= 50 ? 'good' : 'bad'),
-      big(ICON.head, 'Headshot %', `${pct(t.hs, t.kills)}%`),
-      big(ICON.burst, 'ADR', t.adr.toFixed(0), qualityClass(t.adr, 80, 65))),
-    h('div', { class: 'kv-cols' },
-      kv([['Played', t.played], ['Won', t.won, 'good'], ['Lost', t.lost, 'bad'], ['Tied', t.tied]]),
-      kv([['Kills', fmtNum(t.kills)], ['Deaths', fmtNum(t.deaths)], ['Assists', fmtNum(t.assists)], ['Headshots', fmtNum(t.hs)]]),
-      kv([['KAST', `${pct(t.kastRounds, t.rounds)}%`], ['Damage', fmtNum(t.damage)], ['Rounds', fmtNum(t.rounds)], ['Kills / round', (t.rounds ? t.kills / t.rounds : 0).toFixed(2)]])),
-  ], { span: 2 });
+  const last = list.slice(0, 8);
+  return card('Last matches', h('div', { class: 'recent' }, ...last.map(m => h('button', { class: `recent-m r-${m.result}`, onclick: () => openMatch(m), title: `${fmtDate(m.date)} · open the scoreboard` },
+    mapThumb(m.map),
+    h('span', { class: 'recent-t' }, h('b', {}, mapName(m.map)), h('small', {}, new Date(m.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))),
+    h('span', { class: `recent-sc score-${m.result === 'W' ? 'w' : m.result === 'L' ? 'l' : 'd'}` }, `${m.score[0]}:${m.score[1]}`),
+    h('span', { class: 'recent-kd' }, `${m.kills}–${m.deaths}`),
+    h('span', { class: `rtg ${ratingClass(m.rating)}` }, m.rating == null ? '—' : m.rating.toFixed(2))))),
+  { extra: h('button', { class: 'link-btn', onclick: () => showView('matches') }, 'All matches →') });
 }
 
 function entryCard(t) {
-  const sides = [['Combined', t.fk, t.fd, t.rounds], ['T side', t.side.T.fk, t.side.T.fd, t.side.T.rounds], ['CT side', t.side.CT.fk, t.side.CT.fd, t.side.CT.rounds]];
+  const row = (label, s, cls) => ({ label, note: `${s.fk}–${s.fd}`, value: `${pct(s.fk, s.fk + s.fd)}%`, frac: (s.fk + s.fd) ? s.fk / (s.fk + s.fd) : 0, fillCls: cls,
+    title: `${s.fk} opening kills, ${s.fd} opening deaths · in the opening duel in ${pct(s.fk + s.fd, s.rounds)}% of ${s.rounds} rounds` });
   return card('Opening duels', [
-    h('div', { class: 'big-line' }, h('span', { class: 'big' }, `${pct(t.fk, t.rounds)}%`), h('span', { class: 'big-note' }, 'of rounds you got the first kill')),
-    h('table', { class: 'entry' },
-      h('thead', {}, h('tr', {}, h('th', {}), ...sides.map(([l], i) => h('th', { class: i === 1 ? 'side-T' : i === 2 ? 'side-CT' : '' }, l)))),
-      h('tbody', {},
-        h('tr', { title: 'Opening duels won: first kills / (first kills + first deaths)' }, h('td', {}, 'Success'),
-          ...sides.map(([, fk, fd], i) => h('td', {}, pie((fk + fd) ? fk / (fk + fd) : 0, ['', 't', 'ct'][i]), h('div', {}, `${pct(fk, fk + fd)}%`)))),
-        h('tr', { title: 'Rounds where you were in the opening duel' }, h('td', {}, 'Attempts'),
-          ...sides.map(([, fk, fd, r], i) => h('td', {}, pie(r ? (fk + fd) / r : 0, ['', 't', 'ct'][i]), h('div', {}, `${pct(fk + fd, r)}%`)))))),
+    big(`${pct(t.fk, t.fk + t.fd)}`, '%', `won · you took ${pct(t.fk + t.fd, t.rounds)}% of them`),
+    barList([row('T side', t.side.T, 't'), row('CT side', t.side.CT, 'ct')]),
   ]);
 }
 
 function mapsCard(t) {
-  const most = Object.values(t.maps).sort((a, b) => b.played - a.played).slice(0, 5);
+  const most = Object.values(t.maps).sort((a, b) => b.played - a.played).slice(0, 6);
   const go = m => () => { state.mp.map = m.map; resetZoom(state.mp.view); showView('maps'); };
   // Most played maps; the bar is the win rate.
   return card('Maps', h('div', { class: 'map-rows' }, ...most.map(m => {
@@ -2033,22 +2123,22 @@ function mapsCard(t) {
     return h('div', { class: 'map-row', onclick: go(m), title: `${m.won} won, ${m.lost} lost · open this map` },
       mapThumb(m.map),
       h('div', { class: 'map-row-main' },
-        h('div', { class: 'bar-top' }, h('span', { class: 'bar-label' }, mapName(m.map)), h('span', { class: 'spacer' }), h('span', { class: 'muted' }, `${m.played} played`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`)),
+        h('div', { class: 'bar-top' }, h('span', { class: 'bar-label' }, mapName(m.map)), h('span', { class: 'spacer' }), h('span', { class: 'bar-note' }, `${m.played} played`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`)),
         h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))));
-  })), { extra: h('button', { class: 'link-btn', onclick: () => showView('maps') }, 'Maps →') });
+  })), { span: 2, extra: h('button', { class: 'link-btn', onclick: () => showView('maps') }, 'Maps →') });
 }
 
 function weaponCard(title, rows, val, note) {
   const max = Math.max(1, ...rows.map(([, [k]]) => k));
   return card(title, barList(rows.map(r => { const [v, frac] = val(r, max); return { label: r[0], value: v, frac }; }), { empty: note || 'No kills yet' }),
-    { extra: note ? h('span', { class: 'hint' }, note) : null });
+    { extra: note ? h('span', { class: 'hint', title: note }, 'ⓘ') : null });
 }
 
 // Rating per match, oldest to newest, with the 1.00 line and a 5-match average.
 function trendCard(list) {
   const ms = list.filter(m => m.rating != null).slice(0, 40).reverse();
-  if (ms.length < 2) return card('Rating per match', h('div', { class: 'muted-note' }, 'Needs at least two matches.'), { span: 2 });
-  const W = 800, H = 210, padL = 34, padR = 12, padT = 12, padB = 22;
+  if (ms.length < 2) return card('Rating per match', h('div', { class: 'muted-note' }, 'Needs at least two matches.'), { span: 3 });
+  const W = 1200, H = 300, padL = 34, padR = 12, padT = 12, padB = 22;
   const vals = ms.map(m => m.rating);
   const lo = Math.min(0.4, Math.floor(Math.min(...vals) * 5) / 5), hi = Math.max(1.6, Math.ceil(Math.max(...vals) * 5) / 5);
   const x = i => padL + (W - padL - padR) * (ms.length === 1 ? 0.5 : i / (ms.length - 1));
@@ -2058,44 +2148,48 @@ function trendCard(list) {
   for (let v = Math.ceil(lo * 2) / 2; v <= hi + 1e-9; v += 0.5) grid.push(`<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" class="${Math.abs(v - 1) < 1e-9 ? 'g-one' : 'g'}"/><text x="${padL - 6}" y="${y(v) + 4}" class="g-t">${v.toFixed(1)}</text>`);
   const line = pts => pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
   const area = `${line(vals)}L${x(vals.length - 1)},${H - padB}L${x(0)},${H - padB}Z`;
-  const svg = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg">${grid.join('')}
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg"><defs><linearGradient id="tFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" class="t-stop-a"/><stop offset="1" class="t-stop-b"/></linearGradient></defs>${grid.join('')}
     <path d="${area}" class="t-area"/><path d="${line(vals)}" class="t-line"/><path d="${line(avg)}" class="t-avg"/>
     ${ms.map((m, i) => `<circle cx="${x(i)}" cy="${y(m.rating)}" r="4.5" class="t-pt r-${m.result}" data-i="${i}"><title>${mapName(m.map).replace(/[<&]/g, '')} ${m.score[0]}:${m.score[1]} · rating ${m.rating.toFixed(2)} · ${new Date(m.date).toLocaleDateString()}</title></circle>`).join('')}</svg>`;
   const el = h('div', { class: 'trend-wrap', html: svg });
   el.addEventListener('click', e => { const i = e.target.dataset?.i; if (i !== undefined) openMatch(ms[+i]); });
   return card('Rating per match', [el, h('div', { class: 'legend' }, h('span', { class: 'lg l-line' }, 'Rating'), h('span', { class: 'lg l-avg' }, '5-match average'), h('span', { class: 'lg l-w' }, 'Win'), h('span', { class: 'lg l-l' }, 'Loss'))],
-    { span: 2, extra: h('span', { class: 'hint' }, `last ${ms.length} matches · click a point to open it`) });
+    { span: 3, extra: h('span', { class: 'hint' }, `last ${ms.length} matches · click a point to open it`) });
 }
 
 function multiCard(t) {
-  const per = v => (t.rounds ? (v / t.rounds).toFixed(2) : '0');
-  return card('Multi-kills & utility', [
+  const rounds = Object.values(t.multi).reduce((a, b) => a + b, 0);
+  return card('Multi-kills', [
+    big(fmtNum(rounds), null, `rounds with 2+ kills · ${pct(rounds, t.rounds)}%`),
     h('div', { class: 'multi' }, ...[[2, '2K'], [3, '3K'], [4, '4K'], [5, 'ACE']].map(([n, l]) => h('div', { class: `multi-c m${n}` }, h('div', { class: 'v' }, t.multi[n]), h('div', { class: 'k' }, l)))),
-    kv([['Trade kills', t.trades], ['Utility damage / round', per(t.utility)], ['Enemies flashed / round', per(t.flashed)], ['Flash assists', t.flashAssists]]),
+    kv([['Trade kills', fmtNum(t.trades)], ['Flash assists', fmtNum(t.flashAssists)]]),
   ]);
 }
 
 function sidesCard(t) {
   const row = (s, cls) => {
     const d = t.side[s];
-    return { label: `${s} side`, value: `${pct(d.won, d.rounds)}%`, frac: d.rounds ? d.won / d.rounds : 0, fillCls: cls, title: `${d.won} of ${d.rounds} rounds won` };
+    return { label: `${s} side`, note: `${fmtNum(d.won)}/${fmtNum(d.rounds)}`, value: `${pct(d.won, d.rounds)}%`, frac: d.rounds ? d.won / d.rounds : 0, fillCls: cls, title: `${d.won} of ${d.rounds} rounds won` };
   };
-  return card('Rounds won per side', [
+  return card('Rounds won', [
+    big(`${pct(t.side.T.won + t.side.CT.won, t.side.T.rounds + t.side.CT.rounds)}`, '%', `of ${fmtNum(t.rounds)} rounds`),
     barList([row('T', 't'), row('CT', 'ct')]),
-    kv([['T rounds played', fmtNum(t.side.T.rounds)], ['CT rounds played', fmtNum(t.side.CT.rounds)]]),
   ]);
 }
 
 function matesCard(t) {
-  const mates = Object.values(t.mates).filter(m => m.played >= 2).sort((a, b) => b.played - a.played || b.won - a.won).slice(0, 8);
-  return card('Played with', mates.length
-    ? h('table', { class: 'mates' },
-      h('thead', {}, h('tr', {}, h('th', {}, 'Teammate'), h('th', {}, 'Matches'), h('th', {}, 'W – L'), h('th', {}, 'Win rate'))),
-      h('tbody', {}, ...mates.map(m => h('tr', {},
-        h('td', { class: 'name' }, h('span', { class: 'avatar sm' }, (m.name.replace(/[^\p{L}\p{N}]/gu, '')[0] || '?').toUpperCase()), m.name),
-        h('td', {}, m.played), h('td', {}, `${m.won} – ${m.lost}`),
-        h('td', {}, h('div', { class: 'wr' }, h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${m.won / m.played >= 0.5 ? 'good' : 'bad'}`, style: { width: `${pct(m.won, m.played)}%` } })), `${pct(m.won, m.played)}%`))))))
-    : h('div', { class: 'muted-note' }, 'Teammates you played at least two matches with show up here.'), { span: 2 });
+  const mates = Object.values(t.mates).filter(m => m.played >= 2).sort((a, b) => b.played - a.played || b.won - a.won).slice(0, 10);
+  return card(null, mates.length
+    ? h('div', { class: 'mates' }, ...mates.map(m => {
+      const wr = pct(m.won, m.played);
+      return h('div', { class: 'mate', title: `${m.won} won · ${m.lost} lost together` },
+        h('span', { class: 'avatar sm' }, initial(m.name)),
+        h('span', { class: 'mate-name' }, m.name),
+        h('span', { class: 'bar-note' }, `${m.played} matches`),
+        h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } })),
+        h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`));
+    }))
+    : h('div', { class: 'muted-note' }, 'Teammates you played at least two matches with show up here.'), { span: 4 });
 }
 
 // Opens a match from the dashboard or the Maps page (on its scoreboard).
@@ -2240,7 +2334,7 @@ function mapDetail() {
 
   return wrap(h('div', { class: 'map-layout' },
     h('div', { class: 'map-stage' }, zoomable(canvas, mp.view, redraw), h('div', { class: 'stage-hint' }, 'Scroll to zoom · drag to move · double-click for the whole map')),
-    h('div', { class: 'map-side' }, controls, stats)));
+    h('div', { class: 'map-side' }, controls, stats, positionsCard(map))));
 }
 
 // ---------- Utility (lineups) ----------
@@ -2297,6 +2391,7 @@ function renderUtility() {
     u.items.length ? search : null,
     h('button', { class: 'btn', title: `Copy commands for a private practice server (sv_cheats, infinite ammo and grenades, grenade preview, no bots). Paste them in the CS2 console after "map ${u.map === 'all' ? 'de_mirage' : u.map}".`,
       onclick: async () => { await copyText(PRACTICE_CMDS); toast('Practice commands copied. In CS2 start a private map (e.g. "map de_mirage" in the console), then paste them.', 'ok'); } }, 'Copy practice commands'),
+    u.items.length ? h('button', { class: 'btn', title: 'Test yourself: where does it land, where is it thrown from, which lineup is this picture', onclick: () => quizSetup() }, 'Practice quiz') : null,
     h('button', { class: 'btn primary', onclick: () => editLineup({ map: u.map !== 'all' ? u.map : undefined }) }, icon(PLUS), 'New lineup'));
 
   if (!u.items.length) {
@@ -2512,7 +2607,7 @@ function drawUtility(canvas, img, frame, info, list, selId, hoverId, v = state.u
   for (const { p, n } of groups) {
     if (n < 2) continue;
     const bx = p[0] + 8, by = p[1] - 8;
-    ctx.fillStyle = '#4f8dff'; ctx.strokeStyle = '#0a0e16'; ctx.lineWidth = 2;
+    ctx.fillStyle = cssVar('--blue') || '#4f8dff'; ctx.strokeStyle = '#0a0e16'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(bx, by, 7.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#fff'; ctx.fillText(n, bx, by + 0.5);
   }
@@ -2570,6 +2665,7 @@ function utDetail(x) {
       x.angle ? fact('Aim', `${Math.abs(x.angle[0]).toFixed(1)}° ${x.angle[0] <= 0 ? 'up' : 'down'}`, `Pitch ${x.angle[0]}°, yaw ${x.angle[1]}°`) : null,
       dist != null ? fact('Distance', `${fmtNum(dist)} u`) : null,
       fact('Practiced', x.practiced ? `${x.practiced}×` : 'Never', x.lastPracticed ? `Last time: ${fmtDate(x.lastPracticed)}` : null),
+      x.quiz ? fact('Quiz', `${x.quiz.right} right · ${x.quiz.wrong} wrong`, x.quiz.last ? `Last asked: ${fmtDate(x.quiz.last)}` : null) : null,
       x.source ? fact('From', x.source.player || 'a demo', demo ? `${demoTitle(demo)} · ${fmtDate(demo.date)}` : 'The demo is no longer in your folders') : null),
     x.notes ? h('div', { class: 'ut-notes' }, x.notes) : null,
     sameSpot.length ? h('div', { class: 'ut-same' },
@@ -2583,6 +2679,7 @@ function utDetail(x) {
     demo ? h('div', { class: 'nc-actions' },
       h('button', { class: 'btn nc-btn', title: 'Open the match\'s 2D replay at this throw', onclick: () => utOpenReplay(x, demo) }, icon(ICONS.play), '2D replay'),
       watch) : null,
+    practiceButton(x) ? h('div', { class: 'nc-actions' }, practiceButton(x)) : null,
     h('div', { class: 'nc-actions' },
       h('button', { class: 'btn primary nc-btn', title: 'Count one more practice session', onclick: () => patch({ practiced: true }, 'Nice. Marked as practiced.') }, icon(ICONS.check), 'Practiced'),
       h('button', { class: 'btn nc-btn', onclick: () => editLineup(x) }, icon(PENCIL), 'Edit'),
@@ -3011,6 +3108,7 @@ function renderClips() {
   });
   const typeRank = c => {
     if (c.kind === 'montage') return 100;
+    if (c.kind === 'share') return 101;
     const i = WEAPON_TYPES.findIndex(([t]) => t === weaponType(mainWeapon(c)));
     return i < 0 ? 99 : i;
   };
@@ -3031,7 +3129,7 @@ function renderClips() {
 
   const head = h('div', { class: 'page-head' },
     h('h2', {}, 'Clips'),
-    h('div', { class: 'tabs' }, ...[['all', 'All'], ['clip', 'Clips'], ['montage', 'Montages']].map(([k, l]) =>
+    h('div', { class: 'tabs' }, ...[['all', 'All'], ['clip', 'Clips'], ['montage', 'Montages'], ['share', 'Shared']].map(([k, l]) =>
       h('button', { class: state.clipFilter === k ? 'on' : '', onclick: () => { state.clipFilter = k; renderClips(); } }, l))),
     weaponSelect, sortSelect,
     h('span', { class: 'spacer' }),
@@ -3047,7 +3145,7 @@ function renderClips() {
   } else if (sort === 'type') {
     const groups = new Map();
     for (const c of items) {
-      const key = c.kind === 'montage' ? 'Montages' : weaponType(mainWeapon(c));
+      const key = c.kind === 'montage' ? 'Montages' : c.kind === 'share' ? 'Shared' : weaponType(mainWeapon(c));
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(c);
     }
@@ -3066,12 +3164,13 @@ function clipCard(c) {
   const thumb = h('div', { class: 'thumb', style: thumbStyle },
     order >= 0 ? h('div', { class: 'order' }, order + 1) : null,
     c.kind === 'montage' ? h('div', { class: 'kind' }, 'MONTAGE') : null,
+    c.kind === 'share' ? h('div', { class: 'kind' }, shareBadge(c)) : null,
     h('div', { class: 'dur' }, fmtDur(c.duration || 0)));
   let video = null;
   const card = h('div', {
     class: `clip ${order >= 0 ? 'selected' : ''}`,
     onclick: () => {
-      if (c.kind === 'montage') return playClip(c);
+      if (c.kind !== 'clip') return playClip(c);
       const i = state.montageSel.indexOf(c.id);
       i >= 0 ? state.montageSel.splice(i, 1) : state.montageSel.push(c.id);
       renderClips();
@@ -3082,12 +3181,13 @@ function clipCard(c) {
   thumb,
   h('div', { class: 'clip-actions' },
     h('button', { title: 'Play', onclick: e => { e.stopPropagation(); playClip(c); } }, icon(ICONS.play)),
+    c.kind !== 'share' ? h('button', { title: 'Export for sharing: vertical, slow motion, kill feed, music', onclick: e => { e.stopPropagation(); shareDialog(c); } }, icon(SHARE_ICON)) : null,
     h('button', { title: 'Show in folder', onclick: e => { e.stopPropagation(); api.reveal(c.file); } }, icon(ICONS.folder)),
     h('button', { title: 'Delete (to Recycle Bin)', onclick: e => { e.stopPropagation(); deleteClip(c); } }, icon(ICONS.trash)),
   ),
   h('div', { class: 'clip-body' },
     h('div', { class: 'clip-title', title: c.title }, c.title),
-    h('div', { class: 'clip-meta' }, c.kind === 'montage' ? `${c.tags?.[0] || ''} · ${new Date(c.createdAt).toLocaleDateString()}` : `${mapName(c.map)} · Round ${c.round} · ${(c.weapons || []).join(', ')}`),
+    h('div', { class: 'clip-meta' }, c.kind === 'share' ? `${shareBadge(c)} · ${new Date(c.createdAt).toLocaleDateString()}` : c.kind === 'montage' ? `${c.tags?.[0] || ''} · ${new Date(c.createdAt).toLocaleDateString()}` : `${mapName(c.map)} · Round ${c.round} · ${(c.weapons || []).join(', ')}`),
   ));
   return card;
 }
@@ -3097,6 +3197,7 @@ function playClip(c) {
     h('video', { src: api.fileUrl(c.file), controls: true, autoplay: true }),
     h('div', { class: 'video-foot' },
       h('div', { class: 't' }, c.title),
+      c.kind !== 'share' ? h('button', { class: 'btn', onclick: () => shareDialog(c) }, icon(SHARE_ICON), 'Export for sharing') : null,
       h('button', { class: 'btn', onclick: () => api.reveal(c.file) }, icon(ICONS.folder), 'Show in folder'),
       h('button', { class: 'btn', onclick: () => closeModal() }, 'Close'),
     ),
@@ -3205,12 +3306,52 @@ api.onHlaeUpdate(u => {
   if (state.view === 'settings') renderSettings();
 });
 
+// Theme gallery (DemoLab, teams, maps) plus a custom theme built from three colors.
+function themeCard() {
+  const cur = state.settings.theme || 'demolab';
+  const pick = async id => { applyTheme(themeById(id)); await save({ theme: id }); renderSettings(); };
+  const swatch = t => h('button', {
+    class: `theme-sw ${t.id === cur ? 'on' : ''}`, title: t.name, onclick: () => pick(t.id),
+    style: { '--sw-base': t.base, '--sw-accent': t.accent, '--sw-data': t.data || t.accent, '--sw-art': t.art ? `url("radar/${t.art}.png")` : 'none' },
+  },
+  h('span', { class: 'theme-prev' }, h('i', { class: 'tp-nav' }), h('i', { class: 'tp-big' }), h('i', { class: 'tp-bar' }), h('i', { class: 'tp-bar data' })),
+  h('span', { class: 'theme-name' }, t.name, t.id === cur ? icon(ICONS.check) : null));
+  const group = (title, list) => [h('div', { class: 'sub-head' }, title), h('div', { class: 'theme-grid' }, ...list.map(swatch))];
+
+  const c = themeById('custom');
+  const edit = (key, value, live) => {
+    const next = { ...state.settings.customTheme, [key]: value };
+    applyTheme({ ...c, ...next });
+    if (!live) save({ theme: 'custom', customTheme: next }).then(renderSettings);
+  };
+  const color = (key, label, value, fallback) => h('label', { class: 'theme-color' },
+    h('input', { type: 'color', value: value || fallback, oninput: e => edit(key, e.target.value, true), onchange: e => edit(key, e.target.value, false) }), label);
+  const arts = Object.keys(MAPS).filter(m => radarMaps?.[m]);
+  return h('div', { class: 'card' },
+    h('h3', {}, 'Theme'),
+    h('div', { class: 'desc' }, 'Colors for the whole app. Map themes also show the map’s radar faintly in the background.'),
+    ...group('DemoLab', THEMES.filter(t => t.group === 'DemoLab')),
+    ...group('Teams', THEMES.filter(t => t.group === 'Teams')),
+    ...group('Maps', THEMES.filter(t => t.group === 'Maps')),
+    h('div', { class: 'sub-head' }, 'Your own'),
+    h('div', { class: 'theme-custom' },
+      swatch(c),
+      h('div', { class: 'theme-custom-ctl' },
+        color('base', 'Background', c.base, CUSTOM_THEME.base),
+        color('accent', 'Accent', c.accent, CUSTOM_THEME.accent),
+        color('data', 'Highlights', c.data, c.accent),
+        h('label', { class: 'theme-color' }, select(c.art || '', [['', 'No map'], ...arts.map(m => [m, mapName(m)])], v => edit('art', v, false)), 'Map in the background'),
+        c.data ? h('button', { class: 'link-btn', onclick: () => edit('data', '', false) }, 'Highlights = accent') : null)),
+  );
+}
+
 function renderSettings() {
   const st = state.settings, e = state.env;
   const d = st.detection, t = st.timing;
   const SPECIAL_LABELS = { noscope: 'No-scope', wallbang: 'Wallbang', smoke: 'Through smoke', blind: 'While flashed', jumpshot: 'Jumpshot', knife: 'Knife', zeus: 'Zeus', collateral: 'Collateral' };
 
   const cards = [
+    themeCard(),
     h('div', { class: 'card' },
       h('h3', {}, 'Display'),
       row('Interface size', select(String(st.uiScale || 0), [['0', `Automatic (now ${Math.round(autoScale() * 100)}%)`], ['0.9', '90%'], ['1', '100%'], ['1.1', '110%'], ['1.25', '125%'], ['1.4', '140%'], ['1.6', '160%']],
@@ -3361,7 +3502,7 @@ function renderDownloads() {
     h('div', { style: { flex: 1 } },
       h('b', {}, 'Steam Community match history '),
       signedIn ? h('span', { class: 'pill ok' }, 'Signed in') : d.community === 'signedOut' ? h('span', { class: 'pill bad' }, 'Not signed in') : null,
-      h('div', {}, 'Scrimmage and Rush replays are only listed on your private Steam page (Personal Game Data). ClipMaker reads its Scrimmage, Rush, Premier, Competitive and Wingman tabs. Sign in once in Steam’s own login window — the app never sees your password.')),
+      h('div', {}, 'Scrimmage and Rush replays are only listed on your private Steam page (Personal Game Data). DemoLab reads its Scrimmage, Rush, Premier, Competitive and Wingman tabs. Sign in once in Steam’s own login window — the app never sees your password.')),
     signedIn
       ? h('button', { class: 'btn', onclick: async () => { await guard(() => api.communitySignOut()); loadDownloads(); } }, 'Sign out')
       : h('button', { class: 'btn primary', onclick: steamSignIn }, 'Sign in to Steam'),
@@ -3404,7 +3545,10 @@ function renderDownloads() {
 
 // ---------- Boot ----------
 (async () => {
+  // insights.js (loaded after this file) adds cards and tabs used by the first render.
+  if (document.readyState === 'loading') await new Promise(r => document.addEventListener('DOMContentLoaded', r, { once: true }));
   state.settings = await api.getSettings();
+  applyTheme(themeById(state.settings.theme));
   applyScale();
   radarMaps = await api.radarMaps().catch(() => ({}));
   await refreshEnv();

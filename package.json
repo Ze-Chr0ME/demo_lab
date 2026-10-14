@@ -1,7 +1,7 @@
 {
-  "name": "cs2-clipmaker",
+  "name": "cs2-demolab",
   "version": "1.0.0",
-  "description": "Automatic CS2 highlight clips from demo files",
+  "description": "CS2 demo analysis: stats, heatmaps, 2D replays, integrity checks, lineups and highlight clips",
   "main": "src/main.js",
   "private": true,
   "scripts": {

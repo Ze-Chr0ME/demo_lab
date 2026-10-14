@@ -59,6 +59,7 @@ class UtilityStore {
       fav: !!input.fav,
       practiced: old?.practiced || 0,
       lastPracticed: old?.lastPracticed || null,
+      quiz: old?.quiz || null,
       createdAt: old?.createdAt || now,
       updatedAt: now,
     };
@@ -73,6 +74,13 @@ class UtilityStore {
     if (!it) throw new Error('Lineup not found.');
     if (fields.fav !== undefined) it.fav = !!fields.fav;
     if (fields.practiced) { it.practiced = (it.practiced || 0) + 1; it.lastPracticed = Date.now(); }
+    // Practice quiz: right and wrong answers, and when it was last asked.
+    if (fields.quiz !== undefined) {
+      const q = it.quiz || { right: 0, wrong: 0, last: null };
+      if (fields.quiz) q.right++; else q.wrong++;
+      q.last = Date.now();
+      it.quiz = q;
+    }
     this.write(items);
     return it;
   }

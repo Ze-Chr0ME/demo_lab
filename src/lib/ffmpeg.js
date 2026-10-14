@@ -127,4 +127,4 @@ function thumbnail(input, output, at = 1) {
   return run(ffmpegPath, ['-y', '-hide_banner', '-ss', String(at), '-i', input, '-frames:v', '1', '-vf', 'scale=320:-2', '-q:v', '4', output]);
 }
 
-module.exports = { resolve, probe, pickEncoder, mux, concat, montage, thumbnail, get encoder() { return chosenEncoder; }, get path() { return ffmpegPath; } };
+module.exports = { resolve, probe, pickEncoder, mux, concat, montage, thumbnail, run, videoArgs, audioArgs, get encoder() { return chosenEncoder; }, get path() { return ffmpegPath; } };

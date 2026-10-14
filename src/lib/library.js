@@ -1,10 +1,15 @@
-// Keeps track of finished clips/montages in <outputDir>/clipmaker-library.json.
+// Keeps track of finished clips/montages in <outputDir>/demolab-library.json.
 const fs = require('fs');
 const path = require('path');
 
 class Library {
-  constructor(dir) { this.dir = dir; }
-  get file() { return path.join(this.dir, 'clipmaker-library.json'); }
+  constructor(dir) {
+    this.dir = dir;
+    // Written as clipmaker-library.json before the app was renamed.
+    const old = path.join(dir, 'clipmaker-library.json');
+    if (!fs.existsSync(this.file) && fs.existsSync(old)) try { fs.renameSync(old, this.file); } catch {}
+  }
+  get file() { return path.join(this.dir, 'demolab-library.json'); }
 
   list() {
     let items = [];
