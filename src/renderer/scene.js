@@ -47,34 +47,78 @@ const Scene = (() => {
   }
 
   // ---------- Neon logo ----------
-  // Any logo becomes a neon sign: its silhouette's outline plus the edges between its light and dark
-  // parts (NAVI's letters, G2's mask) are drawn as a tube in the accent color, with a thin bright core,
-  // two glows and a faint fill. k scales the line width to the size the logo is shown at (1 ≈ 300 px).
-  function neonFilter(id, color, k = 1) {
+  // Any logo becomes a neon sign. look 'neon' (flat logos): its silhouette's outline plus the edges between
+  // its light and dark parts (NAVI's letters, G2's mask) are drawn as a tube in the accent color, with a
+  // thin bright core, two glows and a faint fill. look 'lit' (shaded or detailed logos, see teamLook): the
+  // logo's own light and dark parts shine in the accent color inside the neon outline, as edges cut at
+  // one brightness would slice shading into random contours. k scales the line width to the size the logo
+  // is shown at (1 ≈ 300 px).
+  function neonFilter(id, color, k = 1, look = 'neon') {
     const f = n => +(n * k).toFixed(2);
     let node = defs.querySelector(`#${id}`);
     if (!node) { node = document.createElementNS('http://www.w3.org/2000/svg', 'filter'); node.id = id; defs.append(node); }
     node.setAttribute('x', '-30%'); node.setAttribute('y', '-30%'); node.setAttribute('width', '160%'); node.setAttribute('height', '160%');
     node.setAttribute('color-interpolation-filters', 'sRGB');
-    node.innerHTML = `
+    const outline = `
       <feMorphology in="SourceAlpha" operator="dilate" radius="${f(2.2)}" result="dil"/>
       <feMorphology in="SourceAlpha" operator="erode" radius="${f(1)}" result="ero"/>
-      <feComposite in="dil" in2="ero" operator="out" result="ring"/>
+      <feComposite in="dil" in2="ero" operator="out" result="ring"/>`;
+    const tube = `
+      <feFlood flood-color="${color}"/><feComposite in2="lines" operator="in" result="line"/>
+      <feGaussianBlur in="line" stdDeviation="${f(3)}" result="g1"/>
+      <feGaussianBlur in="line" stdDeviation="${f(16)}" result="g2"/>
+      <feMorphology in="lines" operator="erode" radius="${f(0.9)}" result="thin"/>
+      <feFlood flood-color="#fff" flood-opacity=".55"/><feComposite in2="thin" operator="in" result="core"/>`;
+    node.innerHTML = look === 'lit' ? `${outline}
+      <feMerge result="lines"><feMergeNode in="ring"/></feMerge>${tube}
+      <feColorMatrix in="SourceGraphic" type="luminanceToAlpha" result="lum0"/>
+      <feComponentTransfer in="lum0" result="lum"><feFuncA type="gamma" amplitude="1.25" exponent="1.15" offset="0.04"/></feComponentTransfer>
+      <feComposite in="lum" in2="ero" operator="in" result="lumIn"/>
+      <feFlood flood-color="${color}"/><feComposite in2="lumIn" operator="in" result="lit"/>
+      <feGaussianBlur in="lit" stdDeviation="${f(5)}" result="litGlow"/>
+      <feComponentTransfer in="lumIn" result="hot"><feFuncA type="linear" slope="2.4" intercept="-1.4"/></feComponentTransfer>
+      <feFlood flood-color="#fff" flood-opacity=".45"/><feComposite in2="hot" operator="in" result="hotCore"/>
+      <feFlood flood-color="${color}" flood-opacity=".07"/><feComposite in2="SourceAlpha" operator="in" result="fill"/>
+      <feMerge><feMergeNode in="g2"/><feMergeNode in="g2"/><feMergeNode in="fill"/><feMergeNode in="litGlow"/><feMergeNode in="lit"/><feMergeNode in="hotCore"/><feMergeNode in="g1"/><feMergeNode in="line"/><feMergeNode in="core"/></feMerge>`
+      : `${outline}
       <feColorMatrix in="SourceGraphic" type="luminanceToAlpha" result="lum"/>
       <feComponentTransfer in="lum" result="lumT"><feFuncA type="discrete" tableValues="0 0 1 1 1"/></feComponentTransfer>
       <feMorphology in="lumT" operator="dilate" radius="${f(1.2)}" result="ld"/>
       <feMorphology in="lumT" operator="erode" radius="${f(0.6)}" result="le"/>
       <feComposite in="ld" in2="le" operator="out" result="lring"/>
       <feComposite in="lring" in2="ero" operator="in" result="inner"/>
-      <feMerge result="lines"><feMergeNode in="ring"/><feMergeNode in="inner"/></feMerge>
-      <feFlood flood-color="${color}"/><feComposite in2="lines" operator="in" result="line"/>
-      <feGaussianBlur in="line" stdDeviation="${f(3)}" result="g1"/>
-      <feGaussianBlur in="line" stdDeviation="${f(16)}" result="g2"/>
+      <feMerge result="lines"><feMergeNode in="ring"/><feMergeNode in="inner"/></feMerge>${tube}
       <feFlood flood-color="${color}" flood-opacity=".09"/><feComposite in2="SourceAlpha" operator="in" result="fill"/>
-      <feMorphology in="lines" operator="erode" radius="${f(0.9)}" result="thin"/>
-      <feFlood flood-color="#fff" flood-opacity=".55"/><feComposite in2="thin" operator="in" result="core"/>
       <feMerge><feMergeNode in="g2"/><feMergeNode in="g2"/><feMergeNode in="fill"/><feMergeNode in="g1"/><feMergeNode in="line"/><feMergeNode in="core"/></feMerge>`;
     return `url(#${id})`;
+  }
+
+  // Which look suits a logo: drawn small, a logo whose pixels spread over many brightness levels has
+  // shading (gradients, metal, a painted face) rather than a few flat colors, and gets the 'lit' look.
+  // The SVG is drawn from its text (a file:// picture would make the canvas unreadable) without the
+  // parts Illustrator keeps for itself.
+  async function measureLook(svg) {
+    svg = svg.replace(/<foreignObject[\s\S]*?<\/foreignObject>/g, '').replace(/<i:pgf[\s\S]*?<\/i:pgf>/g, '');
+    const img = new Image();
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    await img.decode();
+    const N = 96;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = N;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, N, N);
+    const px = ctx.getImageData(0, 0, N, N).data;
+    const bins = new Array(12).fill(0);
+    let area = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i + 3] < 200) continue;
+      area++;
+      bins[Math.min(11, Math.floor((0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]) / 255 * 12))]++;
+    }
+    if (!area) return 'neon';
+    const top3 = bins.slice().sort((a, b) => b - a).slice(0, 3).reduce((a, b) => a + b, 0);
+    const tones = bins.filter(n => n >= area * 0.03).length;
+    return tones >= 6 || 1 - top3 / area > 0.22 ? 'lit' : 'neon';
   }
 
   // ---------- Pictures ----------
@@ -87,13 +131,19 @@ const Scene = (() => {
   }
   const shotUrl = (shot, thumb = false) => resolve(`shot:${shot}${thumb ? ':thumb' : ''}`, () => api.artShot(shot, thumb));
   const teamUrl = code => resolve(`team:${code}`, () => api.artTeam(code));
+  const looks = new Map(); // team code → Promise of 'neon' | 'lit'
+  const teamLook = code => {
+    if (!looks.has(code)) looks.set(code, api.artTeamSvg(code).then(svg => (svg ? measureLook(svg) : 'neon')).catch(() => 'neon'));
+    return looks.get(code);
+  };
   let artList = null;
   const list = () => (artList ||= api.themeArt().catch(() => null));
 
   // ---------- Applying a theme ----------
-  let kind = 'pattern', tileH = 1, token = 0, shownPhoto = '', shownLogo = '';
-  // t: { base, accent, scene: 'map' | 'team' | 'pattern', shot, map, logo, pattern, photoUrl, logoUrl }
-  // onResolved(patch) is called with the picture URLs once known, so the caller can cache them.
+  let kind = 'pattern', tileH = 1, token = 0, shownPhoto = '', shownLogo = '', logoLook = 'neon';
+  // t: { base, accent, scene: 'map' | 'team' | 'pattern', shot, map, logo, pattern, photoUrl, logoUrl, logoLook }
+  // onResolved(patch) is called with the picture URLs and the logo's look once known, so the caller can
+  // cache them.
   // Pictures already showing stay put (no flash while dragging a color in the custom theme).
   function set(t, onResolved) {
     const my = ++token;
@@ -129,16 +179,29 @@ const Scene = (() => {
 
     logoWrap.hidden = !(kind === 'team' && t.logo);
     if (!logoWrap.hidden) {
-      logo.style.filter = neonFilter('sc-neon', t.accent, logoSize() / 300);
+      // The logo fades in once both the picture and its look are known (no flash of the wrong look).
+      let lookKnown = !!t.logoLook;
+      if (t.logoLook) logoLook = t.logoLook;
+      const setFilter = () => { logo.style.filter = neonFilter('sc-neon', t.accent, logoSize() / 300, logoLook); logoWrap.dataset.look = logoLook; };
+      const reveal = () => { if (my === token && lookKnown && logo.dataset.loaded) logo.classList.add('ready'); };
+      setFilter();
       const showLogo = url => {
         if (my !== token || !url || url === shownLogo) return;
         shownLogo = url;
         logo.classList.remove('ready');
-        logo.onload = () => logo.classList.add('ready');
+        logo.dataset.loaded = '';
+        logo.onload = () => { logo.dataset.loaded = '1'; reveal(); };
         logo.src = url;
       };
       if (t.logoUrl) showLogo(t.logoUrl);
       teamUrl(t.logo).then(u => { if (u) { showLogo(u); if (u !== t.logoUrl) onResolved?.({ logoUrl: u }); } });
+      teamLook(t.logo).then(look => {
+        if (my !== token) return;
+        lookKnown = true;
+        if (look !== logoLook) { logoLook = look; setFilter(); }
+        if (look !== t.logoLook) onResolved?.({ logoLook: look });
+        reveal();
+      });
     } else { shownLogo = ''; logo.removeAttribute('src'); }
     paint(cur, true);
   }
@@ -184,11 +247,11 @@ const Scene = (() => {
     }
   }
   addEventListener('resize', () => {
-    if (kind === 'team' && logo.style.filter) logo.style.filter = neonFilter('sc-neon', getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(), logoSize() / 300);
+    if (kind === 'team' && logo.style.filter) logo.style.filter = neonFilter('sc-neon', getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(), logoSize() / 300, logoLook);
     logoWrap.style.setProperty('--size', `${logoSize()}px`);
     paint(cur, true);
   });
   logoWrap.style.setProperty('--size', `${logoSize()}px`);
 
-  return { set, follow, list, shotUrl, teamUrl, neonFilter, patternTile, PATTERNS };
+  return { set, follow, list, shotUrl, teamUrl, teamLook, neonFilter, patternTile, PATTERNS };
 })();

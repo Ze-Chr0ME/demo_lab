@@ -54,12 +54,29 @@ function embeddedPng(buf) {
   const end = buf.indexOf('IEND', start);
   return start < 0 || end < 0 ? null : buf.subarray(start, end + 8);
 }
-// The SVG inside a compiled vector image. Illustrator exports declare namespaces through entities in
-// a DOCTYPE that gets lost here, so those references are replaced by a dummy URI.
+// The SVG inside a compiled vector image. Illustrator exports declare namespaces (and sometimes styles)
+// through entities in a DOCTYPE; when the compiler kept it, those entities get their declared value,
+// otherwise namespace entities become their real or a dummy URI and any other one is dropped, since an
+// undefined entity makes the whole picture fail to load. A root without a viewBox gets one from its
+// width and height, else the drawing doesn't scale with the <img> and shows cropped or tiny.
+const XML_ENTITIES = new Set(['amp', 'lt', 'gt', 'quot', 'apos']);
+const KNOWN_NS = { ns_svg: 'http://www.w3.org/2000/svg', ns_xlink: 'http://www.w3.org/1999/xlink' };
 function embeddedSvg(buf) {
   const text = buf.toString('utf8');
   const start = text.indexOf('<svg'), end = text.lastIndexOf('</svg>');
-  return start < 0 || end < 0 ? null : text.slice(start, end + 6).replace(/&ns_\w+;/g, 'http://ns.adobe.com/x');
+  if (start < 0 || end < 0) return null;
+  const declared = new Map([...text.slice(0, start).matchAll(/<!ENTITY\s+(\w+)\s+"([^"]*)"/g)].map(m => [m[1], m[2]]));
+  let svg = text.slice(start, end + 6).replace(/&(\w+);/g, (m, name) => {
+    if (XML_ENTITIES.has(name)) return m;
+    if (declared.has(name)) return declared.get(name);
+    return KNOWN_NS[name] || (name.startsWith('ns_') ? 'http://ns.adobe.com/x' : '');
+  });
+  const root = svg.slice(0, svg.indexOf('>') + 1);
+  if (!/\sviewBox\s*=/.test(root)) {
+    const size = k => +(root.match(new RegExp(`\\s${k}\\s*=\\s*["']\\s*([\\d.]+)(px)?\\s*["']`))?.[1] || 0);
+    if (size('width') > 0 && size('height') > 0) svg = `<svg viewBox="0 0 ${size('width')} ${size('height')}"${svg.slice(4)}`;
+  }
+  return svg;
 }
 
 class ThemeArt {
@@ -99,14 +116,15 @@ class ThemeArt {
     return { maps, teams: teams.filter(t => !/^(nologo|nosticker|center_icon)$/.test(t)).sort() };
   }
 
-  // Writes the cached file through make(bytes) unless it already exists; drops older copies.
-  cached(sub, name, ext, source, make) {
+  // Writes the cached file through make(bytes) unless it already exists; drops older copies. rev changes
+  // the file name when make() changes, so copies made by an older version are rebuilt.
+  cached(sub, name, ext, source, make, rev = '') {
     const v = this.vpk();
     if (!v) return null;
     const entry = v.index.files.get(source);
     if (!entry) return null;
     const folder = path.join(this.dir, sub);
-    const file = path.join(folder, `${name}.${entry.crc.toString(16)}${ext}`);
+    const file = path.join(folder, `${name}.${entry.crc.toString(16)}${rev}${ext}`);
     if (fs.existsSync(file)) return file;
     const data = make(readVpkFile(v.file, v.index, source));
     if (!data) return null;
@@ -131,7 +149,13 @@ class ThemeArt {
 
   team(code) {
     if (!/^\w+$/.test(code)) throw new Error('bad team code');
-    return this.cached('teams', code, '.svg', `${TEAMS}${code}.vsvg_c`, buf => embeddedSvg(buf));
+    return this.cached('teams', code, '.svg', `${TEAMS}${code}.vsvg_c`, buf => embeddedSvg(buf), '.2');
+  }
+
+  // The logo's SVG text, for measuring how it should be drawn (see Scene.teamLook in the renderer).
+  teamSvg(code) {
+    const file = this.team(code);
+    return file ? fs.readFileSync(file, 'utf8') : null;
   }
 
   // A weapon's silhouette (the one of the kill feed and buy menu), e.g. 'ak47', 'hegrenade'.

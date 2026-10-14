@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('api', {
   themeArt: () => call('art:list'),
   artShot: (name, thumb) => call('art:shot', name, thumb),
   artTeam: code => call('art:team', code),
+  artTeamSvg: code => call('art:teamSvg', code),
   artWeapon: code => call('art:weapon', code),
   replay: file => call('demo:replay', file),
   integrity: file => call('demo:integrity', file),
