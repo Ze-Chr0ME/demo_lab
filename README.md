@@ -50,9 +50,10 @@ that match, or a map to open it in **Maps**.
 
 **Theme** (in the menu under your name, top right) changes the colors and the backdrop behind every page, which moves as you scroll:
 
-- **Teams** (Vitality, Spirit, NAVI, MOUZ, Falcons, FURIA, The MongolZ, Aurora, G2, FaZe, Liquid, paiN,
-  3DMAX, Virtus.pro, HEROIC, Astralis, NiP, Fnatic, ENCE, Cloud9, Eternal Fire, TYLOO): the team's logo
-  as a neon sign over a pattern. Flat logos are drawn as neon tubes; shaded or detailed ones (The MongolZ)
+- **Teams** (HLTV's top 15 first: Spirit, Vitality, MOUZ, FURIA, Falcons, Aurora, Legacy, G2, FUT, NAVI,
+  PARIVISION, MIBR, BetBoom, Astralis, FaZe; then The MongolZ, Liquid, paiN, 3DMAX, Virtus.pro, HEROIC,
+  NiP, Fnatic, ENCE, Cloud9, Eternal Fire, TYLOO): the team's logo
+  as a neon sign over a pattern. Flat logos are drawn as neon tubes; shaded or detailed ones (The MongolZ, ENCE)
   light up in the team color inside a neon outline, so they stay recognizable. Scrolling makes the
   pattern drift and the logo rise, tilt and dim.
 - **Maps** (Dust II, Mirage, Inferno, Nuke, Ancient, Anubis, Overpass, Vertigo, Train, Cache, Office,
@@ -65,6 +66,13 @@ that match, or a map to open it in **Maps**.
 Logos and screenshots are read from your CS2 install (`pak01_dir.vpk`, see `src/lib/themeArt.js`)
 and cached in `%APPDATA%\cs2-demolab\theme-art`. Nothing is downloaded. Without CS2, map themes fall
 back to the radar image.
+
+## Aim
+
+**Aim** is the match **Weapons** tab over all your matches at once: per weapon your kills, HS %, damage,
+accuracy, kill types (wallbangs, through smoke, no-scopes…) and where your bullets land on the body, with
+filters for mode, map, period, side and weapon type. Click weapons to compare them. Opened from the
+Overview of another player (player search), it shows theirs. Each match is added up once and kept.
 
 ## Maps
 

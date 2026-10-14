@@ -67,7 +67,11 @@ const state = {
 };
 
 // ---------- Navigation ----------
-document.querySelectorAll('.nav-btn, .brand').forEach(b => b.addEventListener('click', () => { if (b.dataset.view === 'overview') state.who = null; showView(b.dataset.view); }));
+// The Aim page keeps showing the player on the overview when opened from there, else it shows me.
+document.querySelectorAll('.nav-btn, .brand').forEach(b => b.addEventListener('click', () => {
+  if (b.dataset.view === 'overview' || (b.dataset.view === 'aim' && state.view !== 'overview')) state.who = null;
+  showView(b.dataset.view);
+}));
 function showView(v) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
   $('#meCard').classList.toggle('active', v === 'themes' || v === 'settings');
@@ -75,6 +79,7 @@ function showView(v) {
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === `view-${v}`));
   state.view = v;
   if (v === 'overview') renderOverview();
+  if (v === 'aim') renderAimPage();
   if (v === 'maps') renderMaps();
   if (v === 'utility') renderUtility();
   if (v === 'matches' && !state.demo && state.demos[0]) openDemo(state.demos[0]);
@@ -88,6 +93,7 @@ function showView(v) {
 // Repaints whatever page is showing (e.g. once the radar images' positions are known).
 function rerender() {
   if (state.view === 'overview') renderOverview();
+  if (state.view === 'aim') renderAimPage();
   if (state.view === 'maps') renderMaps();
   if (state.view === 'utility') renderUtility();
   if (state.view === 'matches') { renderDemoList(); renderDetail(); }
@@ -126,22 +132,28 @@ const THEMES = [
   { id: 'classic', group: 'DemoLab', name: 'Classic', base: '#0a0e16', accent: '#ff9d2e', data: '#4f8dff', pattern: 'grid' },
   { id: 'midnight', group: 'DemoLab', name: 'Midnight', base: '#0c0b16', accent: '#9d8bff', pattern: 'tri' },
   { id: 'graphite', group: 'DemoLab', name: 'Graphite', base: '#0e0f11', accent: '#d9dee5', pattern: 'diag' },
-  { id: 'vitality', group: 'Teams', name: 'Vitality', logo: 'vita', base: '#0b0a05', accent: '#ffe500', pattern: 'hex' },
+  // Teams: HLTV's top 15 (October 2026) first, then the other teams CS2 has a logo for.
   { id: 'spirit', group: 'Teams', name: 'Team Spirit', logo: 'spir', base: '#0a0a0b', accent: '#f2f2f2', data: '#a7b0bd', pattern: 'tri' },
-  { id: 'navi', group: 'Teams', name: 'NAVI', logo: 'navi', base: '#080b11', accent: '#fff200', pattern: 'diag' },
+  { id: 'vitality', group: 'Teams', name: 'Vitality', logo: 'vita', base: '#0b0a05', accent: '#ffe500', pattern: 'hex' },
   { id: 'mouz', group: 'Teams', name: 'MOUZ', logo: 'mouz', base: '#0f0a0c', accent: '#ff3352', pattern: 'dots' },
-  { id: 'falcons', group: 'Teams', name: 'Team Falcons', logo: 'fal', base: '#07100b', accent: '#00c46a', pattern: 'hex' },
   { id: 'furia', group: 'Teams', name: 'FURIA', logo: 'furi', base: '#0b0b0b', accent: '#f0f0f0', data: '#9aa4b1', pattern: 'diag' },
-  { id: 'mongolz', group: 'Teams', name: 'The MongolZ', logo: 'mngz', base: '#100c06', accent: '#f2b53a', pattern: 'hex' },
+  { id: 'falcons', group: 'Teams', name: 'Team Falcons', logo: 'fal', base: '#07100b', accent: '#00c46a', pattern: 'hex' },
   { id: 'aurora', group: 'Teams', name: 'Aurora', logo: 'aura', base: '#06100f', accent: '#2ed3c4', pattern: 'tri' },
+  { id: 'legacy', group: 'Teams', name: 'Legacy', logo: 'lgcy', base: '#0f0c05', accent: '#f5c021', pattern: 'hex' },
   { id: 'g2', group: 'Teams', name: 'G2 Esports', logo: 'g2', base: '#0b0b0c', accent: '#ff2b2b', data: '#ececec', pattern: 'grid' },
+  { id: 'fut', group: 'Teams', name: 'FUT Esports', logo: 'fut', base: '#0f0909', accent: '#ef2b36', pattern: 'grid' },
+  { id: 'navi', group: 'Teams', name: 'NAVI', logo: 'navi', base: '#080b11', accent: '#fff200', pattern: 'diag' },
+  { id: 'parivision', group: 'Teams', name: 'PARIVISION', logo: 'pari', base: '#06100e', accent: '#14e0c4', pattern: 'diag' },
+  { id: 'mibr', group: 'Teams', name: 'MIBR', logo: 'mibr', base: '#0b0c0e', accent: '#e9edf2', data: '#8fa3b8', pattern: 'hex' },
+  { id: 'betboom', group: 'Teams', name: 'BetBoom', logo: 'bb', base: '#100709', accent: '#ff2d4b', pattern: 'diag' },
+  { id: 'astralis', group: 'Teams', name: 'Astralis', logo: 'astr', base: '#0a0d18', accent: '#ff2d3c', pattern: 'tri' },
   { id: 'faze', group: 'Teams', name: 'FaZe Clan', logo: 'faze', base: '#0e0a0a', accent: '#e8392c', pattern: 'tri' },
+  { id: 'mongolz', group: 'Teams', name: 'The MongolZ', logo: 'mngz', base: '#100c06', accent: '#f2b53a', pattern: 'hex' },
   { id: 'liquid', group: 'Teams', name: 'Team Liquid', logo: 'liq', base: '#08101c', accent: '#3fa0ff', pattern: 'diag' },
   { id: 'pain', group: 'Teams', name: 'paiN Gaming', logo: 'pain', base: '#0f0909', accent: '#ff2e3a', pattern: 'grid' },
   { id: '3dmax', group: 'Teams', name: '3DMAX', logo: '3dm', base: '#0f0809', accent: '#ff2e4d', pattern: 'diag' },
   { id: 'vp', group: 'Teams', name: 'Virtus.pro', logo: 'vp', base: '#100a06', accent: '#ff7a21', pattern: 'dots' },
   { id: 'heroic', group: 'Teams', name: 'HEROIC', logo: 'hero', base: '#0e0809', accent: '#ff3b4e', pattern: 'tri' },
-  { id: 'astralis', group: 'Teams', name: 'Astralis', logo: 'astr', base: '#0a0d18', accent: '#ff2d3c', pattern: 'tri' },
   { id: 'nip', group: 'Teams', name: 'NiP', logo: 'nip', base: '#0a0d06', accent: '#c8f000', pattern: 'hex' },
   { id: 'fnatic', group: 'Teams', name: 'Fnatic', logo: 'fntc', base: '#0d0906', accent: '#ff5900', pattern: 'grid' },
   { id: 'ence', group: 'Teams', name: 'ENCE', logo: 'ence', base: '#0a0d16', accent: '#f7a428', pattern: 'dots' },
@@ -164,13 +176,13 @@ const THEMES = [
 // Names for the other logos CS2 ships, for the custom theme (codes without a name show in capitals).
 const TEAM_NAMES = {
   ...Object.fromEntries(THEMES.filter(t => t.logo).map(t => [t.logo, t.name])),
-  big: 'BIG', mibr: 'MIBR', gl: 'GamerLegion', imp: 'Imperial', lynn: 'Lynn Vision', b8: 'B8', cplx: 'Complexity', og: 'OG', saw: 'SAW',
+  big: 'BIG', gl: 'GamerLegion', imp: 'Imperial', lynn: 'Lynn Vision', b8: 'B8', cplx: 'Complexity', og: 'OG', saw: 'SAW',
   mont: 'Monte', wcrd: 'Wildcard', fq: 'FlyQuest', gamb: 'Gambit', sk: 'SK Gaming', koi: 'KOI', m80: 'M80', nrg: 'NRG', optc: 'OpTic',
   ren: 'Renegades', spr: 'Sprout', thv: '100 Thieves', tsm: 'TSM', vega: 'Vega Squadron', evl: 'Evil Geniuses', clg: 'CLG', dig: 'Dignitas',
   nv: 'EnVyUs', hlr: 'HellRaisers', col: 'compLexity', god: 'GODSENT', nor: 'North', ad: 'Astana Dragons', amka: 'AMKAL', apex: 'Apeks',
   avg: 'AVANGAR', bne: 'Bad News Eagles', cw: 'Copenhagen Wolves', ent: 'Entropiq', flip: 'Flipsid3', forz: 'forZe', gray: 'Grayhound',
-  intz: 'INTZ', king: 'Kinguin', lgcy: 'Legacy', meti: 'Metizport', mss: 'mousesports', nemi: 'Nemiga', out: 'Outsiders', pari: 'PARIVISION',
-  rog: 'Rogue', spc: 'Space Soldiers', splc: 'Splyce', tit: 'Titan', wins: 'Winstrike', ecst: 'ECSTATIC', ence: 'ENCE', penta: 'PENTA',
+  intz: 'INTZ', king: 'Kinguin', meti: 'Metizport', mss: 'mousesports', nemi: 'Nemiga', out: 'Outsiders',
+  rog: 'Rogue', spc: 'Space Soldiers', splc: 'Splyce', tit: 'Titan', wins: 'Winstrike', ecst: 'ECSTATIC', penta: 'PENTA',
 };
 const teamName = code => TEAM_NAMES[code] || code.toUpperCase();
 const CUSTOM_THEME = { id: 'custom', group: 'Custom', name: 'Custom', base: '#0b0f13', accent: '#2fd8a4', data: '', map: '', shot: '', logo: '', pattern: 'dots' };
@@ -288,6 +300,7 @@ async function loadProfile() {
   if (state.who) loadOther();
   else if (state.view === 'overview') renderOverview();
   if (state.view === 'maps' && !state.mp.map) renderMaps();
+  if (state.view === 'aim') renderAimPage();
 }
 let profileTimer = 0;
 const reloadProfileSoon = () => { clearTimeout(profileTimer); profileTimer = setTimeout(loadProfile, 1500); };
@@ -756,19 +769,6 @@ function showInReplay(steamid, tick) {
   else { state.tab = 'radar'; renderDetail(); }
 }
 
-// ---------- Radar images (shared by the heatmaps, the Maps page and the 2D replay) ----------
-// Bundled in radar/ by scripts/extract-radars.js: 1024 px images plus, per map, the world position of
-// the image's upper-left corner and the world units per pixel. Two-floor maps have a _lower image.
-const RADAR_SIZE = 1024;
-let radarMaps = null;
-const radarImages = new Map();
-function radarInfo(map) {
-  if (!radarMaps) {
-    radarMaps = {};
-    api.radarMaps().then(m => { radarMaps = m; rerender(); }).catch(() => {});
-    return undefined; // still loading
-  }
-  return radarMaps[map] || radarMaps[(map || '').replace(/_(night|v\d)$/, '')] || null;
 // ---------- Map pictures from CS2 (Maps page, map themes) ----------
 // The map-picker screenshot (the one chosen for the map's theme, else the first) and the map's vector
 // emblem, read from the player's CS2 install; null when CS2 or the picture isn't there.
@@ -794,6 +794,19 @@ function artImg(cls, url, missing = img => img.remove()) {
 }
 const mapEmblem = (map, cls) => artImg(cls, mapIconUrl(map));
 
+// ---------- Radar images (shared by the heatmaps, the Maps page and the 2D replay) ----------
+// Bundled in radar/ by scripts/extract-radars.js: 1024 px images plus, per map, the world position of
+// the image's upper-left corner and the world units per pixel. Two-floor maps have a _lower image.
+const RADAR_SIZE = 1024;
+let radarMaps = null;
+const radarImages = new Map();
+function radarInfo(map) {
+  if (!radarMaps) {
+    radarMaps = {};
+    api.radarMaps().then(m => { radarMaps = m; rerender(); }).catch(() => {});
+    return undefined; // still loading
+  }
+  return radarMaps[map] || radarMaps[(map || '').replace(/_(night|v\d)$/, '')] || null;
 }
 function radarImage(src) {
   if (!radarImages.has(src)) {
@@ -3640,6 +3653,7 @@ api.onHlaeUpdate(u => {
 // Theme gallery (DemoLab, teams, maps) plus a custom theme. Previews use the same pictures as the
 // backdrop; a map theme also offers the other screenshots CS2 has of that map.
 const PATTERN_NAMES = [['', 'None'], ['hex', 'Hexagons'], ['tri', 'Triangles'], ['grid', 'Grid'], ['diag', 'Stripes'], ['dots', 'Dots']];
+// A map theme shows the map's emblem with the two bars beside it, like a title next to an icon.
 function themePreview(t) {
   const p = h('span', { class: `theme-prev ${t.group === 'Maps' ? 'map' : ''}`, style: { '--sw-base': t.base, '--sw-accent': t.accent, '--sw-data': t.data || t.accent } });
   const tile = !t.map && Scene.patternTile(t.pattern, t.accent);
@@ -3652,7 +3666,6 @@ function themePreview(t) {
     // Shown once both the picture and its look (neon or lit, see Scene.teamLook) are known.
     let waiting = 2;
     const ready = () => { if (!--waiting) img.classList.add('ready'); };
-// A map theme shows the map's emblem with the two bars beside it, like a title next to an icon.
     const img = h('img', { class: 'tp-logo', alt: '', onload: ready });
     Scene.teamUrl(t.logo).then(u => { if (u) img.src = u; });
     Scene.teamLook(t.logo).then(look => { img.style.filter = Scene.neonFilter(`sw-neon-${t.id}`, t.accent, 0.32, look); ready(); });

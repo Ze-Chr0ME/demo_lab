@@ -54,20 +54,22 @@ const Scene = (() => {
   // one brightness would slice shading into random contours. k scales the line width to the size the logo
   // is shown at (1 ≈ 300 px).
   function neonFilter(id, color, k = 1, look = 'neon') {
-    const f = n => +(n * k).toFixed(2);
+    // Glows follow the size; lines (w) stop thinning below k = 0.7, else on a small preview the edges
+    // inside a logo get thinner than a pixel and vanish, leaving a bare outline or specks.
+    const f = n => +(n * k).toFixed(2), w = n => +(n * Math.max(k, 0.7)).toFixed(2);
     let node = defs.querySelector(`#${id}`);
     if (!node) { node = document.createElementNS('http://www.w3.org/2000/svg', 'filter'); node.id = id; defs.append(node); }
     node.setAttribute('x', '-30%'); node.setAttribute('y', '-30%'); node.setAttribute('width', '160%'); node.setAttribute('height', '160%');
     node.setAttribute('color-interpolation-filters', 'sRGB');
     const outline = `
-      <feMorphology in="SourceAlpha" operator="dilate" radius="${f(2.2)}" result="dil"/>
-      <feMorphology in="SourceAlpha" operator="erode" radius="${f(1)}" result="ero"/>
+      <feMorphology in="SourceAlpha" operator="dilate" radius="${w(2.2)}" result="dil"/>
+      <feMorphology in="SourceAlpha" operator="erode" radius="${w(1)}" result="ero"/>
       <feComposite in="dil" in2="ero" operator="out" result="ring"/>`;
     const tube = `
       <feFlood flood-color="${color}"/><feComposite in2="lines" operator="in" result="line"/>
       <feGaussianBlur in="line" stdDeviation="${f(3)}" result="g1"/>
       <feGaussianBlur in="line" stdDeviation="${f(16)}" result="g2"/>
-      <feMorphology in="lines" operator="erode" radius="${f(0.9)}" result="thin"/>
+      <feMorphology in="lines" operator="erode" radius="${w(0.9)}" result="thin"/>
       <feFlood flood-color="#fff" flood-opacity=".55"/><feComposite in2="thin" operator="in" result="core"/>`;
     node.innerHTML = look === 'lit' ? `${outline}
       <feMerge result="lines"><feMergeNode in="ring"/></feMerge>${tube}
@@ -83,8 +85,8 @@ const Scene = (() => {
       : `${outline}
       <feColorMatrix in="SourceGraphic" type="luminanceToAlpha" result="lum"/>
       <feComponentTransfer in="lum" result="lumT"><feFuncA type="discrete" tableValues="0 0 1 1 1"/></feComponentTransfer>
-      <feMorphology in="lumT" operator="dilate" radius="${f(1.2)}" result="ld"/>
-      <feMorphology in="lumT" operator="erode" radius="${f(0.6)}" result="le"/>
+      <feMorphology in="lumT" operator="dilate" radius="${w(1.2)}" result="ld"/>
+      <feMorphology in="lumT" operator="erode" radius="${w(0.6)}" result="le"/>
       <feComposite in="ld" in2="le" operator="out" result="lring"/>
       <feComposite in="lring" in2="ero" operator="in" result="inner"/>
       <feMerge result="lines"><feMergeNode in="ring"/><feMergeNode in="inner"/></feMerge>${tube}
@@ -94,7 +96,8 @@ const Scene = (() => {
   }
 
   // Which look suits a logo: drawn small, a logo whose pixels spread over many brightness levels has
-  // shading (gradients, metal, a painted face) rather than a few flat colors, and gets the 'lit' look.
+  // shading (gradients, metal, a painted face) rather than a few flat colors, and gets the 'lit' look;
+  // so does a very detailed one.
   // The SVG is drawn from its text (a file:// picture would make the canvas unreadable) without the
   // parts Illustrator keeps for itself.
   async function measureLook(svg) {
@@ -109,16 +112,30 @@ const Scene = (() => {
     ctx.drawImage(img, 0, 0, N, N);
     const px = ctx.getImageData(0, 0, N, N).data;
     const bins = new Array(12).fill(0);
+    const lum = new Float32Array(N * N).fill(-1);
     let area = 0;
     for (let i = 0; i < px.length; i += 4) {
       if (px[i + 3] < 200) continue;
       area++;
-      bins[Math.min(11, Math.floor((0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]) / 255 * 12))]++;
+      const l = (0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]) / 255;
+      lum[i / 4] = l;
+      bins[Math.min(11, Math.floor(l * 12))]++;
     }
     if (!area) return 'neon';
     const top3 = bins.slice().sort((a, b) => b - a).slice(0, 3).reduce((a, b) => a + b, 0);
     const tones = bins.filter(n => n >= area * 0.03).length;
-    return tones >= 6 || 1 - top3 / area > 0.22 ? 'lit' : 'neon';
+    // A detailed drawing (ENCE's face, The MongolZ) has many edges between its light and dark parts (cut
+    // where the neon look cuts them); drawn as tubes they turn into a tangle. Flat logos stay under ~16
+    // edge pixels per √area, these two are near 30.
+    let edges = 0;
+    for (let y = 1; y < N - 1; y++) {
+      for (let x = 1; x < N - 1; x++) {
+        const l = lum[y * N + x];
+        if (l < 0) continue;
+        if ([1, -1, N, -N].some(d => { const m = lum[y * N + x + d]; return m >= 0 && (m >= 0.4) !== (l >= 0.4); })) edges++;
+      }
+    }
+    return tones >= 6 || 1 - top3 / area > 0.22 || edges / Math.sqrt(area) > 22 ? 'lit' : 'neon';
   }
 
   // ---------- Pictures ----------
@@ -131,6 +148,7 @@ const Scene = (() => {
   }
   const shotUrl = (shot, thumb = false) => resolve(`shot:${shot}${thumb ? ':thumb' : ''}`, () => api.artShot(shot, thumb));
   const teamUrl = code => resolve(`team:${code}`, () => api.artTeam(code));
+  const mapIconUrl = map => resolve(`icon:${map}`, () => api.artMapIcon(map));
   const looks = new Map(); // team code → Promise of 'neon' | 'lit'
   const teamLook = code => {
     if (!looks.has(code)) looks.set(code, api.artTeamSvg(code).then(svg => (svg ? measureLook(svg) : 'neon')).catch(() => 'neon'));
@@ -148,7 +166,6 @@ const Scene = (() => {
   function set(t, onResolved) {
     const my = ++token;
     kind = t.scene || 'pattern';
-  const mapIconUrl = map => resolve(`icon:${map}`, () => api.artMapIcon(map));
     root.dataset.kind = kind;
     document.documentElement.dataset.scene = kind;
     const tile = patternTile(t.pattern, t.accent);

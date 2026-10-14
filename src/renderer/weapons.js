@@ -1,4 +1,4 @@
-/* global api, state, h, fmtNum, spinner, select, renderDetail, povId, aimLevel, AIM_STATS */
+/* global api, state, h, fmtNum, spinner, select, renderDetail, povId, aimLevel, AIM_STATS, $, mapName, PERIODS, openPlayer, icon, ICONS */
 'use strict';
 // The Weapons tab: per weapon kills, damage, accuracy and kill types, and where the bullets landed on
 // the body. Filters (rounds, player, team, side, weapon type) and the weapon selection only repaint
@@ -51,6 +51,9 @@ function weaponsData() {
   return null;
 }
 
+const newWeaponRow = w => ({ w, type: wpType(w), kills: 0, hs: 0, wall: 0, smoke: 0, noscope: 0, blind: 0, air: 0, distSum: 0, distN: 0,
+  dmg: 0, hits: 0, bodyHits: 0, headHits: 0, shotHits: 0, shots: 0, groups: {} });
+
 // Everything the current filters let through, added up per weapon.
 function weaponRows(v, f) {
   const half = new Map(v.rounds.map(r => [r.num, r.half]));
@@ -63,8 +66,7 @@ function weaponRows(v, f) {
     && (f.team === 'all' || (f.team === 'mine') === (team[id] === myTeam)) && (f.side === 'all' || side === f.side)
     && (f.type === 'all' || wpType(w) === f.type);
   const by = new Map();
-  const row = w => by.get(w) || by.set(w, { w, type: wpType(w), kills: 0, hs: 0, wall: 0, smoke: 0, noscope: 0, blind: 0, air: 0, distSum: 0, distN: 0,
-    dmg: 0, hits: 0, bodyHits: 0, headHits: 0, shotHits: 0, shots: 0, groups: {} }).get(w);
+  const row = w => by.get(w) || by.set(w, newWeaponRow(w)).get(w);
   for (const [round, id, side, w, flags, dist] of v.kills) {
     if (!ok(round, id, side, w)) continue;
     const r = row(w);
@@ -103,6 +105,7 @@ const accuracyOf = r => (r.shots && r.type !== 'grenades' && r.type !== 'other' 
 const WP_METRICS = {
   general: [
     ['kills', 'Kills', 'Enemies killed', r => r.kills],
+    ['hsp', 'HS %', 'Share of the kills that were headshots', r => (r.kills ? r.hs / r.kills : -1), r => pctTxt(r.hs, r.kills, 0)],
     ['dmg', 'Damage', 'Damage dealt to enemies (capped at the health they had left)', r => r.dmg, r => fmtNum(r.dmg)],
     ['head', 'Head hit %', 'Share of the bullets that hit someone that hit the head', r => (r.bodyHits ? r.headHits / r.bodyHits : -1),
       r => pctTxt(r.headHits, r.bodyHits), r => (r.bodyHits >= 10 ? aimLevel(AIM_STATS[3], r.headHits / r.bodyHits) : '')],
@@ -140,15 +143,6 @@ function paintWeapons(root, v) {
   const f = { rounds: 'all', team: 'all', side: 'all', type: 'all', ...wp.f };
   f.player = wp.f.player ?? (v.players.some(p => p.steamid === pov) ? pov : 'all');
   const { rows, myTeam } = weaponRows(v, f);
-  const metric = WP_METRICS[wp.metric] ? wp.metric : 'general';
-  const cols = WP_METRICS[metric];
-  const sort = wp.sort?.metric === metric ? wp.sort : { metric, col: cols[0][0], dir: -1 };
-  const col = cols.find(c => c[0] === sort.col) || cols[0];
-  rows.sort((a, b) => sort.dir * (col[3](a) - col[3](b)) || b.kills - a.kills || b.dmg - a.dmg);
-
-  const sel = rows.filter(r => wp.sel.has(r.w));
-  const shown = sel.length ? sel : rows;
-  const tot = sumRows(shown), all = sumRows(rows);
 
   // ---- filters
   const setF = (k, val) => { wp.f = { ...wp.f, [k]: val }; repaint(); };
@@ -166,10 +160,26 @@ function paintWeapons(root, v) {
     h('span', { class: 'spacer' }),
     Object.keys(wp.f).length ? h('button', { class: 'link-btn', onclick: () => { wp.f = {}; repaint(); } }, 'Reset filters') : null);
 
+  root.replaceChildren(filters, ...weaponBoard(rows, wp, repaint));
+}
+
+// The totals, the weapon list and the body hit map for rows already added up per weapon. wp keeps the
+// weapon selection, metric tab and sort (state.wp for a match, state.ap for the Aim page).
+function weaponBoard(rows, wp, repaint, { kills: killsSub } = {}) {
+  const metric = WP_METRICS[wp.metric] ? wp.metric : 'general';
+  const cols = WP_METRICS[metric];
+  const sort = wp.sort?.metric === metric ? wp.sort : { metric, col: cols[0][0], dir: -1 };
+  const col = cols.find(c => c[0] === sort.col) || cols[0];
+  rows.sort((a, b) => sort.dir * (col[3](a) - col[3](b)) || b.kills - a.kills || b.dmg - a.dmg);
+
+  const sel = rows.filter(r => wp.sel.has(r.w));
+  const shown = sel.length ? sel : rows;
+  const tot = sumRows(shown), all = sumRows(rows);
+
   // ---- totals (of the selected weapons, else of everything shown)
   const kpi = (k, val, sub, tip) => h('div', { class: 'wp-kpi', title: tip || '' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, val, sub ? h('small', {}, sub) : null));
   const kpis = h('div', { class: 'wp-kpis' },
-    kpi('Total kills', fmtNum(tot.kills)),
+    kpi('Total kills', fmtNum(tot.kills), killsSub ? killsSub(tot) : null),
     kpi('Total damage', fmtNum(tot.dmg)),
     kpi('Headshot rate', pctTxt(tot.hs, tot.kills), `${tot.hs} HS`, 'Kills with a headshot'),
     kpi('Total hits', fmtNum(tot.bodyHits), null, 'Bullet hits on enemies'),
@@ -196,12 +206,11 @@ function paintWeapons(root, v) {
     head,
     ...(list.length ? list : [h('div', { class: 'muted-note' }, 'No kills, damage or shots with these filters.')]));
 
-  root.replaceChildren(filters, kpis, h('div', { class: 'wp-layout' }, left, hitPanel(tot, sel, rows)));
+  return [kpis, h('div', { class: 'wp-layout' }, left, hitPanel(tot, sel, rows, wp))];
 }
 
 // The body with each hit group shaded by its share of the hits, and the numbers under it.
-function hitPanel(t, sel, rows) {
-  const wp = state.wp;
+function hitPanel(t, sel, rows, wp) {
   const total = Object.values(t.groups).reduce((a, [n]) => a + n, 0);
   const max = Math.max(1, ...Object.values(t.groups).map(([n]) => n));
   const fill = g => { const n = t.groups[g]?.[0] || 0; return n ? `color-mix(in srgb, var(--accent) ${Math.round(22 + 78 * n / max)}%, var(--panel-3))` : 'var(--panel-3)'; };
@@ -235,4 +244,93 @@ function hitPanel(t, sel, rows) {
   panel.addEventListener('mouseover', e => { const el = e.target.closest('[data-g]'); light(el ? el.dataset.g : null); });
   panel.addEventListener('mouseleave', () => light(null));
   return panel;
+}
+
+// ---------- Aim page ----------
+// The same weapon list and hit map over every match read so far, for me (or the player shown on the
+// overview). Each match comes from main as per side + weapon totals (weapons:all), added up here.
+state.ap = { key: null, data: null, loading: null, sel: new Set(), f: {}, metric: 'general', sort: null, hover: null };
+
+function aimPageData() {
+  const ap = state.ap;
+  const who = state.who || '';
+  const key = `${who}|${state.demos.filter(d => d.summary).length}`;
+  if (ap.data?.who !== who) { ap.sel = new Set(); if (ap.data) ap.data = null; }
+  if (ap.key !== key && ap.loading !== key) {
+    ap.loading = key;
+    api.weaponsAll(who || null)
+      .then(v => { ap.data = { who, value: v }; })
+      .catch(e => { ap.data = { who, error: e.message }; })
+      .finally(() => { ap.key = key; if (ap.loading === key) ap.loading = null; if (state.view === 'aim') renderAimPage(); });
+  }
+  return ap.data;
+}
+
+function aimPageMatches(all, f) {
+  let list = all.filter(m => (f.mode === 'all' || m.mode === f.mode) && (f.map === 'all' || m.map === f.map));
+  list.sort((a, b) => b.date - a.date);
+  if (/d$/.test(f.period)) { const since = Date.now() - parseInt(f.period, 10) * 86400000; list = list.filter(m => m.date >= since); }
+  else if (f.period !== 'all') list = list.slice(0, +f.period);
+  return list;
+}
+
+function aimPageRows(list, f) {
+  const by = new Map();
+  for (const m of list) {
+    for (const [side, w, kills, hs, wall, smoke, noscope, blind, air, distSum, distN, dmg, hits, bodyHits, headHits, shotHits, shots, groups] of m.rows) {
+      if ((f.side !== 'all' && side !== f.side) || (f.type !== 'all' && wpType(w) !== f.type)) continue;
+      const r = by.get(w) || by.set(w, newWeaponRow(w)).get(w);
+      r.kills += kills; r.hs += hs; r.wall += wall; r.smoke += smoke; r.noscope += noscope; r.blind += blind; r.air += air;
+      r.distSum += distSum; r.distN += distN; r.dmg += dmg; r.hits += hits; r.bodyHits += bodyHits; r.headHits += headHits;
+      r.shotHits += shotHits; r.shots += shots;
+      for (const [g, [n, d]] of Object.entries(groups)) { const x = r.groups[g] ||= [0, 0]; x[0] += n; x[1] += d; }
+    }
+  }
+  return [...by.values()].filter(r => r.kills || r.dmg || r.shots);
+}
+
+function renderAimPage() {
+  const view = $('#view-aim');
+  const page = (...body) => view.replaceChildren(h('div', { class: 'page ap-page' }, ...body));
+  const other = !!state.who;
+  const name = other ? state.other?.name || 'This player' : state.profile?.name || '';
+  const back = other ? h('button', { class: 'btn', onclick: () => { state.who = null; renderAimPage(); } }, '← My aim') : null;
+  const st = aimPageData();
+  if (!st) return page(h('div', { class: 'empty' }, spinner(28), h('h2', {}, 'Adding up every bullet of every match…'), h('div', {}, 'The first time takes a moment: each match is added up once and kept.')));
+  if (st.error) return page(h('div', { class: 'empty' }, h('h2', {}, 'Could not add up the weapon stats'), h('div', { class: 'err-box' }, st.error)));
+  const v = st.value;
+  if (!v.steamid) return page(h('div', { class: 'empty' }, h('h2', {}, 'Which player are you?'), h('div', {}, 'No Steam account was found on this PC. Enter your SteamID64 in Settings → Counter-Strike 2.')));
+  const pending = Math.max(v.pending, state.demos.filter(d => !d.summary && !d.failed).length);
+  if (!v.matches.length) {
+    return page(h('div', { class: 'empty' }, pending ? spinner(28) : icon(ICONS.demo, 'class="big"'),
+      h('h2', {}, pending ? `Reading your demos… ${pending} left` : other ? 'No matches with this player' : 'No matches with you yet'),
+      h('div', {}, 'Weapon stats appear here as soon as the first demos are read.'), back ? h('div', { style: { marginTop: '14px' } }, back) : null));
+  }
+
+  const ap = state.ap, repaint = () => renderAimPage();
+  const f = { mode: 'all', map: 'all', period: 'all', side: 'all', type: 'all', ...ap.f };
+  const modes = [...new Set(v.matches.map(m => m.mode).filter(Boolean))];
+  const maps = [...new Set(v.matches.map(m => m.map))].sort((a, b) => mapName(a).localeCompare(mapName(b)));
+  if (f.map !== 'all' && !maps.includes(f.map)) f.map = 'all';
+  const list = aimPageMatches(v.matches, f);
+  const rows = aimPageRows(list, f);
+  const types = new Set(aimPageRows(list, { ...f, type: 'all' }).map(r => r.type));
+  const setF = (k, val) => { ap.f = { ...ap.f, [k]: val }; repaint(); };
+
+  const head = h('div', { class: 'page-head' },
+    h('div', { class: 'dash-title' },
+      h('h2', {}, 'Aim', other ? h('span', { class: 'dash-tag', title: `SteamID ${v.steamid}` }, name) : null),
+      h('div', { class: 'sub' }, `Every weapon over ${list.length} match${list.length === 1 ? '' : 'es'}`,
+        pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null)),
+    h('span', { class: 'spacer' }), back);
+  const filters = h('div', { class: 'filters wp-filters' },
+    modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], x => setF('mode', x)) : null,
+    select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], x => setF('map', x)),
+    select(f.period, PERIODS, x => setF('period', x)),
+    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x)),
+    select(f.type, [['all', 'All weapon types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x)),
+    h('span', { class: 'spacer' }),
+    Object.keys(ap.f).length ? h('button', { class: 'link-btn', onclick: () => { ap.f = {}; repaint(); } }, 'Reset filters') : null);
+  if (!list.length) return page(head, filters, h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.')));
+  page(head, filters, ...weaponBoard(rows, ap, repaint, { kills: t => `${(t.kills / list.length).toFixed(1)} / match` }));
 }
