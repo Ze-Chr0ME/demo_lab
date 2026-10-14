@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('api', {
   env: () => call('env:get'),
   getSettings: () => call('settings:get'),
   setSettings: patch => call('settings:set', patch),
+  setWindowIcon: png => call('window:icon', png),
   pickFolder: title => call('dialog:folder', title),
   pickFile: (title, filters) => call('dialog:file', title, filters),
   listDemos: () => call('demos:list'),

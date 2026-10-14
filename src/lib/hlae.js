@@ -106,8 +106,22 @@ class HlaeSession {
     if (!this.sock) throw new Error('Lost the connection to CS2 (did it close or crash?).');
     for (const c of [].concat(cmds)) {
       this.sock.write(c + '\r\n');
-      await sleep(120);
+      await sleep(40);
     }
+  }
+
+  // Current value of a console variable (CS2 prints "name = value" when given just the name), or null.
+  async query(cvar, ms = 3000) {
+    const from = this.buf.length;
+    await this.send([cvar]);
+    const re = new RegExp(`\\b${cvar}\\s*=\\s*"?(-?[\\d.]+)`);
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      const m = re.exec(this.buf.slice(from));
+      if (m) return m[1];
+      await sleep(100);
+    }
+    return null;
   }
 
   mark() { this.buf = ''; }

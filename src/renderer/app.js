@@ -213,6 +213,34 @@ function applyTheme(t) {
   // The picture URLs are cached with the theme so the next start shows them straight away.
   Scene.set(t, urls => { Object.assign(t, urls); remember(t); });
   remember(t);
+  windowIcon();
+}
+// The taskbar icon follows the theme: the top bar's logo, with its colors resolved, drawn at 256 px.
+// Debounced, as dragging a custom color applies the theme many times a second.
+let iconTimer = 0;
+function windowIcon() {
+  clearTimeout(iconTimer);
+  iconTimer = setTimeout(() => {
+    const live = document.querySelector('.brand-mark');
+    if (!live || !window.api?.setWindowIcon) return;
+    const svg = live.cloneNode(true), copies = svg.querySelectorAll('*');
+    live.querySelectorAll('*').forEach((el, i) => {
+      const cs = getComputedStyle(el);
+      for (const p of ['fill', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin', 'stop-color']) copies[i].style.setProperty(p, cs.getPropertyValue(p));
+    });
+    svg.querySelector('.bm-badge').style.fill = 'url(#bmFill)';
+    svg.querySelector('.bm-reticle').style.transform = '';
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svg.setAttribute('width', 256); svg.setAttribute('height', 256);
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 256;
+      c.getContext('2d').drawImage(img, 0, 0, 256, 256);
+      try { window.api.setWindowIcon(c.toDataURL('image/png')).catch(() => {}); } catch {}
+    };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+  }, 150);
 }
 // The last theme is cached so the window opens in it before the settings have loaded.
 try { const t = JSON.parse(localStorage.getItem('theme')); if (t?.base) applyTheme(t); } catch {}
