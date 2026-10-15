@@ -12,6 +12,18 @@ recordings into clips and montages.
 
 ## Setup
 
+### With the installer
+
+Run **`CS2-DemoLab-Setup-<version>.exe`**. It installs DemoLab for your Windows account (no admin
+rights), with ffmpeg included, and adds Start menu and desktop shortcuts. You still need **Steam** and
+**CS2**, and the **[Visual C++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe)**
+(usually already installed by Steam games). Then do step 2 below (Install HLAE).
+
+To build the installer yourself: `npm install --no-save electron-builder@26`, then `npm run dist`. It
+copies the ffmpeg and ffprobe DemoLab finds on your PC into the installer and writes it to `dist\`.
+
+### From the source
+
 You need:
 
 - **Windows 10/11 (64-bit)** with **Steam** and **CS2** installed (start CS2 once so its folders exist).
@@ -45,6 +57,30 @@ one your last 10 matches. Below: rating per match, your last matches, clutches p
 and rounds won per side, multi-kills, maps, weapons and the teammates you play with most. Filter it by
 mode (5v5, Wingman, Rush), map and period. Click a result, a recent match or a point on the chart to open
 that match, or a map to open it in **Maps**.
+
+**Compare** (on the Overview, or in the top bar) puts you next to any player from your demos, or next to
+**your lobbies**: the median of every player in every demo you have. Each stat shows how many of your
+lobbies' player-matches it beats, so a 1.10 rating reads as "better than 68%". **Only your shared
+matches** compares two players on the same games. Aim numbers are ranked from your lobbies' quartiles.
+
+## Death review
+
+Every death is checked for what went wrong, and the Overview adds them up (**Deaths**; click a line for
+those deaths across your matches, each one opens in its match's 2D replay):
+
+- **Died alone**: not traded, and no living teammate within 1,100 units, so nobody could trade you.
+- **Not traded**: a teammate was close, but nobody killed your killer within 5 seconds.
+- **Grenades unused**: you died with grenades in hand.
+- **Entry without utility**: the first death of a T round, without a team grenade landing near the fight.
+- **Caught off guard**: the killer came into view with your crosshair 15° or more from their head, hit
+  first and killed you (about the worst quarter of engagements in your lobbies). Measured matches only.
+- **Fought on low HP**, **Died blind**, **Team-flashed**, **After the round** (a saved gun lost).
+
+Some tags only describe the fight: **Out-aimed** (your crosshair was close, they were faster),
+**Crossfire**, **Never saw them**, **Hit first, lost** and **Opening death**. The **Deaths** tab of a
+match lists that match's deaths with these tags, the killer, the weapon and the callout, and opens each
+one in the 2D replay or in CS2. The thresholds were checked on 1,015 deaths from 14 of your matches. The
+positions it needs are read once per demo (about a second); older demos get them in the background.
 
 ## Themes
 
@@ -113,6 +149,7 @@ Each match opens on its scoreboard and has five tabs:
   reconstruction, which is usually within about ±0.02 of HLTV's number. Click a column to sort it, or a
   player to view the match (heatmap, highlights) as them.
 - **Duels**: who killed whom, for all kills or only each round's opening duel.
+- **Deaths**: the point-of-view player's deaths, tagged (see **Death review**).
 - **Heatmap**: where the selected player got kills, died, shot from, dealt or took damage, and where
   their grenades landed, split into T side and CT side like csstats.gg. It can show this match or every
   analyzed match on the same map. Nuke, Train and Vertigo have a floor switch, and Rush zooms to one room.
@@ -197,6 +234,24 @@ folder, under CS2's own file names:
   still click **Download again**.
 - Valve deletes replays after a few weeks, so only recent matches can be downloaded.
 
+## New matches
+
+A demo that arrives while DemoLab is open (from the Downloads tab, from CS2's Watch tab or copied into
+a demo folder), or that arrived since DemoLab last ran, is read and measured straight away. A Windows
+notification then sums it up: score, your K–D, rating and ADR, the highlights to clip and your most
+common death mistake. Click it to open the match. While CS2 is running this runs at below-normal
+priority on fewer cores. **Settings → New matches** turns it, the measuring or the notification off.
+When DemoLab runs from the source instead of the installer, Windows may not show the notification; the
+taskbar button flashes either way.
+
+## Utility
+
+**Utility** keeps the grenade lineups you want to remember: where to stand, where to aim, how to throw,
+pictures, and a practice quiz. **Share** on a lineup (or **Share these** for the whole list shown) copies
+it as one line of text starting with `DLU1-`, about 250 characters per lineup with its flight path, to
+paste in Discord or a chat. **Import code** reads one or more codes and shows what's in them before
+adding anything; lineups you already have are skipped. Pictures stay on your PC.
+
 ## If something looks off
 
 | Problem | Fix |
@@ -240,6 +295,9 @@ src/lib/store.js         Content-based demo ids, parsed data, failures and custo
 src/lib/stats.js         Scoreboard (KAST, ≈Rating 2.0, trades, clutches…) and duels
 src/lib/heat.js          Heatmap points per player (or everyone), grenades with their throw spot
 src/lib/profile.js       Your per-match summary for the overview and the Maps page
+src/lib/rounds.js        Money, loadouts, callouts per round; positions and grenades at each kill
+src/lib/deaths.js        Death review: tags for every death
+src/lib/utility.js       Utility lineups on disk, share codes
 src/lib/track.js         Sampled player positions for the 2D replay
 src/lib/integrity.js     Aim/visibility anomalies per player (Integrity tab) and their scoring
 src/lib/geometry.js      Map collision meshes (awpy-data download) and line-of-sight ray casts
@@ -252,4 +310,5 @@ src/lib/matches.js       Match downloads (gcWorker.js: Valve's list, community.j
 src/lib/steam.js         Finding Steam, CS2 and the logged-in account
 src/renderer/            UI (radar/: bundled radar images and their world coordinates)
 scripts/extract-radars.js  Regenerates src/renderer/radar from a CS2 install
+scripts/dist.js          Builds the installer (npm run dist)
 ```

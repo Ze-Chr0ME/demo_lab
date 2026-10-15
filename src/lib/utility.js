@@ -127,6 +127,71 @@ class UtilityStore {
   }
 }
 
+// ---- Share codes: lineups as one line of text to paste in Discord or a chat ("DLU1-…").
+// Everything but the pictures, practice counts and the source demo (only on your PC): compact arrays,
+// the flight cut to SHARE_PATH points and stored as steps from the previous point, deflated, base64url.
+const CODE_PREFIX = 'DLU1-';
+const SHARE_PATH = 40;
+const TYPE_LIST = ['smoke', 'flash', 'molotov', 'he'];
+const SIDE_LIST = ['both', 'T', 'CT'];
+const zlib = require('zlib');
+
+function shareCode(items) {
+  const packed = items.map(x => {
+    let flat = null;
+    if (x.path?.length > 1) {
+      const step = Math.max(1, Math.ceil((x.path.length - 1) / (SHARE_PATH - 1)));
+      const pts = x.path.filter((_, i) => i % step === 0 || i === x.path.length - 1);
+      flat = [];
+      pts.forEach((p, i) => { for (let a = 0; a < 3; a++) flat.push(Math.round(p[a]) - (i ? Math.round(pts[i - 1][a]) : 0)); });
+    }
+    const r1 = v => (v == null ? null : Math.round(v * 10) / 10);
+    return [x.map, TYPE_LIST.indexOf(x.type), SIDE_LIST.indexOf(x.side), x.name, x.from?.map(r1) || null, x.angle?.map(v => Math.round(v * 100) / 100) || null,
+      x.to?.map(v => (v == null ? null : Math.round(v))) || null, x.lower ? 1 : 0, x.move || '', x.click || '', x.aim || '', x.notes || '', flat];
+  });
+  return CODE_PREFIX + zlib.deflateRawSync(Buffer.from(JSON.stringify(packed)), { level: 9 }).toString('base64url');
+}
+
+// Text that contains one or more codes (spaces and line breaks inside a code are fine) → lineups, not saved.
+function readCodes(text) {
+  // Split on the prefix: "-" and the prefix's letters are base64url characters too, so codes pasted one
+  // after the other (line breaks are dropped first) would otherwise run together.
+  const codes = String(text || '').replace(/\s+/g, '').split(CODE_PREFIX).slice(1).map(s => /^[A-Za-z0-9_-]+/.exec(s)?.[0]).filter(Boolean);
+  if (!codes.length) throw new Error('No DemoLab lineup code found. Codes start with DLU1-.');
+  const out = [];
+  for (const code of codes) {
+    let packed;
+    try { packed = JSON.parse(zlib.inflateRawSync(Buffer.from(code, 'base64url'), { maxOutputLength: 4 * 1048576 }).toString('utf8')); }
+    catch { throw new Error('This code is incomplete or damaged. Copy it again, all of it.'); }
+    if (!Array.isArray(packed)) throw new Error('This is not a lineup code.');
+    for (const p of packed.slice(0, 500)) {
+      if (!Array.isArray(p)) continue;
+      const [map, type, side, name, from, angle, to, lower, move, click, aim, notes, flat] = p;
+      let path = null;
+      if (Array.isArray(flat) && flat.length >= 6 && flat.length % 3 === 0 && flat.every(Number.isFinite)) {
+        path = [];
+        for (let i = 0; i < flat.length; i += 3) {
+          const prev = path.at(-1) || [0, 0, 0];
+          path.push([prev[0] + flat[i], prev[1] + flat[i + 1], prev[2] + flat[i + 2]]);
+        }
+      }
+      if (typeof map !== 'string' || !/^[a-z0-9_]+$/i.test(map)) continue;
+      out.push({
+        map, type: TYPE_LIST[type] || 'smoke', side: SIDE_LIST[side] || 'both', name: str(name, 120), from: vec(from, 3), angle: vec(angle, 2), to: vec(to, 3),
+        lower: !!lower, move: str(move, 32), click: str(click, 16), aim: str(aim, 500), notes: str(notes, 4000), path, images: [],
+      });
+    }
+  }
+  if (!out.length) throw new Error('This code holds no lineups.');
+  return out;
+}
+
+// The same lineup already saved: same map and grenade, thrown from about the same spot to about the same place.
+const sameLineup = (a, b) => a.map === b.map && a.type === b.type && !!a.from === !!b.from && !!a.to === !!b.to
+  && (!a.from || Math.hypot(a.from[0] - b.from[0], a.from[1] - b.from[1]) < 24)
+  && (!a.to || Math.hypot(a.to[0] - b.to[0], a.to[1] - b.to[1]) < 64)
+  && (!!a.from || !!a.to || a.name === b.name);
+
 // Newest CS2 screenshots taken with Steam's screenshot key (F12 by default), for attaching to a lineup.
 function steamScreenshots(steamPath, steamid64, limit = 24) {
   if (!steamPath || !steamid64) return [];
@@ -142,4 +207,4 @@ function steamScreenshots(steamPath, steamid64, limit = 24) {
   }).sort((a, b) => b.time - a.time).slice(0, limit);
 }
 
-module.exports = { UtilityStore, steamScreenshots };
+module.exports = { UtilityStore, steamScreenshots, shareCode, readCodes, sameLineup };

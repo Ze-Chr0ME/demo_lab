@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net, nativeImage, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Worker } = require('worker_threads');
@@ -14,19 +14,20 @@ const { DemoStore } = require('./lib/store');
 const { buildMatchStats } = require('./lib/stats');
 const { buildWeapons } = require('./lib/weapons');
 const { heatPoints } = require('./lib/heat');
-const { matchSummary, PROFILE_VERSION } = require('./lib/profile');
+const { matchSummary, gameMode, PROFILE_VERSION } = require('./lib/profile');
 const { unpackTrack } = require('./lib/track');
 const { INTEGRITY_VERSION, scoreIntegrity } = require('./lib/integrity');
 const { AIM_VERSION, summarizeAim, aimTotals } = require('./lib/aim');
 const { ROUNDS_VERSION } = require('./lib/rounds');
 const { buildRounds, roundPositions } = require('./lib/economy');
+const { reviewDeaths, DEATHS_VERSION } = require('./lib/deaths');
 const share = require('./lib/share');
 const { ensureGeometry } = require('./lib/geometry');
 const { MatchDownloader, fetchGcMatches } = require('./lib/matches');
 const { decode } = require('./lib/proto');
 const { Community, signIn, signOut, watchCookies, loginCookieSummary } = require('./lib/community');
 const hlae = require('./lib/hlae');
-const { UtilityStore, steamScreenshots } = require('./lib/utility');
+const { UtilityStore, steamScreenshots, shareCode, readCodes, sameLineup } = require('./lib/utility');
 const { AvatarStore } = require('./lib/avatars');
 const { ThemeArt } = require('./lib/themeArt');
 
@@ -45,6 +46,11 @@ let store; // DemoStore: parsed data, failures and custom names, keyed by demo c
 let utility; // UtilityStore: the Utility page's lineups
 let avatars; // AvatarStore: Steam profile pictures
 let themeArt; // ThemeArt: map screenshots and team logos from the CS2 install, for the themes
+
+// The data folder is %APPDATA%\cs2-demolab whether DemoLab runs from the source or installed (Electron
+// would otherwise name it after the installed app's product name, "CS2 DemoLab").
+// Dev aid: DEMOLAB_USERDATA=<folder> runs on a copy of the data folder (tests that must not touch the real one).
+app.setPath('userData', process.env.DEMOLAB_USERDATA || path.join(app.getPath('appData'), 'cs2-demolab'));
 
 // The app used to be called CS2 ClipMaker: its data folder (parsed demos, settings, HLAE, Steam sign-in,
 // lineups) moves over once. Electron has already created the new folder, empty, by the time this runs.
@@ -100,11 +106,14 @@ function createWindow() {
     show: !process.env.DEMOLAB_HIDDEN, // dev aid: screenshots without a window popping up
     title: 'CS2 DemoLab',
     // The screenshot dev aid (below) needs painting to continue while the window is in the background.
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: !process.env.DEMOLAB_SCREENSHOT },
+    // DEMOLAB_HIDDEN renders offscreen: a hidden normal window repaints about once a second and misses late changes.
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: !process.env.DEMOLAB_SCREENSHOT, offscreen: !!process.env.DEMOLAB_HIDDEN },
   });
+  if (process.env.DEMOLAB_HIDDEN) win.webContents.setFrameRate(30);
   // Dev aid: DEMOLAB_SIZE=2560x1440 sets the window's content size (layout checks for other monitors).
   if (process.env.DEMOLAB_SIZE) win.setContentSize(...process.env.DEMOLAB_SIZE.split('x').map(Number));
   win.on('closed', () => log('main window closed'));
+  win.on('focus', () => win.flashFrame(false));
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   // Dev aid: DEMOLAB_SCREENSHOT=<file.png> saves a capture of the window after load.
@@ -236,7 +245,7 @@ const meshFor = (dir, map) => dir && fs.existsSync(path.join(dir, `${map}.mesh`)
 // demo (same queue), then read from <id>.integrity.json and <id>.aim.json. Progress goes to the
 // renderer as integrity:progress. Facts made without map geometry are rebuilt once the geometry is there.
 const checking = new Map();
-async function demoIntegrity(file) {
+async function demoIntegrity(file, { gentle = false } = {}) {
   const core = await parseDemo(file);
   const id = store.idOf(file);
   const out = store.integrityFile(id);
@@ -249,7 +258,7 @@ async function demoIntegrity(file) {
       const dir = await geometryDir();
       if (cached && cachedAim && !meshFor(dir, core.map)) return { facts: cached, aim: cachedAim };
       const run = parseQueue.then(() => new Promise((resolve, reject) => {
-        const w = new Worker(path.join(__dirname, 'lib', 'parseWorker.js'), { workerData: { file, mode: 'integrity', core, geometryDir: dir, lowEnd: s().lowEnd } });
+        const w = new Worker(path.join(__dirname, 'lib', 'parseWorker.js'), { workerData: { file, mode: 'integrity', core, geometryDir: dir, lowEnd: s().lowEnd || gentle } });
         w.on('message', msg => {
           if (msg.progress != null) return send('integrity:progress', { id, progress: msg.progress, phase: 'demo' });
           w.terminate();
@@ -398,6 +407,64 @@ function aimSummaryOf(id, steamid) {
   return value;
 }
 
+// A player's death review in one demo (lib/deaths.js), kept in derived.json. undefined while the round
+// facts it needs (positions and grenades at each kill) don't exist yet; redone once the match is measured,
+// as the aim facts add who saw whom.
+function deathsOf(id, steamid) {
+  const key = `dth|${id}|${steamid}`;
+  const hasAim = fs.existsSync(store.aimFile(id));
+  const cached = store.derived(key, DEATHS_VERSION);
+  if (cached !== undefined && (cached === null || cached.measured || !hasAim)) return cached;
+  const facts = store.readExtra(store.roundsFile(id), ROUNDS_VERSION);
+  const core = facts && store.readCore(id), events = core && store.readEvents(id);
+  if (!events) return undefined;
+  const aim = hasAim ? store.readExtra(store.aimFile(id), AIM_VERSION) : null;
+  const value = reviewDeaths(core, events, facts, aim, steamid);
+  store.setDerived(key, DEATHS_VERSION, value);
+  return value;
+}
+// Everyone's numbers in one demo, for the Compare page's "your lobbies" benchmark (percentiles over every
+// player of every demo you have). One row per player:
+//   [steamid, rounds, rating, kills, deaths, assists, damage, kastRounds, hsKills, firstKills, firstDeaths,
+//    tradeKills, utilityDamage, enemiesFlashed, multi-kill rounds, clutches won, clutches played, won (1/0),
+//    death tags {tag: n} or null when the round facts aren't there yet]
+const LOBBY_VERSION = 1;
+function lobbyOf(id) {
+  const key = `lob|${id}`;
+  const hasFacts = !!store.readExtra(store.roundsFile(id), ROUNDS_VERSION);
+  const cached = store.derived(key, LOBBY_VERSION);
+  if (cached !== undefined && (cached === null || cached.deaths || !hasFacts)) return cached;
+  const core = store.readCore(id), events = core && store.readEvents(id);
+  if (!events) return undefined;
+  const st = buildMatchStats(core, events, null);
+  const facts = hasFacts ? store.readExtra(store.roundsFile(id), ROUNDS_VERSION) : null;
+  const rows = [];
+  for (const t of st.teams) {
+    for (const p of t.players) {
+      let tags = null;
+      if (facts) {
+        tags = {};
+        for (const d of reviewDeaths(core, events, facts, null, p.steamid)?.deaths || []) for (const g of d.tags) tags[g] = (tags[g] || 0) + 1;
+      }
+      const other = st.teams.find(x => x !== t);
+      rows.push([p.steamid, p.rounds, p.rating == null ? null : Math.round(p.rating * 1000) / 1000, p.kills, p.deaths, p.assists, p.damage, p.kastRounds, p.hsKills,
+        p.firstKills, p.firstDeaths, p.tradeKills, p.utilityDamage, p.enemiesFlashed, Object.values(p.multi).reduce((a, b) => a + b, 0),
+        p.clutches.won, p.clutches.played, t.score > (other?.score ?? 0) ? 1 : 0, tags]);
+    }
+  }
+  const value = { map: core.map, mode: gameMode(core), deaths: !!facts, rows };
+  store.setDerived(key, LOBBY_VERSION, value);
+  return value;
+}
+
+// Per tag, how many of the deaths have it (for the overview, which adds matches up).
+function deathCounts(v) {
+  if (!v) return null;
+  const tags = {};
+  for (const d of v.deaths) for (const t of d.tags) tags[t] = (tags[t] || 0) + 1;
+  return { n: v.deaths.length, measured: v.measured, tags };
+}
+
 // A player's weapon numbers in one demo for the Aim page, per side and weapon (from the Weapons tab rows),
 // also kept in derived.json. null when they didn't play in it, undefined when it isn't parsed yet.
 //   rows: [side, weapon, kills, hs, wall, smoke, noscope, blind, air, distSum, distN, dmg, hits, bodyHits,
@@ -485,6 +552,130 @@ async function runAimBatch(steamid) {
   }
 }
 
+// ---------- New matches: read, measure and announce ----------
+// A demo that shows up while DemoLab runs (downloaded by the Downloads tab or by CS2, or copied into a demo
+// folder), or that arrived since the last time DemoLab ran, is read, measured (the tick pass behind Aim
+// and Integrity) and checked for highlights and deaths in the background, then summed up in a Windows
+// notification. While CS2 is running this runs at below-normal priority on fewer threads, so a game
+// keeps its frames. Demos that were already there when the feature first ran are left to the normal
+// background reading, without notifications.
+const auto = { known: new Set(), watchers: [], timers: new Map(), queue: Promise.resolve(), running: null, icon: null, waiting: 0 };
+const autoKey = file => file.toLowerCase();
+const prettyMap = m => ({ de_dust2: 'Dust II', cs_office: 'Office', cs_italy: 'Italy' })[m] || (m || '?').replace(/^(de|cs|ar)_/, '').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+
+function startAutoProcessing() {
+  const cfg = s().autoProcess;
+  const firstRun = !cfg.lastScan;
+  const since = cfg.lastScan || Date.now();
+  const backlog = [];
+  for (const d of scanDemos()) {
+    auto.known.add(autoKey(d.path));
+    // Arrived while DemoLab was closed: the newest few get the same treatment as live arrivals.
+    if (!firstRun && d.mtime > since && !store.readCore(d.id) && !store.failure(d.id)) backlog.push(d.path);
+  }
+  settings.update({ autoProcess: { lastScan: Date.now() } });
+  setInterval(() => settings.update({ autoProcess: { lastScan: Date.now() } }), 10 * 60000);
+  for (const f of backlog.slice(0, 5)) autoEnqueue(f);
+  watchDemoFolders();
+}
+
+// fs.watch on every demo folder; a new .dem is looked at once its size has stopped changing.
+function watchDemoFolders() {
+  for (const w of auto.watchers) w.close();
+  auto.watchers = [];
+  for (const dir of demoFolders()) {
+    try {
+      auto.watchers.push(fs.watch(dir, (_ev, name) => {
+        if (name && /\.dem$/i.test(name)) autoCandidate(path.join(dir, name));
+      }));
+    } catch (e) { log('auto: cannot watch', dir, e.message); }
+  }
+}
+
+function autoCandidate(file) {
+  const key = autoKey(file);
+  if (auto.known.has(key) || auto.timers.has(key)) return;
+  let last = -1, same = 0;
+  const poll = () => {
+    let size = -1;
+    try { size = fs.statSync(file).size; } catch { auto.timers.delete(key); return; }
+    same = size === last && size > 1048576 ? same + 1 : 0;
+    last = size;
+    if (same >= 2) { auto.timers.delete(key); auto.known.add(key); autoEnqueue(file); return; }
+    auto.timers.set(key, setTimeout(poll, 2000));
+  };
+  auto.timers.set(key, setTimeout(poll, 1500));
+}
+
+function autoEnqueue(file) {
+  auto.known.add(autoKey(file));
+  if (!s().autoProcess.enabled) return;
+  auto.waiting++;
+  send('auto:update', autoStatus());
+  auto.queue = auto.queue.then(() => autoProcess(file)).catch(e => log('auto:', path.basename(file), e.message))
+    .finally(() => { auto.waiting--; auto.running = null; send('auto:update', autoStatus()); });
+}
+const autoStatus = () => ({ running: auto.running, waiting: auto.waiting });
+
+async function autoProcess(file) {
+  if (!fs.existsSync(file)) return;
+  const cfg = s().autoProcess;
+  const id = store.idOf(file);
+  auto.running = { file, name: path.basename(file), step: 'reading' };
+  send('auto:update', autoStatus());
+  const gentle = hlae.cs2Pids().length > 0;
+  const os = require('os');
+  let before = null;
+  try { before = os.getPriority(0); } catch {}
+  // Priorities are niceness-like: a bigger number is lower. Never raise one the app was started with.
+  if (gentle && before != null && before < os.constants.priority.PRIORITY_BELOW_NORMAL) try { os.setPriority(0, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
+  try {
+    const core = await parseDemo(file);
+    try { await demoRounds(file); } catch {}
+    const me = mySteamId();
+    let measured = false;
+    if (cfg.measure && me && core.players.some(p => p.steamid === me)) {
+      auto.running.step = 'measuring';
+      send('auto:update', autoStatus());
+      try { await demoIntegrity(file, { gentle }); measured = true; } catch (e) { log('auto: measuring failed', path.basename(file), e.message); }
+    }
+    const sum = me ? summaryOf(id, me) : null;
+    const a = analysis(file, core, me);
+    const dth = me ? deathsOf(id, me) : null;
+    const result = { id, path: file, map: core.map, summary: sum, highlights: a.highlights?.length || 0, measured, deaths: deathCounts(dth) };
+    log('auto: processed', path.basename(file), core.map, sum ? `${sum.kills}-${sum.deaths} ${sum.rating?.toFixed(2)}` : 'not in it');
+    send('auto:done', result);
+    if (cfg.notify) notifyMatch(result);
+  } finally {
+    if (before != null) try { if (os.getPriority(0) !== before) os.setPriority(0, before); } catch {}
+  }
+}
+
+const DEATH_HINT = { alone: 'died alone', untraded: 'not traded', nades: 'died with grenades', caught: 'caught off guard', dry: 'entries without utility', lowhp: 'fought on low HP' };
+function notifyMatch(r) {
+  const sm = r.summary;
+  const title = sm
+    ? `${prettyMap(r.map)} ${sm.score[0]}:${sm.score[1]} · ${sm.result === 'W' ? 'Win' : sm.result === 'L' ? 'Loss' : 'Draw'}`
+    : `${prettyMap(r.map)} · new demo read`;
+  const lines = [];
+  if (sm) lines.push(`${sm.kills}–${sm.deaths}${sm.rating != null ? ` · rating ${sm.rating.toFixed(2)}` : ''} · ADR ${Math.round(sm.damage / Math.max(1, sm.rounds))}`);
+  const top = r.deaths && Object.entries(r.deaths.tags).filter(([t]) => DEATH_HINT[t]).sort((a, b) => b[1] - a[1])[0];
+  lines.push([r.highlights ? `${r.highlights} highlight${r.highlights > 1 ? 's' : ''} to clip` : null,
+    top && top[1] >= 2 ? `${top[1]} of ${r.deaths.n} deaths: ${DEATH_HINT[top[0]]}` : null].filter(Boolean).join(' · ') || 'Open it in DemoLab');
+  // In the app already: a toast there (sent with auto:done) is enough; just get attention otherwise.
+  if (win && !win.isDestroyed() && win.isFocused()) return;
+  if (win && !win.isDestroyed()) win.flashFrame(true);
+  if (!Notification.isSupported()) return;
+  const n = new Notification({ title, body: lines.join('\n'), icon: auto.icon || undefined, silent: false });
+  n.on('click', () => {
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show(); win.focus();
+    send('auto:open', { path: r.path, id: r.id });
+  });
+  n.show();
+}
+
 function highlightOpts() {
   const d = s().detection, t = s().timing;
   return { ...d, padBefore: t.padBefore, padAfter: t.padAfter, mergeGap: t.mergeGap };
@@ -509,7 +700,7 @@ function handle(name, fn) {
 
 function registerIpc() {
   // The taskbar icon: the logo in the theme's colors, drawn by the renderer (windowIcon in app.js).
-  handle('window:icon', async png => { const img = nativeImage.createFromDataURL(png); if (!img.isEmpty() && win && !win.isDestroyed()) win.setIcon(img); });
+  handle('window:icon', async png => { const img = nativeImage.createFromDataURL(png); if (img.isEmpty()) return; auto.icon = img; if (win && !win.isDestroyed()) win.setIcon(img); });
   handle('env:get', async () => (await encoderReady, {
     ...env, ffmpeg: ffmpegFound, encoder: ffmpeg.encoder,
     outputDir: outputDir(), mySteamId: mySteamId(), cs2Running: hlae.cs2Pids().length > 0,
@@ -524,6 +715,7 @@ function registerIpc() {
     if (patch.cs2Dir !== undefined) refreshEnv();
     if (patch.encoder !== undefined && patch.encoder !== old.encoder) encoderReady = ffmpeg.pickEncoder(next.encoder);
     if (patch.lowEnd !== undefined) parserThreads(next.lowEnd);
+    if (patch.demoFolders !== undefined || patch.cs2Dir !== undefined) watchDemoFolders();
     return next;
   });
 
@@ -567,7 +759,9 @@ function registerIpc() {
       if (positions === undefined && !roundsFailed.has(d.id)) noRounds.push(d.path);
       const aim = aimSummaryOf(d.id, me);
       if (aim === undefined) aimMissing++;
-      matches.push({ id: d.id, path: d.path, date: d.date, customName: d.customName, ...sum, positions: positions || null, aim: aim || null });
+      const deaths = deathsOf(d.id, me);
+      if (deaths === undefined && !roundsFailed.has(d.id) && !noRounds.includes(d.path)) noRounds.push(d.path);
+      matches.push({ id: d.id, path: d.path, date: d.date, customName: d.customName, ...sum, positions: positions || null, aim: aim || null, review: deathCounts(deaths) });
     }
     fillRounds(noRounds);
     return { steamid: me, mine, name: matches[0]?.name || (mine && env.steamUser?.name) || '', matches, aimMissing, aimBatch: aimBatchStatus(), positionsPending: noRounds.length };
@@ -597,11 +791,45 @@ function registerIpc() {
     }
     return { self, players: [...by.values()] };
   });
+  handle('auto:status', () => autoStatus());
+  // Compare page: everyone's numbers in every parsed demo (lobbyOf), for "better than N % of your lobbies".
+  handle('lobby:get', () => {
+    const matches = [];
+    const seen = new Set();
+    let pending = 0;
+    for (const d of scanDemos()) {
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
+      const v = lobbyOf(d.id);
+      if (v === undefined) { if (!store.failure(d.id)) pending++; continue; }
+      if (v) matches.push({ id: d.id, date: d.date, ...v });
+    }
+    return { matches, pending };
+  });
   handle('aim:batch', (action, steamid) => {
     if (action === 'start' && !aimBatch) runAimBatch(steamid).catch(e => log('aim batch failed', e.message));
     if (action === 'cancel' && aimBatch) aimBatch.cancelled = true;
     if (action === 'resume' && aimBatch) aimBatch.cancelled = false;
     return aimBatchStatus();
+  });
+
+  // Death review of every parsed demo a player played (me unless a SteamID is given), newest first, for the
+  // overview's drill-down. Demos without the round facts yet are counted in pending.
+  handle('deaths:all', steamid => {
+    const me = steamid || mySteamId();
+    const matches = [];
+    const seen = new Set();
+    let pending = 0;
+    for (const d of scanDemos()) {
+      if (seen.has(d.id) || !me) continue;
+      seen.add(d.id);
+      const sum = summaryOf(d.id, me);
+      if (!sum) continue;
+      const v = deathsOf(d.id, me);
+      if (v === undefined) { pending++; continue; }
+      if (v) matches.push({ id: d.id, path: d.path, date: d.date, customName: d.customName, map: sum.map, mode: sum.mode, result: sum.result, score: sum.score, ...v });
+    }
+    return { steamid: me, matches, pending };
   });
 
   // Aim page: a player's weapon numbers in every parsed demo they played (me unless a SteamID is given).
@@ -690,6 +918,14 @@ function registerIpc() {
   handle('demo:aim', async file => {
     const { core, aim } = await demoIntegrity(file);
     return summarizeAim(aim, core, mySteamId());
+  });
+  // Deaths tab: one player's deaths in this match with what went wrong (point-of-view player by default: me).
+  handle('demo:deaths', async (file, steamid) => {
+    await demoRounds(file);
+    const id = store.idOf(file);
+    const v = deathsOf(id, steamid || mySteamId());
+    if (v === undefined) throw new Error('The positions at each kill could not be read from this demo.');
+    return v;
   });
   // Round strip and Economy tab. Without the money facts (unreadable) the rounds still come back, without buys.
   handle('demo:rounds', async (file, steamid) => {
@@ -855,6 +1091,28 @@ function registerIpc() {
   handle('utility:delete', id => utility.remove(id));
   handle('utility:addImage', img => utility.addImage(img));
   handle('utility:screenshots', () => steamScreenshots(env.steamPath, mySteamId()));
+  // Share codes (lib/utility.js): the code of some lineups, and the lineups in a pasted code (not saved yet;
+  // dupe = already in the library).
+  handle('utility:code', ids => {
+    const items = utility.list();
+    const list = ids.map(id => items.find(x => x.id === id)).filter(Boolean);
+    if (!list.length) throw new Error('No lineup to share.');
+    return shareCode(list);
+  });
+  handle('utility:readCode', text => {
+    const items = utility.list();
+    return readCodes(text).map(x => ({ ...x, dupe: items.some(y => sameLineup(x, y)) }));
+  });
+  handle('utility:import', list => {
+    let n = 0;
+    for (const x of (Array.isArray(list) ? list : []).slice(0, 500)) {
+      if (utility.list().some(y => sameLineup(x, y))) continue;
+      const { id, dupe, ...fields } = x;
+      utility.save({ ...fields, source: null, fav: false });
+      n++;
+    }
+    return n;
+  });
 
   handle('clips:list', () => library().list());
   handle('clips:delete', async id => {
@@ -1042,6 +1300,8 @@ function findExisting(m) {
 }
 
 app.whenReady().then(() => {
+  // Installed builds: the Start menu shortcut carries this ID, which Windows needs to show notifications.
+  if (app.isPackaged) app.setAppUserModelId('com.demolab.cs2');
   settings = new Settings(app.getPath('userData'));
   parserThreads(settings.get().lowEnd);
   store = new DemoStore(app.getPath('userData'), DATA_VERSION);
@@ -1056,7 +1316,7 @@ app.whenReady().then(() => {
     demoFolders,
     stateFile: path.join(app.getPath('userData'), 'matches.json'),
     emit: e => {
-      if (e.done) log('downloaded', path.basename(e.file));
+      if (e.done) { log('downloaded', path.basename(e.file)); autoCandidate(e.file); }
       if (e.failed) log('download failed', e.failed, e.error);
       if (e.saveError) log('could not save matches.json:', e.saveError);
       send('downloads:update', e);
@@ -1068,6 +1328,7 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
   scheduleAutoCheck();
+  startAutoProcessing();
 });
 
 app.on('window-all-closed', () => { recorder?.cancel(); store?.flush(); app.quit(); });
