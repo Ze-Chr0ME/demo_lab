@@ -87,6 +87,7 @@ function showView(v) {
   if (v === 'downloads') loadDownloads();
   if (v === 'themes') renderThemes();
   if (v === 'settings') renderSettings();
+  if (v === 'compare') renderCompare();
   Scene.follow($(`#view-${v}`));
 }
 
@@ -96,6 +97,7 @@ function rerender() {
   if (state.view === 'aim') renderAimPage();
   if (state.view === 'maps') renderMaps();
   if (state.view === 'utility') renderUtility();
+  if (state.view === 'compare') renderCompare();
   if (state.view === 'matches') { renderDemoList(); renderDetail(); }
 }
 
@@ -329,6 +331,7 @@ async function loadProfile() {
   else if (state.view === 'overview') renderOverview();
   if (state.view === 'maps' && !state.mp.map) renderMaps();
   if (state.view === 'aim') renderAimPage();
+  if (state.view === 'compare') renderCompare();
 }
 let profileTimer = 0;
 const reloadProfileSoon = () => { clearTimeout(profileTimer); profileTimer = setTimeout(loadProfile, 1500); };
@@ -454,8 +457,9 @@ function mapThumb(map, fallback) {
 async function openDemo(d, player, tab) {
   if (state.demo?.id !== d.id) { state.stats = null; state.tab = tab || 'scoreboard'; resetZoom(state.heat.view); resetZoom(state.radar.view); }
   else if (tab) state.tab = tab;
-  if (state.view !== 'matches') showView('matches');
+  // Set before showing the page, which would otherwise open the newest match (on its scoreboard) first.
   state.demo = d;
+  if (state.view !== 'matches') showView('matches');
   state.selected.clear();
   state.analyzing = true;
   state.analysis = null;
@@ -537,6 +541,7 @@ function renderDetail() {
       : tab === 'heatmap' ? heatmapView()
         : tab === 'radar' ? radarView()
           : tab === 'economy' ? economyView()
+          : tab === 'deaths' ? deathsView()
           : tab === 'aim' ? aimView()
           : tab === 'weapons' ? weaponsView()
           : tab === 'integrity' ? integrityView()
@@ -547,7 +552,7 @@ function renderDetail() {
   );
 }
 
-const MATCH_TABS = [['scoreboard', 'Scoreboard'], ['duels', 'Duels'], ['economy', 'Economy'], ['aim', 'Aim'], ['weapons', 'Weapons'], ['heatmap', 'Heatmap'], ['radar', '2D Replay'], ['integrity', 'Integrity'], ['highlights', 'Highlights & clips']];
+const MATCH_TABS = [['scoreboard', 'Scoreboard'], ['duels', 'Duels'], ['economy', 'Economy'], ['deaths', 'Deaths'], ['aim', 'Aim'], ['weapons', 'Weapons'], ['heatmap', 'Heatmap'], ['radar', '2D Replay'], ['integrity', 'Integrity'], ['highlights', 'Highlights & clips']];
 state.tab = 'scoreboard';
 
 function highlightsView(a) {
@@ -1559,7 +1564,7 @@ function viewInCs2Button(label, cls, title, opts, doneMsg) {
     text.textContent = 'Opening CS2…';
     toast('Opening the demo in CS2. The first time takes a minute or two (CS2 starts, then loads the demo).');
     try { await api.watchDemo(file, o); toast(doneMsg, 'ok'); }
-    catch (e) { toast(e.message.replace(/^.*HLAE_MISSING:s*/, ''), 'error'); }
+    catch (e) { toast(e.message.replace(/^.*HLAE_MISSING:\s*/, ''), 'error'); }
     btn.disabled = false;
     text.textContent = label;
   };
@@ -2341,6 +2346,7 @@ function renderOverview() {
         pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null)),
     h('span', { class: 'spacer' }),
     back,
+    h('button', { class: 'btn', title: other ? 'This player and you side by side' : 'You against your lobbies or any player from your demos', onclick: () => compareWith(other ? p.steamid : 'lobby') }, other ? 'Compare with you' : 'Compare'),
     h('div', { class: 'filters' },
       modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], v => { f.mode = v; rerender(); }) : null,
       select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], v => { f.map = v; rerender(); }),
@@ -2363,6 +2369,7 @@ function renderOverview() {
       weaponCard('Headshot %', Object.entries(t.weapons).filter(([, [k]]) => k >= Math.max(10, t.kills * 0.02)).sort((a, b) => b[1][1] / b[1][0] - a[1][1] / a[1][0]).slice(0, 6),
         ([, [k, hs]]) => [`${pct(hs, k)}%`, hs / k], 'Weapons with at least 10 kills')),
     section('Aim', null, aimCard(list)),
+    section('Deaths', null, ...deathCards(list)),
     section(other ? 'Their teammates' : 'Teammates', null, matesCard(t)),
   );
 }
@@ -2764,6 +2771,8 @@ function renderUtility() {
     h('button', { class: 'btn', title: `Copy commands for a private practice server (sv_cheats, infinite ammo and grenades, grenade preview, no bots). Paste them in the CS2 console after "map ${u.map === 'all' ? 'de_mirage' : u.map}".`,
       onclick: async () => { await copyText(PRACTICE_CMDS); toast('Practice commands copied. In CS2 start a private map (e.g. "map de_mirage" in the console), then paste them.', 'ok'); } }, 'Copy practice commands'),
     u.items.length ? h('button', { class: 'btn', title: 'Test yourself: where does it land, where is it thrown from, which lineup is this picture', onclick: () => quizSetup() }, 'Practice quiz') : null,
+    h('button', { class: 'btn', title: 'Add lineups from a code a friend shared (DLU1-…)', onclick: () => importDialog() }, 'Import code'),
+    u.items.length ? h('button', { class: 'btn', title: 'Copy the lineups shown below as one code to paste in Discord or a chat', onclick: () => shareLineups(utFiltered()) }, 'Share these') : null,
     h('button', { class: 'btn primary', onclick: () => editLineup({ map: u.map !== 'all' ? u.map : undefined }) }, icon(PLUS), 'New lineup'));
 
   if (!u.items.length) {
@@ -3055,6 +3064,7 @@ function utDetail(x) {
     h('div', { class: 'nc-actions' },
       h('button', { class: 'btn primary nc-btn', title: 'Count one more practice session', onclick: () => patch({ practiced: true }, 'Nice. Marked as practiced.') }, icon(ICONS.check), 'Practiced'),
       h('button', { class: 'btn nc-btn', onclick: () => editLineup(x) }, icon(PENCIL), 'Edit'),
+      h('button', { class: 'btn nc-btn', title: 'Copy this lineup as a code to paste in Discord or a chat', onclick: () => shareLineups([x]) }, 'Share'),
       h('button', { class: 'btn nc-btn danger ut-del', title: 'Delete this lineup', onclick: () => deleteLineup(x) }, icon(ICONS.trash))));
 }
 
@@ -3818,6 +3828,8 @@ function renderSettings() {
         h('button', { class: 'btn', onclick: async () => { const p = await api.pickFolder('Counter-Strike Global Offensive folder'); if (p) { await save({ cs2Dir: p }); await refreshEnv(); renderSettings(); } } }, 'Browse'))),
       row('Your SteamID64', text(st.steamId, v => save({ steamId: v }, true).then(refreshEnv), { placeholder: e.steamUser ? `${e.steamUser.steamid} (${e.steamUser.name}, auto)` : '7656119…', class: 'mono' }), 'Leave empty to use the Steam account logged in on this PC.'),
     ),
+
+    autoProcessCard(),
 
     h('div', { class: 'card' },
       h('h3', {}, 'Demo folders'),

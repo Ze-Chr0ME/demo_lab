@@ -42,4 +42,4 @@ function matchSummary(core, events, steamid) {
   };
 }
 
-module.exports = { matchSummary, PROFILE_VERSION };
+module.exports = { matchSummary, gameMode, PROFILE_VERSION };

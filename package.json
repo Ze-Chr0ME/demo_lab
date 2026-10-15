@@ -2,10 +2,12 @@
   "name": "cs2-demolab",
   "version": "1.0.0",
   "description": "CS2 demo analysis: stats, heatmaps, 2D replays, integrity checks, lineups and highlight clips",
+  "author": "Ze-Chr0ME",
   "main": "src/main.js",
   "private": true,
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "node scripts/dist.js"
   },
   "dependencies": {
     "@laihoe/demoparser2": "^0.42.0",
@@ -14,5 +16,22 @@
   },
   "devDependencies": {
     "electron": "^44.7.0"
+  },
+  "build": {
+    "appId": "com.demolab.cs2",
+    "productName": "CS2 DemoLab",
+    "asar": false,
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["src/**/*", "vendor/**/*", "package.json"],
+    "extraResources": [{ "from": "build/ffmpeg", "to": "ffmpeg", "filter": ["ffmpeg.exe", "ffprobe.exe"] }],
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.png" },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "CS2 DemoLab",
+      "artifactName": "CS2-DemoLab-Setup-${version}.${ext}"
+    }
   }
 }

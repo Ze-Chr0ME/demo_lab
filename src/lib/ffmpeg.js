@@ -9,6 +9,8 @@ let ffprobePath = 'ffprobe';
 function resolve(custom) {
   const candidates = [];
   if (custom) candidates.push(custom);
+  // The installer ships ffmpeg and ffprobe in resources\ffmpeg (package.json → build.extraResources).
+  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'ffmpeg', 'ffmpeg.exe'));
   try {
     const out = execFileSync('where', ['ffmpeg'], { encoding: 'utf8', windowsHide: true });
     candidates.push(...out.split(/\r?\n/).filter(Boolean));

@@ -7,9 +7,11 @@
 //  rounds[i].pos[steamid] = callout index (into places) once per second from freeze end to round end,
 //                           -1 once dead
 //  killPlaces[k]          = [attacker callout, victim callout] for core.kills[k] (-1 = unknown)
+//  killState[k]           = just before core.kills[k] (2 ticks): { pos: {steamid: [x, y, z]} of everyone alive,
+//                           nades: the victim's grenades } (death review: who was near, utility left unused)
 const parser = require('./parser');
 
-const ROUNDS_VERSION = 1;
+const ROUNDS_VERSION = 2;
 const BUY_TIME = 20;   // seconds after freeze end players can still buy (mp_buytime)
 const SAMPLE = 64;     // one position sample per second
 const NADES = /grenade|flashbang|molotov|incendiary|decoy/i;
@@ -73,11 +75,28 @@ function extractRounds(file, core) {
     return { num: r.num, eco, pos };
   });
 
+  // ---- just before every kill: where everyone alive stood, and what the victim still held
+  const before = new Map();
+  const beforeTicks = [...new Set(killTicks.map(t => Math.max(1, t - 2)))].sort((a, b) => a - b);
+  for (const row of parser.parseTicks(file, ['X', 'Y', 'Z', 'is_alive', 'inventory'], beforeTicks)) {
+    if (sid(row.steamid) && row.is_alive && Number.isFinite(row.X)) before.set(`${row.tick}|${row.steamid}`, row);
+  }
+  const rosterOf = new Map(rounds.map(r => [r.num, r.roster]));
+  const killState = core.kills.map(k => {
+    const t = Math.max(1, k.tick - 2), pos = {};
+    for (const id of Object.keys(rosterOf.get(k.round) || {})) {
+      const row = before.get(`${t}|${id}`);
+      if (row) pos[id] = [Math.round(row.X), Math.round(row.Y), Math.round(row.Z)];
+    }
+    const inv = before.get(`${t}|${k.victim}`)?.inventory || [];
+    return { pos, nades: inv.filter(x => NADES.test(x)) };
+  });
+
   const killPlaces = core.kills.map(k => [
     k.attacker ? place(at.get(`${k.tick}|${k.attacker}`)?.last_place_name) : -1,
     place(at.get(`${k.tick}|${k.victim}`)?.last_place_name),
   ]);
-  return { version: ROUNDS_VERSION, sample: SAMPLE, places, rounds: out, killPlaces };
+  return { version: ROUNDS_VERSION, sample: SAMPLE, places, rounds: out, killPlaces, killState };
 }
 
 module.exports = { extractRounds, ROUNDS_VERSION };

@@ -32,6 +32,7 @@ const DEFAULTS = {
   customTheme: { base: '#0b0f13', accent: '#2fd8a4', data: '', map: '', shot: '', logo: '', pattern: 'dots' }, // data empty = accent; map (a screenshot) or logo for the backdrop
   themeShots: {},            // map theme id → the CS2 screenshot it shows (default: the map's first)
   lowEnd: false,             // Low-end PC: read demos with fewer threads and less memory (slower)
+  autoProcess: { enabled: true, measure: true, notify: true, lastScan: 0 }, // new matches: read, measure, notify (lastScan: when DemoLab last looked)
 };
 
 function merge(base, over) {
