@@ -30,6 +30,7 @@ const hlae = require('./lib/hlae');
 const { UtilityStore, steamScreenshots, shareCode, readCodes, sameLineup } = require('./lib/utility');
 const { AvatarStore } = require('./lib/avatars');
 const { ThemeArt } = require('./lib/themeArt');
+const { Updater } = require('./lib/updater');
 
 let win;
 let settings;
@@ -46,6 +47,8 @@ let store; // DemoStore: parsed data, failures and custom names, keyed by demo c
 let utility; // UtilityStore: the Utility page's lineups
 let avatars; // AvatarStore: Steam profile pictures
 let themeArt; // ThemeArt: map screenshots and team logos from the CS2 install, for the themes
+let updater; // Updater: new DemoLab releases from GitHub
+let updating = false; // "Restart to update" was clicked: the quit must not start a second installer
 
 // The data folder is %APPDATA%\cs2-demolab whether DemoLab runs from the source or installed (Electron
 // would otherwise name it after the installed app's product name, "CS2 DemoLab").
@@ -954,6 +957,24 @@ function registerIpc() {
     return { version };
   });
 
+  handle('update:state', () => updater.state());
+  handle('update:check', async () => {
+    const r = await updater.check();
+    if (r.status === 'error') throw new Error(r.error);
+    if (r.status === 'available' && r.installed && s().updates.auto) updater.download().catch(() => {});
+    return updater.state();
+  });
+  handle('update:download', () => updater.download());
+  handle('update:page', () => { const p = updater.state().page; if (p?.startsWith('https://github.com/')) shell.openExternal(p); return true; });
+  handle('update:install', () => {
+    if (recorder) throw new Error('Wait until the recording is finished.');
+    if (auto.running) throw new Error('DemoLab is still reading a new match. Try again in a moment.');
+    updater.install({ relaunch: true });
+    updating = true;
+    setTimeout(() => app.quit(), 300);
+    return true;
+  });
+
   handle('downloads:list', () => ({ ...downloader.list(), community: communityState }));
   handle('downloads:check', () => checkMatches(true));
   handle('downloads:get', id => { downloader.enqueue(id); return downloader.list(); });
@@ -1263,6 +1284,15 @@ function scheduleAutoCheck() {
   const hlaeTick = () => checkHlaeUpdate(false).catch(e => log('HLAE update check failed:', e.message));
   setTimeout(hlaeTick, 8000);
   setInterval(hlaeTick, 6 * 3600 * 1000);
+  // DemoLab itself: found releases are downloaded right away, installed on "Restart to update" or on quit.
+  const updateTick = async () => {
+    if (!s().updates.auto) return;
+    const r = await updater.check();
+    if (r.status === 'error') log('update check failed:', r.error);
+    if (r.status === 'available' && r.installed) await updater.download().catch(() => {});
+  };
+  setTimeout(updateTick, 15000);
+  setInterval(updateTick, 6 * 3600 * 1000);
   let last = 0;
   setInterval(() => {
     const d = s().downloads;
@@ -1308,6 +1338,7 @@ app.whenReady().then(() => {
   utility = new UtilityStore(app.getPath('userData'));
   avatars = new AvatarStore(app.getPath('userData'), { fetch: net.fetch, steamPath: () => env?.steamPath, onUpdate: v => send('avatars:update', v), log });
   themeArt = new ThemeArt(app.getPath('userData'), () => env?.csgoDir || null);
+  updater = new Updater({ dir: path.join(app.getPath('userData'), 'updates'), version: app.getVersion(), fetch: net.fetch, installed: app.isPackaged, log, onChange: v => send('update:state', v) });
   refreshEnv();
   ffmpegFound = ffmpeg.resolve(settings.get().ffmpegPath);
   encoderReady = ffmpeg.pickEncoder(settings.get().encoder);
@@ -1332,3 +1363,8 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => { recorder?.cancel(); store?.flush(); app.quit(); });
+// An update downloaded in the background installs when DemoLab closes (silently, without starting it again).
+app.on('will-quit', () => {
+  if (updating || updater?.state().status !== 'ready' || !s().updates.auto) return;
+  try { updater.install({ relaunch: false }); } catch (e) { log('update on quit failed:', e.message); }
+});

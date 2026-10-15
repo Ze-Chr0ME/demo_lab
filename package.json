@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "description": "CS2 demo analysis: stats, heatmaps, 2D replays, integrity checks, lineups and highlight clips",
   "author": "Ze-Chr0ME",
+  "repository": "github:Ze-Chr0ME/demo_lab",
   "main": "src/main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist": "node scripts/dist.js"
+    "dist": "node scripts/dist.js",
+    "release": "node scripts/release.js"
   },
   "dependencies": {
     "@laihoe/demoparser2": "^0.42.0",

@@ -33,6 +33,7 @@ const DEFAULTS = {
   themeShots: {},            // map theme id → the CS2 screenshot it shows (default: the map's first)
   lowEnd: false,             // Low-end PC: read demos with fewer threads and less memory (slower)
   autoProcess: { enabled: true, measure: true, notify: true, lastScan: 0 }, // new matches: read, measure, notify (lastScan: when DemoLab last looked)
+  updates: { auto: true },   // look for a new DemoLab release now and then and download it in the background
 };
 
 function merge(base, over) {
