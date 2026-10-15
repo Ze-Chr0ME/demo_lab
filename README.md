@@ -19,6 +19,9 @@ rights), with ffmpeg included, and adds Start menu and desktop shortcuts. You st
 **CS2**, and the **[Visual C++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe)**
 (usually already installed by Steam games). Then do step 2 below (Install HLAE).
 
+The installer is on the [releases page](https://github.com/Ze-Chr0ME/demo_lab/releases). An installed
+DemoLab keeps itself up to date (see [Updates](#updates)).
+
 To build the installer yourself: `npm install --no-save electron-builder@26`, then `npm run dist`. It
 copies the ffmpeg and ffprobe DemoLab finds on your PC into the installer and writes it to `dist\`.
 
@@ -265,6 +268,19 @@ adding anything; lineups you already have are skipped. Pictures stay on your PC.
 
 Demos from game modes that are newer than the demo parser may not be readable.
 
+## Updates
+
+An installed DemoLab looks for a new [GitHub release](https://github.com/Ze-Chr0ME/demo_lab/releases)
+when it starts and every 6 hours, and downloads it in the background (checked against the sha256 GitHub
+lists for the file). An **Update** button then appears in the top bar: it restarts DemoLab into the new
+version. If you don't click it, the update installs when you close DemoLab. Matches, settings, lineups and
+the install folder are kept. **Settings → Updates** shows the release notes, has "Check now", and turns the
+automatic check off. Run from the source, DemoLab only reports new releases: update with `git pull`.
+
+To publish a release: raise `version` in package.json, commit and push, then run `npm run release`
+(notes generated from the commits) or `npm run release -- notes.md`. It builds the installer and uploads
+it to a new `v<version>` release with the GitHub CLI (`gh`), so installed copies pick it up.
+
 ## Demo parser (Rush support)
 
 The official `@laihoe/demoparser2` (0.42.0) can't read Rush (`rush_001`) demos. DemoLab ships its own
@@ -308,7 +324,9 @@ src/lib/recorder.js      Playback + recording orchestration
 src/lib/ffmpeg.js        Mux, join, montage, thumbnails
 src/lib/matches.js       Match downloads (gcWorker.js: Valve's list, community.js: Steam Community)
 src/lib/steam.js         Finding Steam, CS2 and the logged-in account
+src/lib/updater.js       DemoLab's own updates from GitHub releases
 src/renderer/            UI (radar/: bundled radar images and their world coordinates)
 scripts/extract-radars.js  Regenerates src/renderer/radar from a CS2 install
 scripts/dist.js          Builds the installer (npm run dist)
+scripts/release.js       Publishes it as a GitHub release (npm run release)
 ```

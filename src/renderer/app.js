@@ -3688,6 +3688,76 @@ api.onHlaeUpdate(u => {
   if (state.view === 'settings') renderSettings();
 });
 
+// ---------- DemoLab updates ----------
+// The main process checks GitHub releases and downloads new versions in the background; the top bar
+// shows "Restart to update" once one is ready, Settings → Updates has the details.
+state.update = null; // { current, installed, status, latest, notes, progress, error, ... } (lib/updater.js)
+
+async function installUpdate(btn) {
+  if (btn) btn.disabled = true;
+  try { await api.updateInstall(); toast(`Installing DemoLab ${state.update.latest}… it starts again in a few seconds.`, 'ok'); } catch (e) { toast(e.message, 'error'); if (btn) btn.disabled = false; }
+}
+
+function renderUpdatePill() {
+  const u = state.update, pill = $('#updatePill');
+  const show = !!u?.installed && u.status === 'ready';
+  pill.classList.toggle('hidden', !show);
+  if (!show) return;
+  pill.disabled = false;
+  pill.replaceChildren(icon('<path d="M12 4v11M7 10.5l5 5 5-5M5 20h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>'), h('span', {}, 'Update'));
+  pill.title = `DemoLab ${u.latest} is downloaded. Click to restart DemoLab and install it now, or it installs when you close DemoLab.`;
+}
+$('#updatePill').onclick = e => installUpdate(e.currentTarget);
+
+// GitHub release notes are Markdown: shown as plain text, without the markup.
+const plainNotes = md => md.replace(/\r/g, '')
+  .replace(/^#{1,6}\s*/gm, '').replace(/^\s*[*-]\s+/gm, '• ')
+  .replace(/\*\*(.+?)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+  .replace(/\n{3,}/g, '\n\n').trim();
+
+function appUpdateCard() {
+  const u = state.update || {}, auto = state.settings.updates?.auto !== false;
+  const mb = u.size ? ` (${(u.size / 1e6).toFixed(0)} MB)` : '';
+  const line = {
+    idle: 'Not checked yet',
+    checking: 'Checking…',
+    current: u.latest ? `Up to date (latest release is ${u.latest})` : 'Up to date (no release published yet)',
+    available: `DemoLab ${u.latest} is available${mb}`,
+    downloading: `Downloading DemoLab ${u.latest}… ${Math.round((u.progress || 0) * 100)}%`,
+    ready: `DemoLab ${u.latest} is downloaded and ready to install`,
+    error: `✗ ${u.error}`,
+  }[u.status] || '';
+  const status = h('span', { class: 'hint' }, line, u.error && u.status !== 'error' ? ` — last try failed: ${u.error}` : '');
+  const buttons = [h('button', { class: 'btn', disabled: u.status === 'checking' || u.status === 'downloading', onclick: async () => {
+    status.textContent = 'Checking…';
+    try { state.update = await api.updateCheck(); } catch (e) { status.textContent = '✗ ' + e.message; return; }
+    renderSettings();
+  } }, 'Check now')];
+  if (u.status === 'available' && u.installed) buttons.push(h('button', { class: 'btn primary', onclick: e => { e.currentTarget.disabled = true; api.updateDownload().catch(err => toast(err.message, 'error')); } }, `Download ${u.latest}`));
+  if (u.status === 'ready') buttons.push(h('button', { class: 'btn primary', onclick: e => installUpdate(e.currentTarget) }, 'Restart to update'));
+  if (u.page && ['available', 'downloading', 'ready'].includes(u.status)) buttons.push(h('button', { class: 'link-btn', onclick: () => api.updatePage() }, 'Release page'));
+  const fresh = ['available', 'downloading', 'ready'].includes(u.status);
+  return h('div', { class: 'card', id: 'updateCard' },
+    h('h3', {}, 'Updates'),
+    h('div', { class: 'desc' }, u.installed === false
+      ? 'DemoLab runs from its source code here, so it can’t replace itself: get new versions with git pull. The check below still shows the latest release.'
+      : 'New versions come from DemoLab’s GitHub releases. They download in the background and install when you click “Restart to update” or close DemoLab. Your matches, settings and lineups are kept.'),
+    row('Version', h('div', { class: 'ctl' }, h('span', { class: 'pill' }, `DemoLab ${u.current || '?'}`), ...buttons, status)),
+    u.installed === false ? null : row('Automatic updates', toggle('Check and download automatically', auto, v => save({ updates: { auto: v } })),
+      'Looks for a new release when DemoLab starts and every 6 hours. Turned off, use “Check now”.'),
+    fresh && u.notes ? row(`What’s new in ${u.latest}`, h('div', { class: 'update-notes' }, plainNotes(u.notes))) : null,
+  );
+}
+
+api.onUpdate(u => {
+  const was = state.update?.status;
+  state.update = u;
+  renderUpdatePill();
+  if (u.status === 'ready' && was && was !== 'ready') toast(`DemoLab ${u.latest} is ready — click “Restart to update” in the top bar, or it installs when you close DemoLab.`, 'ok');
+  if (state.view === 'settings') $('#updateCard')?.replaceWith(appUpdateCard());
+});
+api.updateState().then(u => { state.update = u; renderUpdatePill(); }).catch(() => {});
+
 // Theme gallery (DemoLab, teams, maps) plus a custom theme. Previews use the same pictures as the
 // backdrop; a map theme also offers the other screenshots CS2 has of that map.
 const PATTERN_NAMES = [['', 'None'], ['hex', 'Hexagons'], ['tri', 'Triangles'], ['grid', 'Grid'], ['diag', 'Stripes'], ['dots', 'Dots']];
@@ -3794,6 +3864,8 @@ function renderSettings() {
   const SPECIAL_LABELS = { noscope: 'No-scope', wallbang: 'Wallbang', smoke: 'Through smoke', blind: 'While flashed', jumpshot: 'Jumpshot', knife: 'Knife', zeus: 'Zeus', collateral: 'Collateral' };
 
   const cards = [
+    appUpdateCard(),
+
     h('div', { class: 'card' },
       h('h3', {}, 'Highlights'),
       h('div', { class: 'desc' }, 'What counts as a highlight. Each round becomes at most one clip.'),
