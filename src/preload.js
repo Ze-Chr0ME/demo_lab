@@ -74,6 +74,8 @@ contextBridge.exposeInMainWorld('api', {
   deleteClip: id => call('clips:delete', id),
   reveal: file => call('shell:reveal', file),
   open: file => call('shell:open', file),
+  openGithub: () => call('shell:github'),
+  openSteamProfile: steamid => call('shell:steamProfile', steamid),
   montage: (ids, name) => call('montage:make', ids, name),
   listDownloads: () => call('downloads:list'),
   checkDownloads: () => call('downloads:check'),

@@ -309,6 +309,7 @@ async function refreshEnv() {
 // ---------- Demos ----------
 $('#demoSearch').addEventListener('input', e => { state.search = e.target.value.toLowerCase(); renderDemoList(); });
 $('#refreshDemos').addEventListener('click', () => loadDemos());
+$('#githubBtn').addEventListener('click', () => api.openGithub());
 
 async function loadDemos() {
   $('#demoListSub').textContent = 'Scanning…';
@@ -651,7 +652,7 @@ function scoreboardView() {
           onclick: () => { state.sbSort = { col: k, dir: sort.col === k ? -sort.dir : -1 }; renderDetail(); },
         }, k, sort.col === k ? (sort.dir < 0 ? ' ▾' : ' ▴') : '')))),
       h('tbody', {}, ...rows.map(p => h('tr', { class: p.steamid === me ? 'me' : '', title: `View the match as ${p.name}`, onclick: pick(p.steamid) },
-        h('td', { class: 'name' }, avatar(p.name, p.steamid, 'sm'), p.name,
+        h('td', { class: 'name' }, steamAvatar(p.name, p.steamid, 'sm'), p.name,
           h('button', { class: 'sb-profile', title: `${p.name}’s stats over all your demos`, onclick: e => { e.stopPropagation(); openPlayer(p.steamid); } }, icon(ICONS.stats))),
         ...cols.map(([, , val, fmt, cls]) => h('td', { class: cls ? cls(p) : '' }, fmt ? fmt(p) : val(p)))))),
     );
@@ -697,10 +698,10 @@ function duelsView() {
       h('thead', {}, h('tr', {},
         h('th', { class: 'team' }, `${teamLabel(rowsT)} ↓  vs  ${teamLabel(colsT)} →`),
         ...colsT.players.map(b => h('th', { class: `duel-head ${b.steamid === me ? 'me' : ''}`, title: b.name },
-          avatar(b.name, b.steamid), h('span', { class: 'duel-name' }, b.name))),
+          steamAvatar(b.name, b.steamid), h('span', { class: 'duel-name' }, b.name))),
         h('th', { class: 'duel-total' }, 'Total'))),
       h('tbody', {}, ...rowsT.players.map(a => h('tr', { class: a.steamid === me ? 'me' : '', onclick: pick(a.steamid) },
-        h('td', { class: 'name', title: a.name }, avatar(a.name, a.steamid, 'sm'), a.name),
+        h('td', { class: 'name', title: a.name }, steamAvatar(a.name, a.steamid, 'sm'), a.name),
         ...colsT.players.map(b => cell(a, b)),
         total(a)))))),
   ];
@@ -754,7 +755,7 @@ function integrityView() {
       ...sel.signals.map(c => h('th', { title: `${c.tip}\n\nNormal: ${c.normal}` }, c.label)),
       h('th', { title: 'Kills and headshot percentage, for context' }, 'K · HS%'))),
     h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''}`, title: 'Show this player’s moments', onclick: () => { state.integPlayer = p.steamid; renderDetail(); } },
-      h('td', { class: 'name' }, avatar(p.name, p.steamid, 'sm'), p.name, h('span', { class: 'integ-team' }, teamName(p))),
+      h('td', { class: 'name' }, steamAvatar(p.name, p.steamid, 'sm'), p.name, h('span', { class: 'integ-team' }, teamName(p))),
       h('td', {}, h('span', { class: `pill ${INTEG_LEVEL[p.level][1]}` }, INTEG_LEVEL[p.level][0])),
       ...p.signals.map(s => h('td', { class: `integ-${s.level}`, title: `Normal: ${s.normal}` }, s.display)),
       h('td', {}, `${p.context.kills} · ${p.context.hsPct}%`)))));
@@ -784,7 +785,7 @@ function integrityMoments(p) {
       m.kind === 'snap' ? 'Paused right after the snap in CS2. Use the demo controls (Shift+F2) to step back and forth.' : 'The demo is playing in the CS2 window.')));
   return [
     h('div', { class: 'section-head' },
-      h('h3', { class: 'with-avatar' }, avatar(p.name, p.steamid, 'sm'), `Moments · ${p.name}`),
+      h('h3', { class: 'with-avatar' }, steamAvatar(p.name, p.steamid, 'sm'), `Moments · ${p.name}`),
       minor.length ? toggle(`Show ${minor.length} weaker moment${minor.length > 1 ? 's' : ''}`, showMinor, v => { state.integMinor = v; renderDetail(); },
         'Every time the crosshair was already on an unknown enemy as they came into view (good crosshair placement does this too, so one by one they mean little), and snaps onto an enemy without a shot.') : null,
       h('span', { class: 'spacer' }),
@@ -2151,6 +2152,15 @@ function avatar(name, steamid, cls = '') {
   }
   return el;
 }
+// An avatar that opens the player's Steam profile in the browser (matches and the overview).
+function steamAvatar(name, steamid, cls = '') {
+  const el = avatar(name, steamid, cls);
+  if (!/^7656\d{13}$/.test(steamid || '')) return el; // bots have no profile
+  el.classList.add('steam-link');
+  el.title = `Open ${name}’s Steam profile`;
+  el.onclick = e => { e.stopPropagation(); api.openSteamProfile(steamid); };
+  return el;
+}
 function setAvatarPic(el, file) {
   if (el.dataset.file === file) return;
   el.dataset.file = file;
@@ -2338,7 +2348,7 @@ function renderOverview() {
     ].filter(Boolean).join(' · ');
   }
   const head = h('div', { class: 'dash-head' },
-    avatar(p.name, p.steamid, 'large'),
+    steamAvatar(p.name, p.steamid, 'large'),
     h('div', { class: 'dash-title' },
       h('h2', {}, p.name || 'Your stats', other ? h('span', { class: 'dash-tag', title: `SteamID ${p.steamid}` }, 'Player') : null),
       h('div', { class: 'sub' }, `${t.played} match${t.played === 1 ? '' : 'es'} · ${fmtNum(t.rounds)} rounds`,
@@ -2473,7 +2483,7 @@ function matesCard(t) {
     ? h('div', { class: 'mates' }, ...mates.map(m => {
       const wr = pct(m.won, m.played);
       return h('div', { class: 'mate clickable', title: `${m.won} won · ${m.lost} lost together · click for ${m.name}’s stats`, onclick: () => openPlayer(m.id) },
-        avatar(m.name, m.id, 'sm'),
+        steamAvatar(m.name, m.id, 'sm'),
         h('span', { class: 'mate-name' }, m.name),
         h('span', { class: 'bar-note' }, `${m.played} matches`),
         h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } })),

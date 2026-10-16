@@ -1146,6 +1146,12 @@ function registerIpc() {
   });
   handle('shell:reveal', file => { shell.showItemInFolder(file); return true; });
   handle('shell:open', file => shell.openPath(file));
+  handle('shell:github', () => { shell.openExternal('https://github.com/Ze-Chr0ME/demo_lab'); return true; });
+  handle('shell:steamProfile', steamid => {
+    if (!/^7656\d{13}$/.test(String(steamid))) return false; // bots and unknown players have no profile
+    shell.openExternal(`https://steamcommunity.com/profiles/${steamid}`);
+    return true;
+  });
 
   // Kill times of a clip for "Export for sharing". Clips recorded before kill times were saved get them
   // from their highlight, as long as it still has the clip's length (the timing settings may have changed).

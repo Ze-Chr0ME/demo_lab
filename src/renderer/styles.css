@@ -136,6 +136,10 @@ svg { width: 18px; height: 18px; flex: none; }
 .nav-count { font-size: 11px; font-weight: 600; color: var(--muted); background: var(--panel-2); padding: 0 7px; border-radius: 10px; font-variant-numeric: tabular-nums; line-height: 18px; }
 .nav-count:empty { display: none; }
 .nav-icon { width: 36px; height: 36px; padding: 0; justify-content: center; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); flex: none; }
+.github-btn { display: grid; place-items: center; color: var(--muted); cursor: pointer; }
+.github-btn:hover { color: var(--text); background: var(--panel-2); }
+.avatar.steam-link { cursor: pointer; }
+.avatar.steam-link:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
 .nav-icon.active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .status { display: flex; align-items: center; gap: 2px; padding: 0 4px; height: 36px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); font-size: 12px; flex: none; }
 .status-row { display: flex; align-items: center; gap: 6px; padding: 0 8px; color: var(--muted); cursor: default; }
@@ -215,7 +219,7 @@ svg { width: 18px; height: 18px; flex: none; }
 main { flex: 1; min-width: 0; min-height: 0; position: relative; z-index: 1; }
 .view { display: none; height: 100%; }
 .view.active { display: flex; }
-#view-overview.active, #view-aim.active, #view-maps.active, #view-utility.active, #view-clips.active, #view-settings.active, #view-downloads.active, #view-themes.active { flex-direction: column; overflow: auto; }
+#view-overview.active, #view-aim.active, #view-maps.active, #view-utility.active, #view-clips.active, #view-settings.active, #view-downloads.active, #view-themes.active, #view-compare.active { flex-direction: column; overflow: auto; }
 .page { padding: 28px var(--gutter) 100px; width: 100%; }
 .page-head { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; }
 .page-head h2 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -.3px; font-family: var(--display); }
