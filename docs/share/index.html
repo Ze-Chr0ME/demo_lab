@@ -747,9 +747,9 @@
     const form = s ? section('Recent form', null, h('div', { class: 'dash' }, trendCard(s), multiCard(s))) : null;
     const duels = s ? section('Rounds & maps', null, h('div', { class: 'dash' }, clutchCard(s), entryCard(s), mapsCard(s))) : null;
     const footer = h('footer', {},
-      h('span', {}, 'Stats from this player’s own demos. Videos are hosted on ', h('a', { href: 'https://catbox.moe', target: '_blank', rel: 'noopener' }, 'catbox.moe'), ': if they don’t load, your internet provider may block it (switching your DNS to 1.1.1.1 fixes that).'),
+      h('span', {}, s ? 'Stats from this player’s own demos. ' : null, 'Videos are hosted on ', h('a', { href: 'https://catbox.moe', target: '_blank', rel: 'noopener' }, 'catbox.moe'), ': if they don’t load, your internet provider may block it (switching your DNS to 1.1.1.1 fixes that).'),
       h('a', { href: GITHUB, target: '_blank', rel: 'noopener' }, 'Made with CS2 DemoLab, free'));
-    app.replaceChildren(head, top, highlights, form, duels, footer);
+    app.replaceChildren(...[head, top, highlights, form, duels, footer].filter(Boolean)); // (null would show as text)
   }
 
   function clipCard(x, i, list) {
