@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net, nativeImage, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net, nativeImage, Notification, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Worker } = require('worker_threads');
@@ -25,12 +25,13 @@ const share = require('./lib/share');
 const { ensureGeometry } = require('./lib/geometry');
 const { MatchDownloader, fetchGcMatches } = require('./lib/matches');
 const { decode } = require('./lib/proto');
-const { Community, signIn, signOut, watchCookies, loginCookieSummary } = require('./lib/community');
+const { Community, signIn, signOut, watchCookies, loginCookieSummary, PARTITION } = require('./lib/community');
 const hlae = require('./lib/hlae');
 const { UtilityStore, steamScreenshots, shareCode, readCodes, sameLineup } = require('./lib/utility');
 const { AvatarStore } = require('./lib/avatars');
 const { ThemeArt } = require('./lib/themeArt');
 const { Updater } = require('./lib/updater');
+const { InventoryStore, localCurrency } = require('./lib/inventory');
 
 let win;
 let settings;
@@ -48,6 +49,7 @@ let utility; // UtilityStore: the Utility page's lineups
 let avatars; // AvatarStore: Steam profile pictures
 let themeArt; // ThemeArt: map screenshots and team logos from the CS2 install, for the themes
 let updater; // Updater: new DemoLab releases from GitHub
+let inventory; // InventoryStore: Steam inventories and their prices
 let updating = false; // "Restart to update" was clicked: the quit must not start a second installer
 
 // The data folder is %APPDATA%\cs2-demolab whether DemoLab runs from the source or installed (Electron
@@ -771,6 +773,10 @@ function registerIpc() {
   });
   // Everyone in my parsed demos, for the player search: names they used, how many matches, and how many
   // of those were with me or against me.
+  // A player's inventory (me unless another SteamID is given) with prices from the chosen source.
+  handle('inventory:get', (steamid, refresh) => inventory.get(steamid || mySteamId(), { source: s().inventory.source, stickerShare: s().inventory.stickerShare, refresh: !!refresh }));
+  handle('inventory:market', name => inventory.market(name));
+  handle('inventory:defaults', () => ({ currency: localCurrency(app.getLocaleCountryCode()) }));
   handle('avatars:get', ids => avatars.get(Array.isArray(ids) ? ids : []));
   handle('players:list', () => {
     const self = mySteamId();
@@ -1147,6 +1153,11 @@ function registerIpc() {
   handle('shell:reveal', file => { shell.showItemInFolder(file); return true; });
   handle('shell:open', file => shell.openPath(file));
   handle('shell:github', () => { shell.openExternal('https://github.com/Ze-Chr0ME/demo_lab'); return true; });
+  handle('shell:market', name => {
+    if (typeof name !== 'string' || !name || name.length > 200) return false;
+    shell.openExternal(`https://steamcommunity.com/market/listings/730/${encodeURIComponent(name)}`);
+    return true;
+  });
   handle('shell:steamProfile', steamid => {
     if (!/^7656\d{13}$/.test(String(steamid))) return false; // bots and unknown players have no profile
     shell.openExternal(`https://steamcommunity.com/profiles/${steamid}`);
@@ -1343,6 +1354,10 @@ app.whenReady().then(() => {
   store = new DemoStore(app.getPath('userData'), DATA_VERSION);
   utility = new UtilityStore(app.getPath('userData'));
   avatars = new AvatarStore(app.getPath('userData'), { fetch: net.fetch, steamPath: () => env?.steamPath, onUpdate: v => send('avatars:update', v), log });
+  // The inventory request carries the Steam Community sign-in (Downloads tab), so a private inventory of your own still works.
+  inventory = new InventoryStore(app.getPath('userData'), {
+    fetch: net.fetch, steamFetch: (url, o) => session.fromPartition(PARTITION).fetch(url, o), onImages: v => send('inventory:images', v), onSales: v => send('inventory:sales', v), log,
+  });
   themeArt = new ThemeArt(app.getPath('userData'), () => env?.csgoDir || null);
   updater = new Updater({ dir: path.join(app.getPath('userData'), 'updates'), version: app.getVersion(), fetch: net.fetch, installed: app.isPackaged, log, onChange: v => send('update:state', v) });
   refreshEnv();

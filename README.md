@@ -43,6 +43,7 @@ No website, no upload, no subscription.
 | 🗺️ **Maps** | Zoomable heatmaps of kills, deaths, damage and grenades over all your matches on a map |
 | 💀 **Death review** | Every death checked for what went wrong: died alone, not traded, grenades unused, caught off guard… |
 | ⚖️ **Compare** | You against any player from your demos, or against the median of your lobbies |
+| 💰 **Inventory** | What your CS2 items are worth (Steam Market or Skinport prices, in your currency), item by item with floats, patterns and stickers, plus the value over time |
 | 💨 **Utility** | A library of your grenade lineups, with a practice quiz and share codes for Discord |
 | 🎬 **Clips & montages** | Multi-kills, clutches and special kills recorded in the background and joined into montages |
 | 📥 **Auto downloads** | New matches pulled from Steam, including Scrimmage and Rush replays |

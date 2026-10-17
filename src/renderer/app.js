@@ -70,6 +70,7 @@ const state = {
 // The Aim page keeps showing the player on the overview when opened from there, else it shows me.
 document.querySelectorAll('.nav-btn, .brand').forEach(b => b.addEventListener('click', () => {
   if (b.dataset.view === 'overview' || (b.dataset.view === 'aim' && state.view !== 'overview')) state.who = null;
+  if (b.dataset.view === 'inventory' && state.inv?.who) { state.inv.who = null; state.inv.data = null; state.inv.error = null; } // the top bar always opens mine
   showView(b.dataset.view);
 }));
 function showView(v) {
@@ -88,6 +89,7 @@ function showView(v) {
   if (v === 'themes') renderThemes();
   if (v === 'settings') renderSettings();
   if (v === 'compare') renderCompare();
+  if (v === 'inventory') renderInventory();
   Scene.follow($(`#view-${v}`));
 }
 
@@ -98,6 +100,7 @@ function rerender() {
   if (state.view === 'maps') renderMaps();
   if (state.view === 'utility') renderUtility();
   if (state.view === 'compare') renderCompare();
+  if (state.view === 'inventory') renderInventory();
   if (state.view === 'matches') { renderDemoList(); renderDetail(); }
 }
 
@@ -2356,6 +2359,7 @@ function renderOverview() {
         pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null)),
     h('span', { class: 'spacer' }),
     back,
+    h('button', { class: 'btn', title: other ? 'What this player’s CS2 items are worth (public inventories only)' : 'What your CS2 items are worth', onclick: () => openInventory(other ? p.steamid : null, other ? p.name : null) }, 'Inventory'),
     h('button', { class: 'btn', title: other ? 'This player and you side by side' : 'You against your lobbies or any player from your demos', onclick: () => compareWith(other ? p.steamid : 'lobby') }, other ? 'Compare with you' : 'Compare'),
     h('div', { class: 'filters' },
       modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], v => { f.mode = v; rerender(); }) : null,
