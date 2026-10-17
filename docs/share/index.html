@@ -8,6 +8,10 @@
 <meta property="og:type" content="website">
 <meta property="og:title" content="CS2 highlights">
 <meta property="og:description" content="Watch my best CS2 plays and see my stats, made with CS2 DemoLab.">
+<meta property="og:image" content="https://ze-chr0me.github.io/demo_lab/share/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#0b0f13">
 <meta name="referrer" content="no-referrer">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0f13'/%3E%3Cpath d='M12 9.5v13l10.5-6.5z' fill='%232fd8a4'/%3E%3C/svg%3E">
@@ -267,6 +271,32 @@
   .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
   .tag { font-size: 11px; padding: 2px 7px; border-radius: 5px; background: var(--panel-3); color: var(--muted); }
 
+  /* ---------- featured clip (banner at the top) ---------- */
+  .hero { position: relative; overflow: hidden; border-radius: 16px; border: 1px solid var(--line); margin-bottom: 26px; min-height: 300px; height: clamp(300px, 34vw, 470px);
+    display: flex; flex-direction: column; justify-content: flex-end; background: var(--panel); box-shadow: 0 30px 70px -40px #000; }
+  .hero-media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .hero-media.vertical { object-fit: contain; }
+  video.hero-media { opacity: 0; transition: opacity .8s; }
+  video.hero-media.ready { opacity: 1; }
+  .hero::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--base) 20%, transparent) 0%, transparent 30%, color-mix(in srgb, var(--base) 55%, transparent) 62%, color-mix(in srgb, var(--base) 94%, transparent) 100%),
+      linear-gradient(90deg, color-mix(in srgb, var(--base) 55%, transparent), transparent 55%); }
+  .hero > .dash-head { position: relative; z-index: 1; margin: 0; padding: 22px 26px; }
+  .hero-feat { position: absolute; z-index: 1; top: 18px; left: 22px; right: 22px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .hero-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 7px; background: var(--accent); color: var(--accent-ink); font: var(--label); letter-spacing: .12em; text-transform: uppercase; }
+  .hero-chip svg { width: 13px; height: 13px; }
+  .hero-title { font: 650 15px var(--display); text-shadow: 0 1px 4px #000c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .hero-title small { color: color-mix(in oklab, var(--text) 75%, transparent); font-weight: 500; font-size: 13px; margin-left: 6px; }
+  .hero-watch { margin-left: auto; }
+
+  /* ---------- clip context ---------- */
+  .ctx { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .ctx span { font-size: 11px; padding: 2px 7px; border-radius: 5px; background: var(--panel-3); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ctx .side-T { background: color-mix(in srgb, var(--t) 18%, transparent); color: var(--t); font-weight: 700; }
+  .ctx .side-CT { background: color-mix(in srgb, var(--ct) 18%, transparent); color: var(--ct); font-weight: 700; }
+  .ctx .buy { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+  .ctx .won { color: var(--win); } .ctx .lost { color: var(--loss); }
+
   /* ---------- player ---------- */
   .lightbox { position: fixed; inset: 0; z-index: 50; display: grid; grid-template-rows: auto 1fr auto; gap: 14px; padding: 18px clamp(12px, 3vw, 40px) 22px;
     background: color-mix(in srgb, var(--base) 88%, transparent); backdrop-filter: blur(14px); animation: fade .2s ease; }
@@ -278,13 +308,32 @@
   .icon-btn:hover { border-color: var(--accent); color: var(--text); }
   .icon-btn svg { width: 17px; height: 17px; }
   .stage { position: relative; min-height: 0; display: grid; place-items: center; }
-  .stage video { max-width: 100%; max-height: 100%; border-radius: 12px; background: #000; box-shadow: 0 30px 90px -20px #000; outline: none; }
+  .stage { grid-template-rows: minmax(0, 1fr) auto; gap: 10px; }
+  .stage video { max-width: 100%; max-height: 100%; border-radius: 12px; background: #000; box-shadow: 0 30px 90px -20px #000; outline: none; align-self: center; }
+  /* kills on the clip's timeline, under the video (as wide as the video) */
+  .killbar { position: relative; height: 26px; justify-self: center; width: 100%; }
+  .killbar::before { content: ""; position: absolute; left: 0; right: 0; top: 12px; height: 2px; border-radius: 2px; background: var(--line-2); }
+  .killbar .prog { position: absolute; left: 0; top: 12px; height: 2px; border-radius: 2px; background: var(--accent); width: 0; }
+  .kmark { position: absolute; top: 4px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; border: 2px solid var(--accent); background: var(--base); cursor: pointer; padding: 0;
+    display: grid; place-items: center; font-size: 9px; font-weight: 800; color: var(--accent); transition: transform .15s, background .15s; }
+  .kmark:hover { transform: scale(1.25); }
+  .kmark.done { background: var(--accent); color: var(--accent-ink); }
+  .kills { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+  .kchip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 4px; border-radius: 8px; border: 1px solid var(--line); background: var(--card-bg); cursor: pointer; font-size: 12.5px; color: var(--text); }
+  .kchip:hover { border-color: var(--accent); }
+  .kchip.done { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .kchip time { font: 700 11px ui-monospace, Consolas, monospace; padding: 2px 5px; border-radius: 5px; background: var(--panel-3); color: var(--muted); }
+  .kchip.done time { background: var(--accent); color: var(--accent-ink); }
+  .kchip b { font-weight: 650; }
+  .kchip i { font-style: normal; color: var(--dim); }
+  .kchip em { font-style: normal; font-size: 10.5px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent-2); }
   .nav { position: absolute; top: 50%; width: 44px; height: 44px; margin-top: -22px; border-radius: 50%; border: 1px solid var(--line-2); background: color-mix(in srgb, var(--panel) 85%, transparent); display: grid; place-items: center; cursor: pointer; }
   .nav:hover { border-color: var(--accent); color: var(--accent); }
   .nav svg { width: 20px; height: 20px; }
   .nav.prev { left: 0; } .nav.next { right: 0; }
   .nav[hidden] { display: none; }
-  .lb-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; color: var(--dim); font-size: 12.5px; }
+  .lb-foot { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--dim); font-size: 12.5px; }
+  .lb-foot .ctx { margin: 0; justify-content: center; }
   .lb-foot .tags { margin: 0; }
   .vid-error { max-width: 520px; padding: 22px; border-radius: var(--radius); border: 1px solid var(--line-2); background: var(--panel); text-align: center; color: var(--muted); }
   .vid-error b { display: block; color: var(--text); font-size: 17px; margin-bottom: 6px; }
@@ -320,6 +369,10 @@
     .nav { display: none; }
     .lightbox { padding: 12px 10px 16px; }
     .lb-head .btn span { display: none; }
+    .hero { height: auto; min-height: 0; padding-top: 52%; }
+    .hero > .dash-head { padding: 16px; }
+    .hero-feat { top: 12px; left: 12px; right: 12px; }
+    .hero-title { display: none; }
   }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
@@ -362,7 +415,10 @@
     link: '<path d="M10 14a4.5 4.5 0 0 0 6.4.2l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2M14 10a4.5 4.5 0 0 0-6.4-.2l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
     download: '<path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
     film: '<path d="M4 5h16v14H4zM8 5v14M16 5v14M4 9h4M4 15h4M16 9h4M16 15h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+    star: '<path d="M12 3.6l2.5 5.3 5.8.7-4.3 4 1.1 5.7L12 16.5l-5.1 2.8 1.1-5.7-4.3-4 5.8-.7z" fill="currentColor"/>',
+    video: '<path d="M4 6.5h11v11H4zM15 10.5l5-3v9l-5-3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>',
   };
+  const BUY = { pistol: 'Pistol round', eco: 'Eco', force: 'Force buy', full: 'Full buy' };
 
   // ---------- tiny DOM helper (text always goes in as text, never as HTML) ----------
   function h(tag, attrs, ...kids) {
@@ -385,6 +441,13 @@
   const fmtNum = n => Math.round(n).toLocaleString();
 
   // ---------- reading the link ----------
+  async function fetchData(id) {
+    const res = await fetch(`${FILES}${id}.json`, { referrerPolicy: 'no-referrer', credentials: 'omit' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    if (text.length > 1 << 20) throw new Error('too big');
+    return JSON.parse(text);
+  }
   async function inflate(code) {
     const b64 = code.replace(/-/g, '+').replace(/_/g, '/');
     const bin = atob(b64 + '='.repeat((4 - b64.length % 4) % 4));
@@ -445,6 +508,15 @@
       tags: Array.isArray(x.g) ? x.g.slice(0, 4).map(t => str(t, 24)).filter(Boolean) : [],
       ace: Array.isArray(x.g) && x.g.includes('ACE'),
       round: Math.round(num(x.r, 0, 99)), day: Math.round(num(x.at, 0, 1e6)), vertical: x.o === 1, score: num(x.s, 0, 1e5), montage: x.x === 1,
+      kl: Array.isArray(x.kl) ? x.kl.slice(0, 12).filter(k => k && typeof k.t === 'number').map(k => ({
+        t: num(k.t, 0, 36000), w: str(k.w, 24), v: str(k.v, 32), p: k.p === 'Unknown' ? '' : str(k.p, 32),
+        f: Array.isArray(k.f) ? k.f.slice(0, 4).map(v => str(v, 16)).filter(Boolean) : [],
+      })) : [],
+      cx: x.cx && typeof x.cx === 'object' ? {
+        side: ['T', 'CT'].includes(x.cx.s) ? x.cx.s : null,
+        score: Array.isArray(x.cx.sc) && x.cx.sc.length === 2 ? x.cx.sc.map(v => Math.round(num(v, 0, 99))) : null,
+        buy: BUY[x.cx.b] ? x.cx.b : null, theirBuy: BUY[x.cx.eb] ? x.cx.eb : null, won: x.cx.w === 1 ? true : x.cx.w === 0 ? false : null,
+      } : null,
     })).filter(x => x.video).map(x => ({ ...x, tags: x.tags.filter(t => !/^(ACE|\dK)$/.test(t)) })); // the kill badge already says it
     const theme = cleanTheme(raw.th);
     return {
@@ -453,6 +525,7 @@
       avatar: FILE.test(raw.A || '') ? FILES + raw.A : /^[0-9a-f]{40}$/.test(raw.a || '') ? `https://avatars.fastly.steamstatic.com/${raw.a}_full.jpg` : null,
       theme: theme || (HEX.test(raw.c || '') ? { base: '#0b0f13', accent: raw.c, pattern: 'dots', scene: 'pattern' } : null),
       stats: cleanStats(raw.st),
+      featured: Number.isInteger(raw.f) ? items.find(x => x.n === raw.f) || null : null,
       items,
     };
   }
@@ -585,6 +658,23 @@
     const parts = [x.montage ? 'Montage' : mapName(x.map), x.weapon, x.round ? `Round ${x.round}` : '', fmtDay(x.day)].filter(Boolean);
     return h('div', { class: cls }, ...parts.flatMap((p, i) => (i ? [h('span', { class: 'sep' }, '·'), p] : [p])));
   }
+  // The round of a clip, as small chips: side, score before the round, an eco or force buy, won or lost.
+  function ctxEl(x, full = false) {
+    const c = x.cx;
+    if (!c) return null;
+    const parts = [
+      c.side ? h('span', { class: `side-${c.side}` }, c.side) : null,
+      c.score ? h('span', { title: 'Score before the round' }, `${c.score[0]}–${c.score[1]}`) : null,
+      c.buy && (full || c.buy !== 'full') ? h('span', { class: c.buy !== 'full' ? 'buy' : '' }, full && c.theirBuy ? `${BUY[c.buy]} vs ${BUY[c.theirBuy].toLowerCase()}` : BUY[c.buy]) : null,
+      full && c.won != null ? h('span', { class: c.won ? 'won' : 'lost' }, c.won ? 'Round won' : 'Round lost') : null,
+    ].filter(Boolean);
+    return parts.length ? h('div', { class: 'ctx' }, ...parts) : null;
+  }
+  // The link to share: the short one (…/demo_lab/#id) when the page was opened from a short code.
+  const pageLink = (pick) => {
+    const base = /^[a-z0-9]{6}$/.test(code) && location.hostname.endsWith('github.io') ? location.origin + location.pathname.replace(/share\/(index\.html)?$/, '') : location.href.split('#')[0];
+    return `${base}#${code}${pick != null ? `!${pick}` : ''}`;
+  };
   const mapThumb = m => h('div', { class: 'map-thumb', style: { '--c': mapColor(m), backgroundImage: MAPNAME.test(m) ? `url("${RADAR}${m}.png")` : null } });
 
   let G = null, code = '';
@@ -595,8 +685,8 @@
     t.textContent = msg; t.classList.add('on');
     clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('on'), 1800);
   }
-  async function copy(text) {
-    try { await navigator.clipboard.writeText(text); toast('Link copied'); } catch { prompt('Copy this link:', text); }
+  async function copy(text, msg = 'Link copied') {
+    try { await navigator.clipboard.writeText(text); toast(msg); } catch { prompt('Copy this link:', text); }
   }
 
   // ---------- Overview parts (src/renderer/app.js scorePanel, statTile, cards) ----------
@@ -724,7 +814,7 @@
       h('span', { class: 'spacer' }),
       h('div', { class: 'head-actions' },
         G.steamid ? h('a', { class: 'btn', href: `https://steamcommunity.com/profiles/${G.steamid}`, target: '_blank', rel: 'noopener noreferrer' }, svg(ICON.steam), 'Steam profile') : null,
-        h('button', { class: 'btn primary', onclick: () => copy(`${location.href.split('#')[0]}#${code}`) }, svg(ICON.link), 'Copy link')));
+        h('button', { class: 'btn primary', onclick: () => copy(pageLink()) }, svg(ICON.link), 'Copy link')));
 
     const top = s ? h('div', { class: 'ov-top' },
       scorePanel(s),
@@ -740,6 +830,7 @@
       maps.length > 1 ? h('div', { class: 'chips' },
         h('button', { class: `chip ${state.map === 'all' ? 'on' : ''}`, onclick: () => { state.map = 'all'; render(); } }, 'All maps'),
         ...maps.map(m => h('button', { class: `chip ${state.map === m ? 'on' : ''}`, onclick: () => { state.map = m; render(); } }, mapName(m)))) : null,
+      shown.length > 1 ? h('button', { class: 'btn', onclick: () => open(shown, 0) }, svg(ICON.play), 'Play all') : null,
       h('div', { class: 'seg' }, ...[['latest', 'Latest'], ['best', 'Best']].map(([k, l]) =>
         h('button', { class: state.sort === k ? 'on' : '', onclick: () => { state.sort = k; render(); } }, l))));
     const highlights = section(`Highlights · ${shown.length}`, controls, h('div', { class: 'grid' }, ...shown.map((x, i) => clipCard(x, i, shown))));
@@ -749,7 +840,32 @@
     const footer = h('footer', {},
       h('span', {}, s ? 'Stats from this player’s own demos. ' : null, 'Videos are hosted on ', h('a', { href: 'https://catbox.moe', target: '_blank', rel: 'noopener' }, 'catbox.moe'), ': if they don’t load, your internet provider may block it (switching your DNS to 1.1.1.1 fixes that).'),
       h('a', { href: GITHUB, target: '_blank', rel: 'noopener' }, 'Made with CS2 DemoLab, free'));
-    app.replaceChildren(...[head, top, highlights, form, duels, footer].filter(Boolean)); // (null would show as text)
+    app.replaceChildren(...[hero(head), top, highlights, form, duels, footer].filter(Boolean)); // (null would show as text)
+  }
+
+  // The featured clip (picked in the app, else the best one) playing silently behind the name, like a
+  // profile banner. Phones and data savers get its picture instead of the video.
+  function hero(head) {
+    const items = G.items;
+    // (a montage's score is the sum of its clips': only featured when picked, or when there is nothing else)
+    const x = G.featured || [...items].sort((a, b) => a.montage - b.montage || b.score - a.score || b.kills - a.kills)[0];
+    if (!x) return head;
+    const light = matchMedia('(max-width: 720px), (prefers-reduced-motion: reduce)').matches || navigator.connection?.saveData;
+    const pic = x.thumb ? FILES + x.thumb : null;
+    let media;
+    if (light || !pic) media = pic ? h('img', { class: `hero-media ${x.vertical ? 'vertical' : ''}`, src: pic, alt: '' }) : null;
+    else {
+      media = h('video', { class: `hero-media ${x.vertical ? 'vertical' : ''}`, src: FILES + x.video, poster: pic, muted: true, autoplay: true, loop: true, playsinline: true, preload: 'auto' });
+      media.muted = true;
+      media.addEventListener('playing', () => media.classList.add('ready'), { once: true });
+    }
+    const list = items;
+    return h('section', { class: 'hero' }, media,
+      h('div', { class: 'hero-feat' },
+        h('span', { class: 'hero-chip' }, svg(ICON.star), 'Featured'),
+        h('span', { class: 'hero-title' }, x.title, h('small', {}, [x.montage ? 'Montage' : mapName(x.map), x.weapon].filter(Boolean).join(' · '))),
+        h('button', { class: 'btn hero-watch', onclick: () => open(list, list.indexOf(x)) }, svg(ICON.play), 'Watch')),
+      head);
   }
 
   function clipCard(x, i, list) {
@@ -778,6 +894,7 @@
       onmouseleave: stop,
     }, thumb, h('div', { class: 'clip-body' },
       h('div', { class: 'clip-title', title: x.title }, x.title), metaEl(x),
+      ctxEl(x),
       x.tags.length ? h('div', { class: 'tags' }, ...x.tags.map(t => h('span', { class: 'tag' }, t))) : null));
     return el;
   }
@@ -806,19 +923,38 @@
     video.addEventListener('error', () => video.replaceWith(h('div', { class: 'vid-error' },
       h('b', {}, 'This video won’t load'),
       'It is on files.catbox.moe, which some internet providers block. Switching your DNS to 1.1.1.1 (or a VPN) usually fixes it. Catbox also removes clips nobody watched for 2 years.')));
+    // The kills: markers on a line as wide as the video, and one chip each; both jump just before the kill.
+    const seek = t => { video.currentTime = Math.max(0, t - 1.5); video.play().catch(() => {}); };
+    const fmtT = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    const killText = k => [k.w, k.v ? `→ ${k.v}` : null, k.p ? `(${k.p})` : null].filter(Boolean).join(' ');
+    const marks = x.kl.map((k, n) => h('button', { class: 'kmark', style: { left: `${clamp(k.t / (x.dur || 1), 0, 1) * 100}%` }, title: `${fmtT(k.t)} · ${killText(k)}${k.f.length ? ` · ${k.f.join(', ')}` : ''}`, onclick: () => seek(k.t) }, n + 1));
+    const chips = x.kl.map((k, n) => h('button', { class: 'kchip', onclick: () => seek(k.t) },
+      h('time', {}, fmtT(k.t)), h('b', {}, k.w), k.v ? h('span', {}, '→ ', k.v) : null, k.p ? h('i', {}, k.p) : null, ...k.f.map(t => h('em', {}, t === 'Headshot' ? 'HS' : t))));
+    const prog = h('div', { class: 'prog' });
+    const killbar = x.kl.length ? h('div', { class: 'killbar' }, prog, ...marks) : null;
+    const fit = () => { if (killbar && video.clientWidth) killbar.style.width = `${video.clientWidth}px`; };
+    video.addEventListener('timeupdate', () => {
+      const t = video.currentTime;
+      prog.style.width = `${clamp(t / (video.duration || x.dur || 1), 0, 1) * 100}%`;
+      x.kl.forEach((k, n) => { marks[n].classList.toggle('done', t >= k.t); chips[n].classList.toggle('done', t >= k.t); });
+    });
     lb = h('div', { class: 'lightbox', role: 'dialog', 'aria-label': x.title, onclick: e => { if (e.target === lb || e.target.classList.contains('stage')) close(); } },
       h('div', { class: 'lb-head' },
         h('div', { class: 'lb-title' }, h('h2', {}, x.title), metaEl(x)),
-        h('button', { class: 'btn', onclick: () => copy(location.href) }, svg(ICON.link), h('span', {}, 'Copy clip link')),
+        h('button', { class: 'btn', title: 'A link to this page that opens this clip', onclick: () => copy(pageLink(x.n)) }, svg(ICON.link), h('span', {}, 'Copy clip link')),
+        h('button', { class: 'btn', title: 'The video file itself: Discord and most chats play it right in the conversation', onclick: () => copy(FILES + x.video, 'Video link copied: Discord plays it right in the chat') }, svg(ICON.video), h('span', {}, 'Copy video link')),
         h('a', { class: 'icon-btn', href: FILES + x.video, target: '_blank', rel: 'noopener', title: 'Open the video file' }, svg(ICON.download)),
         h('button', { class: 'icon-btn', title: 'Close (Esc)', onclick: close }, svg(ICON.close))),
-      h('div', { class: 'stage' }, video,
+      h('div', { class: 'stage' }, video, killbar,
         h('button', { class: 'nav prev', title: 'Previous (←)', hidden: i === 0, onclick: () => open(list, i - 1) }, svg(ICON.left)),
         h('button', { class: 'nav next', title: 'Next (→)', hidden: i + 1 >= list.length, onclick: () => open(list, i + 1) }, svg(ICON.right))),
       h('div', { class: 'lb-foot' },
+        chips.length ? h('div', { class: 'kills' }, ...chips) : null,
+        ctxEl(x, true),
         x.tags.length ? h('div', { class: 'tags' }, ...x.tags.map(t => h('span', { class: 'tag' }, t))) : null,
         h('span', {}, `${i + 1} / ${list.length}`)));
     document.body.append(lb);
+    if (killbar) new ResizeObserver(fit).observe(video);
   }
 
   function empty(title, text) {
@@ -834,10 +970,11 @@
     if (c === code && G) return;
     if (!c) return empty('CS2 highlights', 'Share your best CS2 plays and your stats with one link: CS2 DemoLab records them from your demos and makes this page for you.');
     try {
-      G = clean(await inflate(c));
+      // A short link names the page's data on catbox (6 letters and digits); a long one carries it.
+      G = clean(/^[a-z0-9]{6}$/.test(c) ? await fetchData(c) : await inflate(c));
       code = c;
     } catch {
-      return empty('This link is broken', 'Part of the link is probably missing. Ask for it again, and copy it whole.');
+      return empty('This link is broken', /^[a-z0-9]{6}$/.test(c) ? 'Its page could not be loaded from catbox.moe. Some internet providers block it: switching your DNS to 1.1.1.1 usually fixes that. Or ask for the link again.' : 'Part of the link is probably missing. Ask for it again, and copy it whole.');
     }
     applyTheme(G.theme);
     if (!G.items.length) return empty('No clips here yet', 'This highlights page is empty.');
