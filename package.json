@@ -23,36 +23,10 @@
     "appId": "com.demolab.cs2",
     "productName": "CS2 DemoLab",
     "asar": false,
-    "directories": {
-      "output": "dist",
-      "buildResources": "build"
-    },
-    "files": [
-      "src/**/*",
-      "vendor/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "build/ffmpeg",
-        "to": "ffmpeg",
-        "filter": [
-          "ffmpeg.exe",
-          "ffprobe.exe"
-        ]
-      }
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "build/icon.png"
-    },
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["src/**/*", "vendor/**/*", "package.json"],
+    "extraResources": [{ "from": "build/ffmpeg", "to": "ffmpeg", "filter": ["ffmpeg.exe", "ffprobe.exe"] }],
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.png" },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
