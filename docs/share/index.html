@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CS2 highlights</title>
+<meta name="description" content="CS2 highlights, recorded from demos with CS2 DemoLab.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="CS2 highlights">
+<meta property="og:description" content="Watch my best CS2 plays, recorded from demos with CS2 DemoLab.">
+<meta name="theme-color" content="#0b0f13">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0f13'/%3E%3Cpath d='M12 9.5v13l10.5-6.5z' fill='%232fd8a4'/%3E%3C/svg%3E">
+<!--
+  The page of a "My highlights" link made by CS2 DemoLab (src/lib/gallery.js). Everything it shows comes
+  from the link: after the # is the gallery, deflate-raw + base64url JSON. Videos and pictures are on
+  files.catbox.moe. Only catbox file names, a Steam ID and a Steam avatar hash are taken from the link,
+  never whole URLs, so a link can't make this page show or point to anything else.
+-->
+<style>
+  :root {
+    --base: #0b0f13;
+    --accent: #2fd8a4;
+    --text: #e8edf2;
+    --bg-2: color-mix(in oklab, var(--base), #fff 3%);
+    --panel: color-mix(in oklab, var(--base), #fff 5%);
+    --panel-2: color-mix(in oklab, var(--base), #fff 8.5%);
+    --line: color-mix(in oklab, var(--base), #fff 11%);
+    --line-2: color-mix(in oklab, var(--base), #fff 18%);
+    --muted: color-mix(in oklab, var(--text) 62%, var(--base));
+    --dim: color-mix(in oklab, var(--text) 40%, var(--base));
+    --accent-2: color-mix(in oklab, var(--accent), #fff 25%);
+    --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+    --accent-ink: #04140e;
+    --gold: #f5c344;
+    --radius: 14px;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--base); }
+  body {
+    margin: 0; min-height: 100vh; color: var(--text);
+    font: 15px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    background:
+      radial-gradient(1100px 520px at 12% -120px, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
+      radial-gradient(900px 480px at 100% -160px, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%),
+      var(--base);
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    /* faint grid, like a radar */
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .5;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(1200px 600px at 30% 0, #000 0%, transparent 75%);
+  }
+  a { color: inherit; }
+  button { font: inherit; color: inherit; }
+  .wrap { position: relative; z-index: 1; max-width: 1360px; margin: 0 auto; padding: 28px 24px 56px; }
+
+  /* ---------- profile ---------- */
+  .profile {
+    position: relative; overflow: hidden; display: flex; align-items: center; gap: 22px;
+    padding: 22px 24px; border: 1px solid var(--line); border-radius: calc(var(--radius) + 4px);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--panel) 92%, transparent), color-mix(in srgb, var(--bg-2) 85%, transparent));
+    backdrop-filter: blur(10px);
+    box-shadow: 0 1px 0 color-mix(in srgb, #fff 4%, transparent) inset, 0 24px 60px -30px #000;
+  }
+  .profile::after {
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: .8;
+  }
+  .avatar {
+    flex: none; width: 92px; height: 92px; border-radius: 16px; object-fit: cover;
+    background: var(--panel-2); border: 1px solid var(--line-2);
+    display: grid; place-items: center; font-size: 38px; font-weight: 700; color: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
+  .who { min-width: 0; flex: 1; }
+  .kicker { font-size: 12px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  .name { margin: 2px 0 10px; font-size: clamp(26px, 4vw, 36px); line-height: 1.1; font-weight: 750; letter-spacing: -.01em; overflow-wrap: anywhere; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .fact { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 11px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .fact b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .profile-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: none; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 15px; border-radius: 10px;
+    border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; text-decoration: none;
+    font-size: 13.5px; font-weight: 600; white-space: nowrap; transition: border-color .15s, background .15s, transform .15s;
+  }
+  .btn:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line-2)); background: color-mix(in oklab, var(--panel-2), var(--accent) 8%); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .btn.primary:hover { background: var(--accent-2); }
+  .btn svg { width: 17px; height: 17px; flex: none; }
+  .made { font-size: 12px; color: var(--dim); text-decoration: none; }
+  .made:hover { color: var(--muted); }
+  .made b { color: var(--muted); font-weight: 600; }
+
+  /* ---------- toolbar ---------- */
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 26px 0 16px; }
+  .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+  .seg button { border: 0; background: none; padding: 6px 14px; border-radius: 7px; cursor: pointer; font-size: 12.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .seg button.on { background: var(--accent); color: var(--accent-ink); }
+  .seg button:not(.on):hover { color: var(--text); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); background: transparent; padding: 6px 12px; border-radius: 999px; font-size: 13px; cursor: pointer; color: var(--muted); }
+  .chip:hover { color: var(--text); border-color: var(--line-2); }
+  .chip.on { color: var(--text); border-color: color-mix(in srgb, var(--accent) 70%, transparent); background: var(--accent-soft); }
+  .spacer { flex: 1; }
+  .count { font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+  /* ---------- grid ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 22px 18px; }
+  .card { display: block; align-self: start; text-align: left; border: 0; padding: 0; background: none; cursor: pointer; min-width: 0; animation: rise .45s cubic-bezier(.2,.7,.2,1) backwards; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+  .thumb {
+    position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius); overflow: hidden;
+    background: var(--panel) center / cover no-repeat; border: 1px solid var(--line);
+    transition: transform .2s ease, border-color .2s, box-shadow .2s;
+  }
+  .card:hover .thumb, .card:focus-visible .thumb {
+    transform: translateY(-3px); border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+    box-shadow: 0 16px 40px -18px color-mix(in srgb, var(--accent) 55%, #000), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .card:focus-visible { outline: none; }
+  .thumb img, .thumb video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .thumb.vertical img, .thumb.vertical video { object-fit: contain; }
+  .thumb.vertical .blur { position: absolute; inset: -20px; background: center / cover; filter: blur(18px) brightness(.55); }
+  .thumb video { opacity: 0; transition: opacity .25s; }
+  .thumb video.ready { opacity: 1; }
+  .thumb::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(0,0,0,.35), transparent 30%, transparent 65%, rgba(0,0,0,.55)); }
+  .badge {
+    position: absolute; z-index: 2; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 7px;
+    background: rgba(8, 11, 14, .72); backdrop-filter: blur(6px); font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  }
+  .badge.map { top: 10px; left: 10px; }
+  .badge.map i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .badge.kills { top: 10px; right: 10px; color: var(--accent-ink); background: var(--accent); }
+  .badge.kills.ace { background: linear-gradient(135deg, #ffe08a, var(--gold)); color: #2a1d00; }
+  .badge.dur { bottom: 10px; right: 10px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: 0; font-size: 12px; }
+  .play {
+    position: absolute; z-index: 2; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%;
+    display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 88%, transparent); color: var(--accent-ink);
+    opacity: 0; transform: scale(.85); transition: opacity .2s, transform .2s;
+  }
+  .play svg { width: 22px; height: 22px; margin-left: 3px; }
+  .card:hover .play { opacity: 1; transform: scale(1); }
+  .card.previewing .play { opacity: 0; }
+  .meta { padding: 11px 3px 0; }
+  .title { font-size: 16px; font-weight: 650; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub { margin-top: 3px; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub .sep { color: var(--dim); margin: 0 6px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .tag { font-size: 11.5px; padding: 2px 8px; border-radius: 6px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+
+  /* ---------- player ---------- */
+  .lightbox {
+    position: fixed; inset: 0; z-index: 50; display: grid; grid-template-rows: auto 1fr auto; gap: 14px;
+    padding: 18px clamp(12px, 3vw, 40px) 22px; background: rgba(4, 6, 8, .9); backdrop-filter: blur(14px);
+    animation: fade .2s ease;
+  }
+  @keyframes fade { from { opacity: 0; } }
+  .lb-head { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .lb-title { min-width: 0; flex: 1; }
+  .lb-title h2 { margin: 0; font-size: 20px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lb-title .sub { font-size: 13.5px; }
+  .icon-btn { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel); cursor: pointer; }
+  .icon-btn:hover { border-color: var(--accent); }
+  .icon-btn svg { width: 18px; height: 18px; }
+  .stage { position: relative; min-height: 0; display: grid; place-items: center; }
+  .stage video { max-width: 100%; max-height: 100%; width: auto; height: auto; border-radius: 12px; background: #000; box-shadow: 0 30px 90px -20px #000; outline: none; }
+  .nav { position: absolute; top: 50%; width: 46px; height: 46px; margin-top: -23px; border-radius: 50%; border: 1px solid var(--line-2); background: rgba(12, 16, 20, .8); display: grid; place-items: center; cursor: pointer; }
+  .nav:hover { border-color: var(--accent); color: var(--accent); }
+  .nav svg { width: 20px; height: 20px; }
+  .nav.prev { left: 0; } .nav.next { right: 0; }
+  .nav[hidden] { display: none; }
+  .lb-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
+  .lb-foot .tags { margin: 0; }
+  .vid-error { max-width: 520px; padding: 22px; border-radius: var(--radius); border: 1px solid var(--line-2); background: var(--panel); text-align: center; color: var(--muted); }
+  .vid-error b { display: block; color: var(--text); font-size: 17px; margin-bottom: 6px; }
+
+  /* ---------- misc ---------- */
+  .empty { margin: 70px auto; max-width: 520px; text-align: center; color: var(--muted); }
+  .empty h1 { color: var(--text); font-size: 26px; margin: 14px 0 8px; }
+  .empty .ico { width: 64px; height: 64px; margin: 0 auto; border-radius: 18px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+  .empty .ico svg { width: 30px; height: 30px; }
+  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; font-size: 12.5px; color: var(--dim); }
+  footer a { color: var(--muted); }
+  .toast { position: fixed; z-index: 60; left: 50%; bottom: 26px; transform: translate(-50%, 20px); opacity: 0; padding: 10px 16px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 650; font-size: 14px; transition: .25s; pointer-events: none; }
+  .toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 720px) {
+    .wrap { padding: 16px 16px 40px; }
+    .profile { flex-wrap: wrap; padding: 18px; gap: 16px; }
+    .avatar { width: 72px; height: 72px; font-size: 30px; }
+    .profile-actions { flex-direction: row; align-items: center; width: 100%; }
+    .profile-actions .made { display: none; }
+    .grid { grid-template-columns: 1fr; }
+    .nav { display: none; }
+    .lightbox { padding: 12px 10px 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<main class="wrap" id="app"></main>
+<div class="toast" id="toast"></div>
+<script>
+'use strict';
+(() => {
+  const FILES = (() => {
+    // Local testing only: ?files=<folder URL> serves the "catbox" files from a local server.
+    const local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).get('files');
+    return local || 'https://files.catbox.moe/';
+  })();
+  const GITHUB = 'https://github.com/Ze-Chr0ME/demo_lab';
+  // Same names and colours as the app (src/renderer/app.js MAPS).
+  const MAPS = {
+    de_dust2: ['Dust II', '#c9a36b'], de_mirage: ['Mirage', '#d9a35f'], de_inferno: ['Inferno', '#c8693f'], de_nuke: ['Nuke', '#6b9ac9'],
+    de_overpass: ['Overpass', '#6fa77a'], de_ancient: ['Ancient', '#5fa08a'], de_anubis: ['Anubis', '#d4b45a'], de_vertigo: ['Vertigo', '#8aa3c4'],
+    de_train: ['Train', '#8c8f99'], cs_office: ['Office', '#9aa6b5'], cs_italy: ['Italy', '#c98c5a'], de_cache: ['Cache', '#7fa36b'],
+    rush_001: ['Rush', '#c45b8a'],
+  };
+  const ICON = {
+    play: '<path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/>',
+    steam: '<path fill="currentColor" d="M12 2a10 10 0 0 0-9.96 9.2l5.36 2.22a2.8 2.8 0 0 1 1.6-.5h.16l2.39-3.46v-.05a3.79 3.79 0 1 1 3.79 3.79h-.09l-3.4 2.43v.13a2.84 2.84 0 0 1-5.63.56L2.4 14.8A10 10 0 1 0 12 2Zm-4.2 15.2-1.23-.5a2.13 2.13 0 1 0 1.17-2.9l1.27.53a1.57 1.57 0 1 1-1.2 2.9Zm9.47-7.73a2.53 2.53 0 1 0-2.53 2.52 2.53 2.53 0 0 0 2.53-2.52Zm-4.42 0a1.9 1.9 0 1 1 1.9 1.9 1.9 1.9 0 0 1-1.9-1.9Z"/>',
+    close: '<path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    left: '<path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
+    right: '<path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
+    link: '<path d="M10 14a4.5 4.5 0 0 0 6.4.2l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2M14 10a4.5 4.5 0 0 0-6.4-.2l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    download: '<path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+    film: '<path d="M4 5h16v14H4zM8 5v14M16 5v14M4 9h4M4 15h4M16 9h4M16 15h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+  };
+
+  // ---------- tiny DOM helper (text always goes in as text, never as HTML) ----------
+  function h(tag, attrs, ...kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+      else if (k === 'class') el.className = v;
+      else if (k === 'style') Object.assign(el.style, v);
+      else el.setAttribute(k, v === true ? '' : v);
+    }
+    for (const k of kids.flat()) if (k != null && k !== false) el.append(k instanceof Node ? k : String(k));
+    return el;
+  }
+  const svg = (path, cls) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); if (cls) s.setAttribute('class', cls); s.innerHTML = path; return s; };
+  const app = document.getElementById('app');
+
+  // ---------- reading the link ----------
+  async function inflate(code) {
+    const b64 = code.replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64 + '='.repeat((4 - b64.length % 4) % 4));
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    const reader = stream.getReader();
+    const parts = []; let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > 1 << 20) throw new Error('too big');
+      parts.push(value);
+    }
+    return JSON.parse(new TextDecoder().decode(await new Blob(parts).arrayBuffer()));
+  }
+  const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+  const num = (v, lo, hi) => (typeof v === 'number' && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : 0);
+  function clean(raw) {
+    if (!raw || raw.v !== 1 || !Array.isArray(raw.i)) throw new Error('unknown format');
+    const items = raw.i.slice(0, 50).map((x, n) => ({
+      n,
+      video: /^[a-z0-9]{6}\.mp4$/.test(x.v) ? x.v : null,
+      thumb: /^[a-z0-9]{6}\.jpg$/.test(x.p) ? x.p : null,
+      title: str(x.t, 80) || 'Highlight',
+      map: /^[a-z0-9_]{2,32}$/.test(x.m || '') ? x.m : '',
+      dur: num(x.d, 0, 36000), kills: Math.round(num(x.k, 0, 99)), weapon: str(x.w, 24),
+      tags: Array.isArray(x.g) ? x.g.slice(0, 4).map(t => str(t, 24)).filter(Boolean) : [],
+      ace: Array.isArray(x.g) && x.g.includes('ACE'),
+      round: Math.round(num(x.r, 0, 99)), day: Math.round(num(x.at, 0, 1e6)), vertical: x.o === 1, score: num(x.s, 0, 1e5), montage: x.x === 1,
+    })).filter(x => x.video).map(x => ({ ...x, tags: x.tags.filter(t => !/^(ACE|\dK)$/.test(t)) })); // the kill badge already says it
+    return {
+      name: str(raw.n, 32),
+      steamid: /^7656\d{13}$/.test(raw.s || '') ? raw.s : null,
+      avatar: /^[0-9a-f]{40}$/.test(raw.a || '') ? raw.a : null,
+      accent: /^#[0-9a-f]{6}$/i.test(raw.c || '') ? raw.c : null,
+      items,
+    };
+  }
+
+  // ---------- formatting ----------
+  const mapName = m => MAPS[m]?.[0] || (m ? m.replace(/^(de|cs|ar)_/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '');
+  const fmtDur = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+  const fmtDay = d => (d ? new Date(d * 86400e3).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+  const isAce = x => x.kills >= 5 || x.ace;
+  const killBadge = x => (isAce(x) ? 'ACE' : x.kills >= 2 ? `${x.kills}K` : null);
+  const subLine = x => [x.montage ? 'Montage' : mapName(x.map), x.weapon, x.round ? `Round ${x.round}` : '', fmtDay(x.day)].filter(Boolean);
+  function subEl(x) {
+    const parts = subLine(x);
+    return h('div', { class: 'sub' }, ...parts.flatMap((p, i) => (i ? [h('span', { class: 'sep' }, '·'), p] : [p])));
+  }
+
+  let G = null, code = '';
+  const state = { sort: 'latest', map: 'all' };
+
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('on');
+    clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('on'), 1800);
+  }
+  async function copy(text) {
+    try { await navigator.clipboard.writeText(text); toast('Link copied'); } catch { prompt('Copy this link:', text); }
+  }
+
+  // ---------- page ----------
+  function render() {
+    const items = G.items;
+    const maps = [...new Set(items.filter(x => x.map && !x.montage).map(x => x.map))];
+    const kills = items.filter(x => !x.montage).reduce((a, x) => a + x.kills, 0);
+    const aces = items.filter(x => !x.montage && isAce(x)).length;
+    const name = G.name || 'CS2 player';
+    document.title = `${name} · CS2 highlights`;
+
+    const avatar = G.avatar
+      ? h('img', { class: 'avatar', alt: '', src: `https://avatars.fastly.steamstatic.com/${G.avatar}_full.jpg`, onerror: e => e.target.replaceWith(h('div', { class: 'avatar' }, name[0].toUpperCase())) })
+      : h('div', { class: 'avatar' }, name[0].toUpperCase());
+    const fact = (n, label) => h('span', { class: 'fact' }, h('b', {}, n), label);
+    const profile = h('section', { class: 'profile' },
+      avatar,
+      h('div', { class: 'who' },
+        h('div', { class: 'kicker' }, 'CS2 highlights'),
+        h('h1', { class: 'name' }, name),
+        h('div', { class: 'facts' },
+          fact(items.length, items.length === 1 ? 'clip' : 'clips'),
+          kills ? fact(kills, 'kills') : null,
+          aces ? fact(aces, aces === 1 ? 'ace' : 'aces') : null,
+          maps.length ? fact(maps.length, maps.length === 1 ? 'map' : 'maps') : null)),
+      h('div', { class: 'profile-actions' },
+        G.steamid ? h('a', { class: 'btn', href: `https://steamcommunity.com/profiles/${G.steamid}`, target: '_blank', rel: 'noopener noreferrer' }, svg(ICON.steam), 'Steam profile') : null,
+        h('button', { class: 'btn primary', onclick: () => copy(location.href.split('#')[0] + '#' + code) }, svg(ICON.link), 'Copy link'),
+        h('a', { class: 'made', href: GITHUB, target: '_blank', rel: 'noopener' }, 'Made with ', h('b', {}, 'CS2 DemoLab'))));
+
+    const sorted = items.filter(x => state.map === 'all' || x.map === state.map)
+      .sort(state.sort === 'best' ? (a, b) => b.score - a.score || b.kills - a.kills || a.n - b.n : (a, b) => a.n - b.n);
+    const seg = h('div', { class: 'seg' }, ...[['latest', 'Latest'], ['best', 'Best']].map(([k, l]) =>
+      h('button', { class: state.sort === k ? 'on' : '', onclick: () => { state.sort = k; render(); } }, l)));
+    const chips = maps.length > 1 ? h('div', { class: 'chips' },
+      h('button', { class: `chip ${state.map === 'all' ? 'on' : ''}`, onclick: () => { state.map = 'all'; render(); } }, 'All maps'),
+      ...maps.map(m => h('button', { class: `chip ${state.map === m ? 'on' : ''}`, onclick: () => { state.map = m; render(); } }, mapName(m)))) : null;
+    const toolbar = h('div', { class: 'toolbar' }, seg, chips, h('span', { class: 'spacer' }), h('span', { class: 'count' }, `${sorted.length} of ${items.length}`));
+
+    const grid = h('div', { class: 'grid' }, ...sorted.map((x, i) => card(x, i, sorted)));
+    const footer = h('footer', {},
+      h('span', {}, 'Videos are hosted on ', h('a', { href: 'https://catbox.moe', target: '_blank', rel: 'noopener' }, 'catbox.moe'), '. If they don\'t load, your internet provider may block it: switching your DNS to 1.1.1.1 fixes that.'),
+      h('a', { href: GITHUB, target: '_blank', rel: 'noopener' }, 'Get CS2 DemoLab, free'));
+    app.replaceChildren(profile, toolbar, grid, footer);
+  }
+
+  function card(x, i, list) {
+    const pic = x.thumb ? FILES + x.thumb : '';
+    const thumb = h('div', { class: `thumb ${x.vertical ? 'vertical' : ''}` },
+      x.vertical && pic ? h('div', { class: 'blur', style: { backgroundImage: `url("${pic}")` } }) : null,
+      pic ? h('img', { src: pic, alt: '', loading: 'lazy', decoding: 'async' }) : null,
+      x.montage ? h('span', { class: 'badge map' }, h('i'), 'Montage') : x.map ? h('span', { class: 'badge map' }, h('i', { style: MAPS[x.map] ? { background: MAPS[x.map][1], boxShadow: `0 0 8px ${MAPS[x.map][1]}` } : null }), mapName(x.map)) : null,
+      !x.montage && killBadge(x) ? h('span', { class: `badge kills ${isAce(x) ? 'ace' : ''}` }, killBadge(x)) : null,
+      h('span', { class: 'badge dur' }, fmtDur(x.dur)),
+      h('span', { class: 'play' }, svg(ICON.play)));
+    let timer = null, video = null;
+    const stop = () => { clearTimeout(timer); video?.remove(); video = null; el.classList.remove('previewing'); };
+    const el = h('button', {
+      class: 'card', style: { animationDelay: `${Math.min(i, 12) * 35}ms` }, 'aria-label': `Play ${x.title}`,
+      onclick: () => { stop(); open(list, i); },
+      onmouseenter: () => {
+        if (!matchMedia('(hover: hover)').matches) return;
+        timer = setTimeout(() => {
+          video = h('video', { src: FILES + x.video, muted: true, autoplay: true, loop: true, playsinline: true, preload: 'auto' });
+          video.muted = true;
+          video.addEventListener('playing', () => { video?.classList.add('ready'); el.classList.add('previewing'); }, { once: true });
+          thumb.insertBefore(video, thumb.querySelector('.badge'));
+        }, 280);
+      },
+      onmouseleave: stop,
+    }, thumb, h('div', { class: 'meta' },
+      h('div', { class: 'title', title: x.title }, x.title), subEl(x),
+      x.tags.length ? h('div', { class: 'tags' }, ...x.tags.map(t => h('span', { class: 'tag' }, t))) : null));
+    return el;
+  }
+
+  // ---------- player ----------
+  let lb = null, cur = null;
+  function close() {
+    lb?.remove(); lb = null; cur = null;
+    history.replaceState(null, '', `#${code}`);
+  }
+  document.addEventListener('keydown', e => {
+    if (!cur || (e.target.tagName === 'VIDEO' && e.key.startsWith('Arrow'))) return; // a focused video seeks with the arrows
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft' && cur.i > 0) open(cur.list, cur.i - 1);
+    else if (e.key === 'ArrowRight' && cur.i + 1 < cur.list.length) open(cur.list, cur.i + 1);
+  });
+  function open(list, i) {
+    const x = list[i];
+    lb?.remove();
+    cur = { list, i };
+    history.replaceState(null, '', `#${code}!${x.n}`);
+    const video = h('video', { src: FILES + x.video, controls: true, autoplay: true, playsinline: true, poster: x.thumb ? FILES + x.thumb : null });
+    try { video.volume = Math.min(1, Math.max(0, Number(localStorage.getItem('vol') ?? 0.6))); } catch {}
+    video.addEventListener('volumechange', () => { try { localStorage.setItem('vol', video.volume); } catch {} });
+    video.addEventListener('ended', () => { if (i + 1 < list.length) open(list, i + 1); });
+    video.addEventListener('error', () => video.replaceWith(h('div', { class: 'vid-error' },
+      h('b', {}, 'This video won’t load'),
+      'It is on files.catbox.moe, which some internet providers block. Switching your DNS to 1.1.1.1 (or a VPN) usually fixes it. Catbox also removes clips nobody watched for 2 years.')));
+    lb = h('div', { class: 'lightbox', role: 'dialog', 'aria-label': x.title, onclick: e => { if (e.target === lb || e.target.classList.contains('stage')) close(); } },
+      h('div', { class: 'lb-head' },
+        h('div', { class: 'lb-title' }, h('h2', {}, x.title), subEl(x)),
+        h('button', { class: 'btn', onclick: () => copy(location.href) }, svg(ICON.link), 'Copy clip link'),
+        h('a', { class: 'icon-btn', href: FILES + x.video, target: '_blank', rel: 'noopener', title: 'Open the video file' }, svg(ICON.download)),
+        h('button', { class: 'icon-btn', title: 'Close (Esc)', onclick: close }, svg(ICON.close))),
+      h('div', { class: 'stage' }, video,
+        h('button', { class: 'nav prev', title: 'Previous (←)', hidden: i === 0, onclick: () => open(list, i - 1) }, svg(ICON.left)),
+        h('button', { class: 'nav next', title: 'Next (→)', hidden: i + 1 >= list.length, onclick: () => open(list, i + 1) }, svg(ICON.right))),
+      h('div', { class: 'lb-foot' },
+        x.tags.length ? h('div', { class: 'tags' }, ...x.tags.map(t => h('span', { class: 'tag' }, t))) : null,
+        h('span', { class: 'count' }, `${i + 1} / ${list.length}`)));
+    document.body.append(lb);
+  }
+
+  function empty(title, text) {
+    document.title = 'CS2 highlights';
+    app.replaceChildren(h('div', { class: 'empty' },
+      h('div', { class: 'ico' }, svg(ICON.film)), h('h1', {}, title), h('p', {}, text),
+      h('p', {}, h('a', { class: 'btn primary', href: GITHUB, target: '_blank', rel: 'noopener' }, 'Get CS2 DemoLab'))));
+  }
+
+  async function load() {
+    const hash = location.hash.slice(1);
+    const [c, pick] = hash.split('!');
+    if (c === code && G) return;
+    if (!c) return empty('CS2 highlights', 'Share your best CS2 plays with one link: CS2 DemoLab records them from your demos and makes this page for you.');
+    try {
+      G = clean(await inflate(c));
+      code = c;
+    } catch {
+      return empty('This link is broken', 'Part of the link is probably missing. Ask for it again, and copy it whole.');
+    }
+    document.documentElement.style.removeProperty('--accent');
+    document.documentElement.style.removeProperty('--accent-ink');
+    if (G.accent) {
+      document.documentElement.style.setProperty('--accent', G.accent);
+      // dark text on light accents, light text on dark ones
+      const [r, g, b] = [1, 3, 5].map(i => parseInt(G.accent.slice(i, i + 2), 16) / 255);
+      document.documentElement.style.setProperty('--accent-ink', 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? '#06110d' : '#ffffff');
+    }
+    if (!G.items.length) return empty('No clips here yet', 'This highlights page is empty.');
+    render();
+    const n = Number(pick);
+    if (pick !== undefined && G.items[n]) open(G.items, n);
+  }
+  window.addEventListener('hashchange', () => { if (!lb) load(); });
+  load();
+})();
+</script>
+</body>
+</html>
