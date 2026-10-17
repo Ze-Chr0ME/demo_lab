@@ -3529,6 +3529,7 @@ function renderClips() {
       h('button', { class: state.clipFilter === k ? 'on' : '', onclick: () => { state.clipFilter = k; renderClips(); } }, l))),
     weaponSelect, sortSelect,
     h('span', { class: 'spacer' }),
+    galleryHeadButton(),
     h('button', { class: 'btn', onclick: () => api.open(state.env.outputDir) }, icon(ICONS.folder), 'Open folder'),
   );
 
@@ -3561,6 +3562,7 @@ function clipCard(c) {
     order >= 0 ? h('div', { class: 'order' }, order + 1) : null,
     c.kind === 'montage' ? h('div', { class: 'kind' }, 'MONTAGE') : null,
     c.kind === 'share' ? h('div', { class: 'kind' }, shareBadge(c)) : null,
+    galleryBadge(c),
     h('div', { class: 'dur' }, fmtDur(c.duration || 0)));
   let video = null;
   const card = h('div', {
@@ -3578,6 +3580,7 @@ function clipCard(c) {
   h('div', { class: 'clip-actions' },
     h('button', { title: 'Play', onclick: e => { e.stopPropagation(); playClip(c); } }, icon(ICONS.play)),
     c.kind !== 'share' ? h('button', { title: 'Export for sharing: vertical, slow motion, kill feed, music', onclick: e => { e.stopPropagation(); shareDialog(c); } }, icon(SHARE_ICON)) : null,
+    galleryAction(c),
     h('button', { title: 'Show in folder', onclick: e => { e.stopPropagation(); api.reveal(c.file); } }, icon(ICONS.folder)),
     h('button', { title: 'Delete (to Recycle Bin)', onclick: e => { e.stopPropagation(); deleteClip(c); } }, icon(ICONS.trash)),
   ),
@@ -3594,6 +3597,7 @@ function playClip(c) {
     h('div', { class: 'video-foot' },
       h('div', { class: 't' }, c.title),
       c.kind !== 'share' ? h('button', { class: 'btn', onclick: () => shareDialog(c) }, icon(SHARE_ICON), 'Export for sharing') : null,
+      galleryPlayButton(c),
       h('button', { class: 'btn', onclick: () => api.reveal(c.file) }, icon(ICONS.folder), 'Show in folder'),
       h('button', { class: 'btn', onclick: () => closeModal() }, 'Close'),
     ),
