@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net, nativeImage, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net, nativeImage, Notification, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Worker } = require('worker_threads');
@@ -25,12 +25,14 @@ const share = require('./lib/share');
 const { ensureGeometry } = require('./lib/geometry');
 const { MatchDownloader, fetchGcMatches } = require('./lib/matches');
 const { decode } = require('./lib/proto');
-const { Community, signIn, signOut, watchCookies, loginCookieSummary } = require('./lib/community');
+const { Community, signIn, signOut, watchCookies, loginCookieSummary, PARTITION } = require('./lib/community');
 const hlae = require('./lib/hlae');
 const { UtilityStore, steamScreenshots, shareCode, readCodes, sameLineup } = require('./lib/utility');
 const { AvatarStore } = require('./lib/avatars');
 const { ThemeArt } = require('./lib/themeArt');
 const { Updater } = require('./lib/updater');
+const { Gallery, SHORT_URL: GALLERY_SHORT } = require('./lib/gallery');
+const { InventoryStore, localCurrency } = require('./lib/inventory');
 
 let win;
 let settings;
@@ -48,6 +50,8 @@ let utility; // UtilityStore: the Utility page's lineups
 let avatars; // AvatarStore: Steam profile pictures
 let themeArt; // ThemeArt: map screenshots and team logos from the CS2 install, for the themes
 let updater; // Updater: new DemoLab releases from GitHub
+let gallery; // Gallery: the "My highlights" web page (clips on catbox.moe)
+let inventory; // InventoryStore: Steam inventories and their prices
 let updating = false; // "Restart to update" was clicked: the quit must not start a second installer
 
 // The data folder is %APPDATA%\cs2-demolab whether DemoLab runs from the source or installed (Electron
@@ -771,6 +775,10 @@ function registerIpc() {
   });
   // Everyone in my parsed demos, for the player search: names they used, how many matches, and how many
   // of those were with me or against me.
+  // A player's inventory (me unless another SteamID is given) with prices from the chosen source.
+  handle('inventory:get', (steamid, refresh) => inventory.get(steamid || mySteamId(), { source: s().inventory.source, stickerShare: s().inventory.stickerShare, refresh: !!refresh }));
+  handle('inventory:market', name => inventory.market(name));
+  handle('inventory:defaults', () => ({ currency: localCurrency(app.getLocaleCountryCode()) }));
   handle('avatars:get', ids => avatars.get(Array.isArray(ids) ? ids : []));
   handle('players:list', () => {
     const self = mySteamId();
@@ -1146,6 +1154,118 @@ function registerIpc() {
   });
   handle('shell:reveal', file => { shell.showItemInFolder(file); return true; });
   handle('shell:open', file => shell.openPath(file));
+  handle('shell:github', () => { shell.openExternal('https://github.com/Ze-Chr0ME/demo_lab'); return true; });
+  handle('shell:market', name => {
+    if (typeof name !== 'string' || !name || name.length > 200) return false;
+    shell.openExternal(`https://steamcommunity.com/market/listings/730/${encodeURIComponent(name)}`);
+    return true;
+  });
+  handle('shell:steamProfile', steamid => {
+    if (!/^7656\d{13}$/.test(String(steamid))) return false; // bots and unknown players have no profile
+    shell.openExternal(`https://steamcommunity.com/profiles/${steamid}`);
+    return true;
+  });
+
+  // "My highlights" web page (lib/gallery.js). look: { theme, stats } from the renderer (galleryLook), so
+  // the page wears the app's theme and shows the Overview's numbers.
+  // The pictures it shows: my Steam picture (hidden with "show my Steam profile" off) and the theme's
+  // team logo or map screenshot, as files on this PC.
+  const galleryFiles = look => {
+    const me = mySteamId();
+    const t = look?.theme || {};
+    let artFile = null;
+    try {
+      if (t.scene === 'team' && /^\w+$/.test(t.logo || '')) artFile = themeArt.team(t.logo);
+      else if (t.scene === 'map' && /^\w+$/.test(t.shot || '')) artFile = themeArt.shot(t.shot);
+    } catch {}
+    const show = gallery.load().showSteam !== false && /^7656\d{13}$/.test(me);
+    return { avatarFile: show ? avatars.get([me])[me] || null : null, artFile };
+  };
+  const galleryOpts = look => {
+    const me = mySteamId();
+    const show = gallery.load().showSteam !== false && /^7656\d{13}$/.test(me);
+    return { steamid: show ? me : undefined, look, files: galleryFiles(look) };
+  };
+  const galleryState = look => {
+    const g = gallery.load();
+    const opts = galleryOpts(look);
+    const ids = gallery.assetIds(opts.files);
+    return {
+      name: g.name, showSteam: g.showSteam !== false, hasUserhash: !!g.userhash, items: g.items, busy: gallery.busy, featured: g.featured || null,
+      // not ready yet (new clip, theme, Steam picture or stats): gallery:sync uploads what's missing and the
+      // page's data, which gives the short link
+      missing: (!!opts.files.avatarFile && !ids.avatar) || (!!opts.files.artFile && !ids.art) || g.items.some(x => !x.ctx) || !gallery.isShort(opts),
+      short: gallery.isShort(opts),
+      link: gallery.link(opts),
+    };
+  };
+  // What the page tells about a clip: its kills (time in the clip, weapon, victim, headshot, wallbang…,
+  // where on the map) and its round (side, score before it, both teams' buys, won or lost).
+  async function clipContext(c) {
+    if (c?.kind !== 'clip' || !c.demoId || !c.highlightId) return {};
+    const d = scanDemos().find(x => x.id === c.demoId);
+    if (!d) return {};
+    const data = await parseDemo(d.path);
+    const h = analysis(d.path, data, c.steamid).highlights?.find(x => x.id === c.highlightId);
+    if (!h || Math.abs(h.duration - (c.duration || 0)) > 0.75) return {};
+    let round = null, eco = null;
+    try {
+      const { core, events } = await demoData(d.path);
+      let facts = null;
+      try { facts = await demoRounds(d.path); } catch {}
+      eco = buildRounds(core, events, facts, c.steamid);
+      round = eco.rounds.find(r => r.num === h.round) || null;
+    } catch (e) { log('gallery: round of', c.id, e.message); }
+    const kl = share.clipKills(h, data.tickrate || 64).map(k => {
+      const place = round?.kills.find(x => x.tick === k.tick)?.place;
+      return { t: Math.round(k.t * 10) / 10, w: k.weapon, v: k.victim, f: [k.headshot ? 'Headshot' : null, ...(k.flags || [])].filter(Boolean), p: place && place !== 'Unknown' ? place : undefined };
+    });
+    let cx;
+    if (round) {
+      const us = round.teams[eco.myTeam], them = round.teams[eco.otherTeam];
+      const before = { ...round.score };
+      if (round.winner) before[round.winner]--;
+      cx = { s: us.side, sc: [before[eco.myTeam], before[eco.otherTeam]], b: us.type || undefined, eb: them.type || undefined, w: round.winner ? +(round.winner === eco.myTeam) : undefined };
+    }
+    return { kl, cx };
+  }
+  // Uploads what the page still needs, then the page's data (the short link). Clips published before
+  // kills and rounds were shown get them here, once.
+  async function gallerySync(look) {
+    if (!gallery.load().items.length) return;
+    const lib = library().list();
+    for (const x of gallery.load().items.filter(i => !i.ctx)) {
+      const extra = await clipContext(lib.find(c => c.id === x.id)).catch(e => { log('gallery: context', x.id, e.message); return {}; });
+      gallery.patch(x.id, { ...extra, ctx: true });
+    }
+    const opts = galleryOpts(look);
+    await gallery.syncAssets(opts.files);
+    await gallery.syncShort(opts);
+  }
+  handle('gallery:get', look => galleryState(look));
+  handle('gallery:sync', async look => { await gallerySync(look); return galleryState(look); });
+  handle('gallery:publish', async (id, look) => {
+    const c = library().list().find(x => x.id === id);
+    if (!c) throw new Error('This clip is no longer in the library.');
+    if (!ffmpegFound) throw new Error('ffmpeg not found. Set its path in Settings.');
+    await encoderReady;
+    try {
+      const extra = await clipContext(c).catch(e => { log('gallery: context', id, e.message); return {}; });
+      await gallery.publish(c, { extra, onProgress: p => send('gallery:update', { id, ...p }) });
+      send('gallery:update', { id, step: 'Making the short link…', progress: 1 });
+      await gallerySync(look);
+    } catch (e) {
+      log('gallery: publish failed', id, e.message);
+      send('gallery:update', { id, error: e.message });
+      throw e;
+    }
+    return galleryState(look);
+  });
+  handle('gallery:remove', async (id, look) => { const r = await gallery.unpublish(id); return { ...galleryState(look), deleted: r.deleted }; });
+  handle('gallery:move', (id, delta, look) => { gallery.move(id, delta); return galleryState(look); });
+  handle('gallery:feature', (id, look) => { gallery.feature(id); return galleryState(look); });
+  handle('gallery:set', (patch, look) => { gallery.set(patch); return galleryState(look); });
+  handle('gallery:open', url => { if (typeof url === 'string' && url.startsWith(GALLERY_SHORT)) shell.openExternal(url); return true; });
 
   // Kill times of a clip for "Export for sharing". Clips recorded before kill times were saved get them
   // from their highlight, as long as it still has the clip's length (the timing settings may have changed).
@@ -1337,7 +1457,15 @@ app.whenReady().then(() => {
   store = new DemoStore(app.getPath('userData'), DATA_VERSION);
   utility = new UtilityStore(app.getPath('userData'));
   avatars = new AvatarStore(app.getPath('userData'), { fetch: net.fetch, steamPath: () => env?.steamPath, onUpdate: v => send('avatars:update', v), log });
+  // The inventory request carries the Steam Community sign-in (Downloads tab), so a private inventory of your own still works.
+  inventory = new InventoryStore(app.getPath('userData'), {
+    fetch: net.fetch, steamFetch: (url, o) => session.fromPartition(PARTITION).fetch(url, o), onImages: v => send('inventory:images', v), onSales: v => send('inventory:sales', v), log,
+  });
   themeArt = new ThemeArt(app.getPath('userData'), () => env?.csgoDir || null);
+  // Dev aid: DEMOLAB_FAKE_UPLOAD=<folder> "uploads" the highlights page's files into that folder, not to catbox.
+  const fakeDir = process.env.DEMOLAB_FAKE_UPLOAD;
+  const fakeUpload = async file => { const name = require('crypto').randomBytes(3).toString('hex') + path.extname(file); fs.copyFileSync(file, path.join(fakeDir, name)); return name; };
+  gallery = new Gallery(app.getPath('userData'), { log, ...(fakeDir ? { upload: fakeUpload, remove: async () => {} } : {}) });
   updater = new Updater({ dir: path.join(app.getPath('userData'), 'updates'), version: app.getVersion(), fetch: net.fetch, installed: app.isPackaged, log, onChange: v => send('update:state', v) });
   refreshEnv();
   ffmpegFound = ffmpeg.resolve(settings.get().ffmpegPath);

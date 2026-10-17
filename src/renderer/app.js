@@ -70,6 +70,7 @@ const state = {
 // The Aim page keeps showing the player on the overview when opened from there, else it shows me.
 document.querySelectorAll('.nav-btn, .brand').forEach(b => b.addEventListener('click', () => {
   if (b.dataset.view === 'overview' || (b.dataset.view === 'aim' && state.view !== 'overview')) state.who = null;
+  if (b.dataset.view === 'inventory' && state.inv?.who) { state.inv.who = null; state.inv.data = null; state.inv.error = null; } // the top bar always opens mine
   showView(b.dataset.view);
 }));
 function showView(v) {
@@ -88,6 +89,7 @@ function showView(v) {
   if (v === 'themes') renderThemes();
   if (v === 'settings') renderSettings();
   if (v === 'compare') renderCompare();
+  if (v === 'inventory') renderInventory();
   Scene.follow($(`#view-${v}`));
 }
 
@@ -98,6 +100,7 @@ function rerender() {
   if (state.view === 'maps') renderMaps();
   if (state.view === 'utility') renderUtility();
   if (state.view === 'compare') renderCompare();
+  if (state.view === 'inventory') renderInventory();
   if (state.view === 'matches') { renderDemoList(); renderDetail(); }
 }
 
@@ -309,6 +312,7 @@ async function refreshEnv() {
 // ---------- Demos ----------
 $('#demoSearch').addEventListener('input', e => { state.search = e.target.value.toLowerCase(); renderDemoList(); });
 $('#refreshDemos').addEventListener('click', () => loadDemos());
+$('#githubBtn').addEventListener('click', () => api.openGithub());
 
 async function loadDemos() {
   $('#demoListSub').textContent = 'Scanning…';
@@ -651,7 +655,7 @@ function scoreboardView() {
           onclick: () => { state.sbSort = { col: k, dir: sort.col === k ? -sort.dir : -1 }; renderDetail(); },
         }, k, sort.col === k ? (sort.dir < 0 ? ' ▾' : ' ▴') : '')))),
       h('tbody', {}, ...rows.map(p => h('tr', { class: p.steamid === me ? 'me' : '', title: `View the match as ${p.name}`, onclick: pick(p.steamid) },
-        h('td', { class: 'name' }, avatar(p.name, p.steamid, 'sm'), p.name,
+        h('td', { class: 'name' }, steamAvatar(p.name, p.steamid, 'sm'), p.name,
           h('button', { class: 'sb-profile', title: `${p.name}’s stats over all your demos`, onclick: e => { e.stopPropagation(); openPlayer(p.steamid); } }, icon(ICONS.stats))),
         ...cols.map(([, , val, fmt, cls]) => h('td', { class: cls ? cls(p) : '' }, fmt ? fmt(p) : val(p)))))),
     );
@@ -697,10 +701,10 @@ function duelsView() {
       h('thead', {}, h('tr', {},
         h('th', { class: 'team' }, `${teamLabel(rowsT)} ↓  vs  ${teamLabel(colsT)} →`),
         ...colsT.players.map(b => h('th', { class: `duel-head ${b.steamid === me ? 'me' : ''}`, title: b.name },
-          avatar(b.name, b.steamid), h('span', { class: 'duel-name' }, b.name))),
+          steamAvatar(b.name, b.steamid), h('span', { class: 'duel-name' }, b.name))),
         h('th', { class: 'duel-total' }, 'Total'))),
       h('tbody', {}, ...rowsT.players.map(a => h('tr', { class: a.steamid === me ? 'me' : '', onclick: pick(a.steamid) },
-        h('td', { class: 'name', title: a.name }, avatar(a.name, a.steamid, 'sm'), a.name),
+        h('td', { class: 'name', title: a.name }, steamAvatar(a.name, a.steamid, 'sm'), a.name),
         ...colsT.players.map(b => cell(a, b)),
         total(a)))))),
   ];
@@ -754,7 +758,7 @@ function integrityView() {
       ...sel.signals.map(c => h('th', { title: `${c.tip}\n\nNormal: ${c.normal}` }, c.label)),
       h('th', { title: 'Kills and headshot percentage, for context' }, 'K · HS%'))),
     h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''}`, title: 'Show this player’s moments', onclick: () => { state.integPlayer = p.steamid; renderDetail(); } },
-      h('td', { class: 'name' }, avatar(p.name, p.steamid, 'sm'), p.name, h('span', { class: 'integ-team' }, teamName(p))),
+      h('td', { class: 'name' }, steamAvatar(p.name, p.steamid, 'sm'), p.name, h('span', { class: 'integ-team' }, teamName(p))),
       h('td', {}, h('span', { class: `pill ${INTEG_LEVEL[p.level][1]}` }, INTEG_LEVEL[p.level][0])),
       ...p.signals.map(s => h('td', { class: `integ-${s.level}`, title: `Normal: ${s.normal}` }, s.display)),
       h('td', {}, `${p.context.kills} · ${p.context.hsPct}%`)))));
@@ -784,7 +788,7 @@ function integrityMoments(p) {
       m.kind === 'snap' ? 'Paused right after the snap in CS2. Use the demo controls (Shift+F2) to step back and forth.' : 'The demo is playing in the CS2 window.')));
   return [
     h('div', { class: 'section-head' },
-      h('h3', { class: 'with-avatar' }, avatar(p.name, p.steamid, 'sm'), `Moments · ${p.name}`),
+      h('h3', { class: 'with-avatar' }, steamAvatar(p.name, p.steamid, 'sm'), `Moments · ${p.name}`),
       minor.length ? toggle(`Show ${minor.length} weaker moment${minor.length > 1 ? 's' : ''}`, showMinor, v => { state.integMinor = v; renderDetail(); },
         'Every time the crosshair was already on an unknown enemy as they came into view (good crosshair placement does this too, so one by one they mean little), and snaps onto an enemy without a shot.') : null,
       h('span', { class: 'spacer' }),
@@ -2151,6 +2155,15 @@ function avatar(name, steamid, cls = '') {
   }
   return el;
 }
+// An avatar that opens the player's Steam profile in the browser (matches and the overview).
+function steamAvatar(name, steamid, cls = '') {
+  const el = avatar(name, steamid, cls);
+  if (!/^7656\d{13}$/.test(steamid || '')) return el; // bots have no profile
+  el.classList.add('steam-link');
+  el.title = `Open ${name}’s Steam profile`;
+  el.onclick = e => { e.stopPropagation(); api.openSteamProfile(steamid); };
+  return el;
+}
 function setAvatarPic(el, file) {
   if (el.dataset.file === file) return;
   el.dataset.file = file;
@@ -2338,7 +2351,7 @@ function renderOverview() {
     ].filter(Boolean).join(' · ');
   }
   const head = h('div', { class: 'dash-head' },
-    avatar(p.name, p.steamid, 'large'),
+    steamAvatar(p.name, p.steamid, 'large'),
     h('div', { class: 'dash-title' },
       h('h2', {}, p.name || 'Your stats', other ? h('span', { class: 'dash-tag', title: `SteamID ${p.steamid}` }, 'Player') : null),
       h('div', { class: 'sub' }, `${t.played} match${t.played === 1 ? '' : 'es'} · ${fmtNum(t.rounds)} rounds`,
@@ -2346,6 +2359,7 @@ function renderOverview() {
         pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null)),
     h('span', { class: 'spacer' }),
     back,
+    h('button', { class: 'btn', title: other ? 'What this player’s CS2 items are worth (public inventories only)' : 'What your CS2 items are worth', onclick: () => openInventory(other ? p.steamid : null, other ? p.name : null) }, 'Inventory'),
     h('button', { class: 'btn', title: other ? 'This player and you side by side' : 'You against your lobbies or any player from your demos', onclick: () => compareWith(other ? p.steamid : 'lobby') }, other ? 'Compare with you' : 'Compare'),
     h('div', { class: 'filters' },
       modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], v => { f.mode = v; rerender(); }) : null,
@@ -2473,7 +2487,7 @@ function matesCard(t) {
     ? h('div', { class: 'mates' }, ...mates.map(m => {
       const wr = pct(m.won, m.played);
       return h('div', { class: 'mate clickable', title: `${m.won} won · ${m.lost} lost together · click for ${m.name}’s stats`, onclick: () => openPlayer(m.id) },
-        avatar(m.name, m.id, 'sm'),
+        steamAvatar(m.name, m.id, 'sm'),
         h('span', { class: 'mate-name' }, m.name),
         h('span', { class: 'bar-note' }, `${m.played} matches`),
         h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } })),
@@ -3515,6 +3529,7 @@ function renderClips() {
       h('button', { class: state.clipFilter === k ? 'on' : '', onclick: () => { state.clipFilter = k; renderClips(); } }, l))),
     weaponSelect, sortSelect,
     h('span', { class: 'spacer' }),
+    galleryHeadButton(),
     h('button', { class: 'btn', onclick: () => api.open(state.env.outputDir) }, icon(ICONS.folder), 'Open folder'),
   );
 
@@ -3547,6 +3562,7 @@ function clipCard(c) {
     order >= 0 ? h('div', { class: 'order' }, order + 1) : null,
     c.kind === 'montage' ? h('div', { class: 'kind' }, 'MONTAGE') : null,
     c.kind === 'share' ? h('div', { class: 'kind' }, shareBadge(c)) : null,
+    galleryBadge(c),
     h('div', { class: 'dur' }, fmtDur(c.duration || 0)));
   let video = null;
   const card = h('div', {
@@ -3564,6 +3580,7 @@ function clipCard(c) {
   h('div', { class: 'clip-actions' },
     h('button', { title: 'Play', onclick: e => { e.stopPropagation(); playClip(c); } }, icon(ICONS.play)),
     c.kind !== 'share' ? h('button', { title: 'Export for sharing: vertical, slow motion, kill feed, music', onclick: e => { e.stopPropagation(); shareDialog(c); } }, icon(SHARE_ICON)) : null,
+    galleryAction(c),
     h('button', { title: 'Show in folder', onclick: e => { e.stopPropagation(); api.reveal(c.file); } }, icon(ICONS.folder)),
     h('button', { title: 'Delete (to Recycle Bin)', onclick: e => { e.stopPropagation(); deleteClip(c); } }, icon(ICONS.trash)),
   ),
@@ -3580,6 +3597,7 @@ function playClip(c) {
     h('div', { class: 'video-foot' },
       h('div', { class: 't' }, c.title),
       c.kind !== 'share' ? h('button', { class: 'btn', onclick: () => shareDialog(c) }, icon(SHARE_ICON), 'Export for sharing') : null,
+      galleryPlayButton(c),
       h('button', { class: 'btn', onclick: () => api.reveal(c.file) }, icon(ICONS.folder), 'Show in folder'),
       h('button', { class: 'btn', onclick: () => closeModal() }, 'Close'),
     ),

@@ -34,6 +34,8 @@ const DEFAULTS = {
   lowEnd: false,             // Low-end PC: read demos with fewer threads and less memory (slower)
   autoProcess: { enabled: true, measure: true, notify: true, lastScan: 0 }, // new matches: read, measure, notify (lastScan: when DemoLab last looked)
   updates: { auto: true },   // look for a new DemoLab release now and then and download it in the background
+  inventory: { source: 'steam', currency: '', stickerShare: 0.1 }, // price list (steam | skinport); currency empty = the one used in your country;
+                             // stickerShare: part of an applied sticker's price added to the item's value
 };
 
 function merge(base, over) {
