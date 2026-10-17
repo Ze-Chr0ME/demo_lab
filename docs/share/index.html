@@ -4,206 +4,329 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CS2 highlights</title>
-<meta name="description" content="CS2 highlights, recorded from demos with CS2 DemoLab.">
+<meta name="description" content="CS2 highlights and stats, recorded from demos with CS2 DemoLab.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="CS2 highlights">
-<meta property="og:description" content="Watch my best CS2 plays, recorded from demos with CS2 DemoLab.">
+<meta property="og:description" content="Watch my best CS2 plays and see my stats, made with CS2 DemoLab.">
 <meta name="theme-color" content="#0b0f13">
 <meta name="referrer" content="no-referrer">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0f13'/%3E%3Cpath d='M12 9.5v13l10.5-6.5z' fill='%232fd8a4'/%3E%3C/svg%3E">
 <!--
   The page of a "My highlights" link made by CS2 DemoLab (src/lib/gallery.js). Everything it shows comes
-  from the link: after the # is the gallery, deflate-raw + base64url JSON. Videos and pictures are on
-  files.catbox.moe. Only catbox file names, a Steam ID and a Steam avatar hash are taken from the link,
-  never whole URLs, so a link can't make this page show or point to anything else.
+  from the link: after the # is the gallery, deflate-raw + base64url JSON: clips, the app theme and a
+  snapshot of the Overview. Videos and pictures are on files.catbox.moe. Only catbox file names, a Steam
+  ID, a Steam avatar hash, colours and numbers are taken from the link, never whole URLs, so a link can't
+  make this page show or point to anything else.
+  Looks like the app: the backdrop is a trimmed port of src/renderer/scene.js, the cards use the
+  Overview's styles (src/renderer/styles.css).
 -->
 <style>
   :root {
     --base: #0b0f13;
     --accent: #2fd8a4;
+    --accent-ink: #03140d;
     --text: #e8edf2;
-    --bg-2: color-mix(in oklab, var(--base), #fff 3%);
-    --panel: color-mix(in oklab, var(--base), #fff 5%);
-    --panel-2: color-mix(in oklab, var(--base), #fff 8.5%);
-    --line: color-mix(in oklab, var(--base), #fff 11%);
-    --line-2: color-mix(in oklab, var(--base), #fff 18%);
-    --muted: color-mix(in oklab, var(--text) 62%, var(--base));
-    --dim: color-mix(in oklab, var(--text) 40%, var(--base));
-    --accent-2: color-mix(in oklab, var(--accent), #fff 25%);
+    --blue: var(--accent);
+    --glow: var(--accent);
+    --bg: var(--base);
+    --bg-2: color-mix(in oklab, var(--base), #fff 2.5%);
+    --panel: color-mix(in oklab, var(--base), #fff 4.5%);
+    --panel-2: color-mix(in oklab, var(--base), #fff 7.5%);
+    --panel-3: color-mix(in oklab, var(--base), #fff 11%);
+    --line: color-mix(in oklab, var(--base), #fff 10%);
+    --line-2: color-mix(in oklab, var(--base), #fff 17%);
+    --line-soft: color-mix(in oklab, var(--base), #fff 7%);
+    --track: color-mix(in oklab, var(--base), #fff 10%);
+    --muted: color-mix(in oklab, var(--text) 60%, var(--base));
+    --dim: color-mix(in oklab, var(--text) 38%, var(--base));
+    --accent-2: color-mix(in oklab, var(--accent), #fff 22%);
     --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
-    --accent-ink: #04140e;
-    --gold: #f5c344;
-    --radius: 14px;
+    --blue-2: color-mix(in oklab, var(--blue), #fff 22%);
+    --win: #45d483;
+    --loss: #ff4d63;
+    --warn: #f5c344;
+    --ct: #6ea8ff;
+    --t: #e9b949;
+    --radius: 10px;
+    --gutter: 32px;
+    --card-bg: var(--panel);
+    --label: 600 11px/1.3 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, sans-serif;
     color-scheme: dark;
   }
+  :root[data-scene=map] { --card-bg: color-mix(in srgb, var(--panel) 74%, transparent); }
+  :root[data-scene=team] { --card-bg: color-mix(in srgb, var(--panel) 80%, transparent); }
   * { box-sizing: border-box; }
-  html { background: var(--base); }
+  html { background: var(--bg); }
   body {
-    margin: 0; min-height: 100vh; color: var(--text);
-    font: 15px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
-    background:
-      radial-gradient(1100px 520px at 12% -120px, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
-      radial-gradient(900px 480px at 100% -160px, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%),
-      var(--base);
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
-  }
-  body::before {
-    /* faint grid, like a radar */
-    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .5;
-    background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
-    background-size: 56px 56px;
-    mask-image: radial-gradient(1200px 600px at 30% 0, #000 0%, transparent 75%);
   }
   a { color: inherit; }
   button { font: inherit; color: inherit; }
-  .wrap { position: relative; z-index: 1; max-width: 1360px; margin: 0 auto; padding: 28px 24px 56px; }
+  svg { flex: none; }
+  .spacer { flex: 1; }
+  .good { color: var(--win); } .bad { color: var(--loss); } .mid { color: var(--warn); }
 
-  /* ---------- profile ---------- */
-  .profile {
-    position: relative; overflow: hidden; display: flex; align-items: center; gap: 22px;
-    padding: 22px 24px; border: 1px solid var(--line); border-radius: calc(var(--radius) + 4px);
-    background: linear-gradient(135deg, color-mix(in srgb, var(--panel) 92%, transparent), color-mix(in srgb, var(--bg-2) 85%, transparent));
-    backdrop-filter: blur(10px);
-    box-shadow: 0 1px 0 color-mix(in srgb, #fff 4%, transparent) inset, 0 24px 60px -30px #000;
-  }
-  .profile::after {
-    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
-    background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: .8;
-  }
-  .avatar {
-    flex: none; width: 92px; height: 92px; border-radius: 16px; object-fit: cover;
-    background: var(--panel-2); border: 1px solid var(--line-2);
-    display: grid; place-items: center; font-size: 38px; font-weight: 700; color: var(--accent);
-    box-shadow: 0 0 0 4px var(--accent-soft);
-  }
-  .who { min-width: 0; flex: 1; }
-  .kicker { font-size: 12px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
-  .name { margin: 2px 0 10px; font-size: clamp(26px, 4vw, 36px); line-height: 1.1; font-weight: 750; letter-spacing: -.01em; overflow-wrap: anywhere; }
-  .facts { display: flex; flex-wrap: wrap; gap: 8px; }
-  .fact { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 11px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
-  .fact b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
-  .profile-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: none; }
-  .btn {
-    display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 15px; border-radius: 10px;
-    border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; text-decoration: none;
-    font-size: 13.5px; font-weight: 600; white-space: nowrap; transition: border-color .15s, background .15s, transform .15s;
-  }
-  .btn:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line-2)); background: color-mix(in oklab, var(--panel-2), var(--accent) 8%); }
+  /* ---------- backdrop (scene.js) ---------- */
+  .theme-art { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; --p: 0; }
+  .theme-art > * { position: absolute; }
+  .theme-art [hidden] { display: none; }
+  .sc-photo { inset: 0 0 -22% 0; transform-origin: 50% 0; opacity: 0; transition: opacity .7s ease; will-change: transform; }
+  .sc-photo.ready { opacity: 1; }
+  .sc-img { position: absolute; inset: 0; background: center 35% / cover no-repeat; }
+  .sc-img.soft { inset: -40px; filter: blur(18px) saturate(.85); opacity: 0; }
+  .sc-pattern-wrap { inset: 0; opacity: .55; -webkit-mask-image: radial-gradient(75% 80% at 76% 26%, #000 0%, #0009 42%, transparent 82%); mask-image: radial-gradient(75% 80% at 76% 26%, #000 0%, #0009 42%, transparent 82%); }
+  [data-kind=pattern] .sc-pattern-wrap { opacity: .4; }
+  .sc-pattern { position: absolute; left: 0; right: 0; top: 0; bottom: calc(-1 * var(--tile-h, 0px)); opacity: .5; will-change: transform; }
+  .sc-glow { border-radius: 50%; will-change: transform; }
+  .sc-glow.a { width: 1300px; height: 820px; right: -260px; top: -300px; background: radial-gradient(closest-side, color-mix(in srgb, var(--glow) 15%, transparent), transparent); }
+  .sc-glow.b { width: 1000px; height: 1000px; left: -380px; bottom: -520px; background: radial-gradient(closest-side, color-mix(in srgb, var(--blue) 8%, transparent), transparent); }
+  [data-kind=map] .sc-glow.a { opacity: .45; }
+  .sc-logo { width: var(--size, 600px); height: var(--size, 600px); right: max(3vw, 24px); top: calc(20px + 5vh); transform-origin: 50% 50%; will-change: transform; }
+  .sc-logo[data-look=lit] { opacity: .78; }
+  .sc-logo img { width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 1.2s ease; }
+  .sc-logo img.ready { opacity: .5; animation: sc-flicker 11s 2s infinite; }
+  @keyframes sc-flicker { 0%, 88%, 89.6%, 91.4%, 100% { opacity: .5; } 88.8% { opacity: .3; } 90.5% { opacity: .38; } 91% { opacity: .28; } }
+  .sc-shade { inset: 0; }
+  .sc-shade::after { content: ""; position: absolute; inset: 0; background: var(--base); opacity: 0; }
+  [data-kind=map] .sc-shade { background:
+    linear-gradient(180deg, color-mix(in srgb, var(--base) 64%, transparent) 0%, color-mix(in srgb, var(--base) 48%, transparent) 30%, color-mix(in srgb, var(--base) 70%, transparent) 70%, color-mix(in srgb, var(--base) 92%, transparent) 100%),
+    linear-gradient(90deg, color-mix(in srgb, var(--base) 35%, transparent), transparent 60%); }
+  [data-kind=map] .sc-shade::after { opacity: calc(var(--p) * .42); }
+  [data-kind=team] .sc-shade { background: radial-gradient(130% 100% at 72% 28%, transparent 35%, color-mix(in srgb, var(--base) 75%, transparent) 100%); }
+  .sc-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+  :root:is([data-scene=map], [data-scene=team]) :is(.dcard, .tile, .score-panel, .clip, .toolbar-card) { backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2); }
+  :root[data-scene=map] :is(.dash-head, .sec) { text-shadow: 0 1px 3px var(--base), 0 0 14px color-mix(in srgb, var(--base) 80%, transparent); }
+
+  /* ---------- page ---------- */
+  .page { position: relative; z-index: 1; container-type: inline-size; max-width: 1600px; margin: 0 auto; padding: 30px var(--gutter) 60px; }
+  .dash-head { display: flex; align-items: center; gap: 18px; margin-bottom: 26px; flex-wrap: wrap; }
+  .avatar { width: 76px; height: 76px; border-radius: 14px; flex: none; display: grid; place-items: center; overflow: hidden;
+    font: 800 32px var(--display); color: var(--accent-ink); background: var(--accent); box-shadow: 0 0 0 1px #ffffff14, 0 10px 30px -10px #000; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .dash-title { min-width: 0; }
+  .kicker { font: var(--label); letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
+  .dash-title h1 { margin: 2px 0 0; font: 700 32px/1.15 var(--display); letter-spacing: -.5px; overflow-wrap: anywhere; }
+  .dash-title .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .head-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .btn { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2);
+    cursor: pointer; text-decoration: none; font-size: 13px; font-weight: 600; white-space: nowrap; transition: border-color .15s, background .15s; }
+  .btn:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--line-2)); }
   .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
   .btn.primary:hover { background: var(--accent-2); }
-  .btn svg { width: 17px; height: 17px; flex: none; }
-  .made { font-size: 12px; color: var(--dim); text-decoration: none; }
-  .made:hover { color: var(--muted); }
-  .made b { color: var(--muted); font-weight: 600; }
+  .btn svg { width: 16px; height: 16px; }
 
-  /* ---------- toolbar ---------- */
-  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 26px 0 16px; }
-  .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
-  .seg button { border: 0; background: none; padding: 6px 14px; border-radius: 7px; cursor: pointer; font-size: 12.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-  .seg button.on { background: var(--accent); color: var(--accent-ink); }
-  .seg button:not(.on):hover { color: var(--text); }
+  .sec { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; min-height: 30px; flex-wrap: wrap; }
+  .sec h3 { margin: 0; font: var(--label); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+  .sec::after { content: ""; flex: 1; height: 1px; background: var(--line); order: 1; min-width: 20px; }
+  .sec > :not(h3) { order: 2; }
+  .ov-sec { margin-top: 36px; }
+  .dash { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+  .dcard { background: var(--card-bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; min-width: 0; display: flex; flex-direction: column; }
+  .dcard.span-2 { grid-column: span 2; } .dcard.span-3 { grid-column: span 3; }
+  .dcard-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; min-height: 20px; }
+  .dcard-head h4 { margin: 0; font: var(--label); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .hint { font-size: 12px; color: var(--dim); }
+
+  /* rating panel + tiles */
+  .ov-top { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 22px; align-items: stretch; }
+  .ov-stats { display: flex; flex-direction: column; min-width: 0; }
+  .score-panel { border: 1px solid var(--line); border-radius: var(--radius); padding: 22px 22px 20px; display: flex; flex-direction: column;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 13%, var(--card-bg)) 0%, var(--card-bg) 46%); position: relative; overflow: hidden; }
+  .score-panel::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent); opacity: .8; }
+  .sp-k { font: var(--label); letter-spacing: .16em; text-transform: uppercase; color: var(--accent); text-align: center; }
+  .sp-v { font: 700 76px/1 var(--display); letter-spacing: -2px; text-align: center; margin: 12px 0 10px; color: var(--accent); font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 40px color-mix(in srgb, var(--accent) 35%, transparent); }
+  .sp-level { align-self: center; font: var(--label); letter-spacing: .14em; text-transform: uppercase; padding: 5px 12px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-2); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+  .sp-bar { margin: 18px 0 0; height: 5px; }
+  .sp-bar .bar-fill { background: var(--accent); }
+  .sp-trend { font-size: 12px; color: var(--muted); text-align: center; margin-top: 10px; }
+  .sp-trend.up { color: var(--win); } .sp-trend.down { color: var(--loss); }
+  .sp-label { font: var(--label); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin: 24px 0 10px; }
+  .sp-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .sp-row-top { display: flex; align-items: center; gap: 9px; font-size: 13.5px; }
+  .sp-row-top b { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .sp-row .bar-track { height: 3px; }
+  .sp-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+  .sp-dot.good, .sp-row .bar-fill.good { background: var(--accent); }
+  .sp-row b.good { color: var(--accent); }
+  .sp-dot.mid, .sp-row .bar-fill.mid { background: var(--warn); }
+  .sp-dot.bad, .sp-row .bar-fill.bad { background: var(--loss); }
+  .form { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px; }
+  .form-m { height: 26px; border-radius: 5px; border: 1px solid var(--line); background: var(--bg-2); color: var(--muted); font-size: 11px; font-weight: 800; display: grid; place-items: center; }
+  .form-m.r-W { background: #45d4831c; border-color: #45d48355; color: var(--win); }
+  .form-m.r-L { background: #ff4d6318; border-color: #ff4d6350; color: var(--loss); }
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 12px; flex: 1; }
+  .tile { background: var(--card-bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px 12px; min-width: 0; display: flex; flex-direction: column; gap: 6px; transition: border-color .15s; }
+  .tile-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .tile-chart { flex: 1; min-height: 34px; max-height: 70px; position: relative; margin-top: 4px; }
+  .tile-chart svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .histo { overflow: visible; }
+  .histo rect { fill: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .histo rect.on { fill: var(--accent); }
+  .histo .base { stroke: var(--line-2); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .histo .avg, .histo .rec { stroke: var(--text); vector-effect: non-scaling-stroke; stroke-width: 1.5; }
+  .histo .avg { stroke-dasharray: 3 2; opacity: .7; }
+  .legend-inline { display: inline-flex; align-items: center; gap: 6px; }
+  .legend-inline i { display: inline-block; width: 0; height: 12px; border-left: 2px dashed var(--text); margin-left: 8px; opacity: .7; }
+  .legend-inline .lg-rec { border-left-style: solid; opacity: 1; }
+  .tile:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+  .tile-k { font: var(--label); letter-spacing: .13em; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile-v { font: 700 32px/1 var(--display); letter-spacing: -.8px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tile-v small, .big small { font-size: .5em; font-weight: 600; margin-left: 3px; letter-spacing: 0; color: var(--muted); }
+  .tile-sub { font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tile-sub b { font-weight: 400; }
+  .tile-sub.up b { color: var(--win); } .tile-sub.down b { color: var(--loss); }
+
+  /* bars, numbers */
+  .bars { display: flex; flex-direction: column; gap: 11px; }
+  .bar-row { display: flex; flex-direction: column; gap: 6px; }
+  .bar-top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .bar-label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-top b { font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
+  .bar-note { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bar-track { height: 4px; background: var(--track); border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--blue); border-radius: 3px; }
+  .bar-fill.good { background: var(--win); } .bar-fill.bad { background: var(--loss); } .bar-fill.mid { background: var(--warn); }
+  .bar-fill.t { background: var(--t); } .bar-fill.ct { background: var(--ct); }
+  .big-line { display: flex; align-items: baseline; gap: 10px; margin: 0 0 16px; flex-wrap: wrap; }
+  .big { font: 700 34px/1 var(--display); letter-spacing: -.8px; font-variant-numeric: tabular-nums; }
+  .big-note { color: var(--muted); font-size: 12.5px; }
+  .kv { display: flex; flex-direction: column; margin-top: auto; }
+  .kv-row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: 13px; }
+  .kv-row span { color: var(--muted); }
+  .kv-row b { font-variant-numeric: tabular-nums; font-weight: 650; }
+  .multi { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; }
+  .multi-c { text-align: center; padding: 8px 4px; border-radius: 8px; background: var(--bg-2); border: 1px solid var(--line-soft); }
+  .multi-c .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .multi-c .k { font: var(--label); color: var(--muted); letter-spacing: .08em; }
+  .multi-c.m4 .v { color: var(--accent-2); } .multi-c.m5 .v { color: #c9a6ff; }
+  .map-thumb { width: 34px; height: 34px; border-radius: 7px; flex: none; position: relative; overflow: hidden;
+    background: linear-gradient(135deg, var(--c), var(--panel-2)) center / cover no-repeat; box-shadow: inset 0 0 0 1px #ffffff14; }
+  .map-thumb::after { content: ""; position: absolute; inset: 0; background: linear-gradient(135deg, color-mix(in srgb, var(--c) 45%, transparent), color-mix(in srgb, var(--bg) 73%, transparent)); }
+  .map-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 28px; }
+  .map-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+  .map-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .trend-wrap svg { width: 100%; height: auto; display: block; }
+  .trend-svg .g { stroke: var(--line-soft); stroke-width: 1; }
+  .trend-svg .g-one { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 4 4; }
+  .trend-svg .g-t { fill: var(--dim); font-size: 11px; text-anchor: end; font-family: "Segoe UI", system-ui, sans-serif; }
+  .trend-svg .t-stop-a { stop-color: var(--accent); stop-opacity: .18; }
+  .trend-svg .t-stop-b { stop-color: var(--accent); stop-opacity: 0; }
+  .trend-svg .t-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+  .trend-svg .t-avg { fill: none; stroke: var(--text); stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .5; }
+  .trend-svg .t-pt { stroke: var(--panel); stroke-width: 2; fill: var(--dim); }
+  .trend-svg .t-pt.r-W { fill: var(--win); } .trend-svg .t-pt.r-L { fill: var(--loss); }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
+  .lg::before { content: ""; display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; background: var(--accent); }
+  .lg.l-avg::before { background: var(--text); opacity: .5; }
+  .lg.l-w::before { width: 8px; height: 8px; border-radius: 50%; background: var(--win); }
+  .lg.l-l::before { width: 8px; height: 8px; border-radius: 50%; background: var(--loss); }
+
+  /* ---------- highlights ---------- */
+  .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; background: var(--card-bg); }
+  .seg button { border: 0; background: none; color: var(--muted); padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button:hover { color: var(--text); }
+  .seg button.on { background: var(--accent-soft); color: var(--accent-2); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { border: 1px solid var(--line); background: transparent; padding: 6px 12px; border-radius: 999px; font-size: 13px; cursor: pointer; color: var(--muted); }
+  .chip { border: 1px solid var(--line); background: var(--card-bg); padding: 4px 11px; border-radius: 999px; font-size: 12.5px; cursor: pointer; color: var(--muted); }
   .chip:hover { color: var(--text); border-color: var(--line-2); }
-  .chip.on { color: var(--text); border-color: color-mix(in srgb, var(--accent) 70%, transparent); background: var(--accent-soft); }
-  .spacer { flex: 1; }
-  .count { font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums; }
-
-  /* ---------- grid ---------- */
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 22px 18px; }
-  .card { display: block; align-self: start; text-align: left; border: 0; padding: 0; background: none; cursor: pointer; min-width: 0; animation: rise .45s cubic-bezier(.2,.7,.2,1) backwards; }
+  .chip.on { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-soft); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; }
+  .clip { display: flex; flex-direction: column; align-self: start; text-align: left; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+    background: var(--card-bg); cursor: pointer; min-width: 0; transition: border-color .15s, transform .2s, box-shadow .2s; animation: rise .45s cubic-bezier(.2,.7,.2,1) backwards; }
   @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
-  .thumb {
-    position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius); overflow: hidden;
-    background: var(--panel) center / cover no-repeat; border: 1px solid var(--line);
-    transition: transform .2s ease, border-color .2s, box-shadow .2s;
-  }
-  .card:hover .thumb, .card:focus-visible .thumb {
-    transform: translateY(-3px); border-color: color-mix(in srgb, var(--accent) 65%, transparent);
-    box-shadow: 0 16px 40px -18px color-mix(in srgb, var(--accent) 55%, #000), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
-  }
-  .card:focus-visible { outline: none; }
+  .clip:hover, .clip:focus-visible { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); transform: translateY(-2px);
+    box-shadow: 0 16px 36px -18px color-mix(in srgb, var(--accent) 55%, #000); outline: none; }
+  .thumb { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--panel-2); }
   .thumb img, .thumb video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .thumb.vertical img, .thumb.vertical video { object-fit: contain; }
   .thumb.vertical .blur { position: absolute; inset: -20px; background: center / cover; filter: blur(18px) brightness(.55); }
   .thumb video { opacity: 0; transition: opacity .25s; }
   .thumb video.ready { opacity: 1; }
-  .thumb::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(0,0,0,.35), transparent 30%, transparent 65%, rgba(0,0,0,.55)); }
-  .badge {
-    position: absolute; z-index: 2; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 7px;
-    background: rgba(8, 11, 14, .72); backdrop-filter: blur(6px); font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
-  }
-  .badge.map { top: 10px; left: 10px; }
-  .badge.map i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
-  .badge.kills { top: 10px; right: 10px; color: var(--accent-ink); background: var(--accent); }
-  .badge.kills.ace { background: linear-gradient(135deg, #ffe08a, var(--gold)); color: #2a1d00; }
-  .badge.dur { bottom: 10px; right: 10px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: 0; font-size: 12px; }
-  .play {
-    position: absolute; z-index: 2; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px; border-radius: 50%;
-    display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 88%, transparent); color: var(--accent-ink);
-    opacity: 0; transform: scale(.85); transition: opacity .2s, transform .2s;
-  }
-  .play svg { width: 22px; height: 22px; margin-left: 3px; }
-  .card:hover .play { opacity: 1; transform: scale(1); }
-  .card.previewing .play { opacity: 0; }
-  .meta { padding: 11px 3px 0; }
-  .title { font-size: 16px; font-weight: 650; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sub { margin-top: 3px; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sub .sep { color: var(--dim); margin: 0 6px; }
+  .thumb::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(0,0,0,.35), transparent 30%, transparent 65%, rgba(0,0,0,.5)); }
+  .badge { position: absolute; z-index: 2; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 6px;
+    background: rgba(6, 8, 10, .74); backdrop-filter: blur(6px); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: #fff; }
+  .badge.map { top: 8px; left: 8px; }
+  .badge.map i { width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--accent)); box-shadow: 0 0 8px var(--c, var(--accent)); }
+  .badge.kills { top: 8px; right: 8px; color: var(--accent-ink); background: var(--accent); }
+  .badge.kills.ace { background: linear-gradient(135deg, #ffe08a, var(--warn)); color: #2a1d00; }
+  .badge.dur { bottom: 8px; right: 8px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: 0; }
+  .play { position: absolute; z-index: 2; left: 50%; top: 50%; width: 50px; height: 50px; margin: -25px 0 0 -25px; border-radius: 50%; display: grid; place-items: center;
+    background: color-mix(in srgb, var(--accent) 90%, transparent); color: var(--accent-ink); opacity: 0; transform: scale(.85); transition: opacity .2s, transform .2s; }
+  .play svg { width: 20px; height: 20px; margin-left: 3px; }
+  .clip:hover .play { opacity: 1; transform: scale(1); }
+  .clip.previewing .play { opacity: 0; }
+  .clip-body { padding: 11px 14px 13px; }
+  .clip-title { font-weight: 650; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .clip-meta { margin-top: 2px; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .clip-meta .sep { color: var(--dim); margin: 0 5px; }
   .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
-  .tag { font-size: 11.5px; padding: 2px 8px; border-radius: 6px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 5px; background: var(--panel-3); color: var(--muted); }
 
   /* ---------- player ---------- */
-  .lightbox {
-    position: fixed; inset: 0; z-index: 50; display: grid; grid-template-rows: auto 1fr auto; gap: 14px;
-    padding: 18px clamp(12px, 3vw, 40px) 22px; background: rgba(4, 6, 8, .9); backdrop-filter: blur(14px);
-    animation: fade .2s ease;
-  }
+  .lightbox { position: fixed; inset: 0; z-index: 50; display: grid; grid-template-rows: auto 1fr auto; gap: 14px; padding: 18px clamp(12px, 3vw, 40px) 22px;
+    background: color-mix(in srgb, var(--base) 88%, transparent); backdrop-filter: blur(14px); animation: fade .2s ease; }
   @keyframes fade { from { opacity: 0; } }
-  .lb-head { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .lb-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .lb-title { min-width: 0; flex: 1; }
-  .lb-title h2 { margin: 0; font-size: 20px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .lb-title .sub { font-size: 13.5px; }
-  .icon-btn { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel); cursor: pointer; }
-  .icon-btn:hover { border-color: var(--accent); }
-  .icon-btn svg { width: 18px; height: 18px; }
+  .lb-title h2 { margin: 0; font: 700 20px var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .icon-btn { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; color: var(--muted); }
+  .icon-btn:hover { border-color: var(--accent); color: var(--text); }
+  .icon-btn svg { width: 17px; height: 17px; }
   .stage { position: relative; min-height: 0; display: grid; place-items: center; }
-  .stage video { max-width: 100%; max-height: 100%; width: auto; height: auto; border-radius: 12px; background: #000; box-shadow: 0 30px 90px -20px #000; outline: none; }
-  .nav { position: absolute; top: 50%; width: 46px; height: 46px; margin-top: -23px; border-radius: 50%; border: 1px solid var(--line-2); background: rgba(12, 16, 20, .8); display: grid; place-items: center; cursor: pointer; }
+  .stage video { max-width: 100%; max-height: 100%; border-radius: 12px; background: #000; box-shadow: 0 30px 90px -20px #000; outline: none; }
+  .nav { position: absolute; top: 50%; width: 44px; height: 44px; margin-top: -22px; border-radius: 50%; border: 1px solid var(--line-2); background: color-mix(in srgb, var(--panel) 85%, transparent); display: grid; place-items: center; cursor: pointer; }
   .nav:hover { border-color: var(--accent); color: var(--accent); }
   .nav svg { width: 20px; height: 20px; }
   .nav.prev { left: 0; } .nav.next { right: 0; }
   .nav[hidden] { display: none; }
-  .lb-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
+  .lb-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; color: var(--dim); font-size: 12.5px; }
   .lb-foot .tags { margin: 0; }
   .vid-error { max-width: 520px; padding: 22px; border-radius: var(--radius); border: 1px solid var(--line-2); background: var(--panel); text-align: center; color: var(--muted); }
   .vid-error b { display: block; color: var(--text); font-size: 17px; margin-bottom: 6px; }
 
-  /* ---------- misc ---------- */
-  .empty { margin: 70px auto; max-width: 520px; text-align: center; color: var(--muted); }
-  .empty h1 { color: var(--text); font-size: 26px; margin: 14px 0 8px; }
+  .empty { margin: 14vh auto; max-width: 520px; text-align: center; color: var(--muted); position: relative; z-index: 1; padding: 0 16px; }
+  .empty h1 { color: var(--text); font: 700 26px var(--display); margin: 14px 0 8px; }
   .empty .ico { width: 64px; height: 64px; margin: 0 auto; border-radius: 18px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
   .empty .ico svg { width: 30px; height: 30px; }
-  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; font-size: 12.5px; color: var(--dim); }
+  footer { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; font-size: 12px; color: var(--dim); }
   footer a { color: var(--muted); }
   .toast { position: fixed; z-index: 60; left: 50%; bottom: 26px; transform: translate(-50%, 20px); opacity: 0; padding: 10px 16px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 650; font-size: 14px; transition: .25s; pointer-events: none; }
   .toast.on { opacity: 1; transform: translate(-50%, 0); }
 
+  @container (max-width: 1280px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @container (max-width: 1040px) {
+    .ov-top { grid-template-columns: minmax(0, 1fr); }
+    .dash { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dcard.span-3 { grid-column: span 2; }
+  }
+  @container (max-width: 640px) {
+    .dash, .tiles, .map-rows { grid-template-columns: minmax(0, 1fr); }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dcard.span-2, .dcard.span-3 { grid-column: span 1; }
+    .grid { grid-template-columns: minmax(0, 1fr); }
+    .tile-v { font-size: 26px; }
+  }
   @media (max-width: 720px) {
-    .wrap { padding: 16px 16px 40px; }
-    .profile { flex-wrap: wrap; padding: 18px; gap: 16px; }
-    .avatar { width: 72px; height: 72px; font-size: 30px; }
-    .profile-actions { flex-direction: row; align-items: center; width: 100%; }
-    .profile-actions .made { display: none; }
-    .grid { grid-template-columns: 1fr; }
+    :root { --gutter: 16px; }
+    .page { padding-top: 18px; }
+    .avatar { width: 60px; height: 60px; font-size: 26px; }
+    .dash-title h1 { font-size: 26px; }
+    .head-actions { width: 100%; }
     .nav { display: none; }
     .lightbox { padding: 12px 10px 16px; }
+    .lb-head .btn span { display: none; }
   }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
-<main class="wrap" id="app"></main>
+<div class="theme-art" data-kind="pattern" aria-hidden="true"></div>
+<main class="page" id="app"></main>
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
@@ -214,6 +337,8 @@
     return local || 'https://files.catbox.moe/';
   })();
   const GITHUB = 'https://github.com/Ze-Chr0ME/demo_lab';
+  // The app's radar pictures, for the map thumbnails (src/renderer/radar in the repository).
+  const RADAR = 'https://raw.githubusercontent.com/Ze-Chr0ME/demo_lab/main/src/renderer/radar/';
   // Same names and colours as the app (src/renderer/app.js MAPS).
   const MAPS = {
     de_dust2: ['Dust II', '#c9a36b'], de_mirage: ['Mirage', '#d9a35f'], de_inferno: ['Inferno', '#c8693f'], de_nuke: ['Nuke', '#6b9ac9'],
@@ -221,6 +346,13 @@
     de_train: ['Train', '#8c8f99'], cs_office: ['Office', '#9aa6b5'], cs_italy: ['Italy', '#c98c5a'], de_cache: ['Cache', '#7fa36b'],
     rush_001: ['Rush', '#c45b8a'],
   };
+  // The Overview's stat tiles (src/renderer/app.js TILES), in the same order as the numbers in the link.
+  const TILES = [
+    ['K/D ratio', '', 2], ['ADR', '', 1], ['KAST', '%', 1], ['Headshot %', '%', 1], ['Kills / round', '', 2], ['Deaths / round', '', 2, true],
+    ['Opening duels won', '%', 0], ['Multi-kill rounds', '%', 1], ['Assists / round', '', 2], ['Trade kills / round', '', 2],
+    ['Utility damage / round', '', 1], ['Enemies flashed / round', '', 2],
+  ];
+  const RATING_LEVELS = [[1.2, 'Excellent'], [1.08, 'Good'], [0.95, 'Average'], [0.85, 'Below average'], [-Infinity, 'Poor']];
   const ICON = {
     play: '<path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/>',
     steam: '<path fill="currentColor" d="M12 2a10 10 0 0 0-9.96 9.2l5.36 2.22a2.8 2.8 0 0 1 1.6-.5h.16l2.39-3.46v-.05a3.79 3.79 0 1 1 3.79 3.79h-.09l-3.4 2.43v.13a2.84 2.84 0 0 1-5.63.56L2.4 14.8A10 10 0 1 0 12 2Zm-4.2 15.2-1.23-.5a2.13 2.13 0 1 0 1.17-2.9l1.27.53a1.57 1.57 0 1 1-1.2 2.9Zm9.47-7.73a2.53 2.53 0 1 0-2.53 2.52 2.53 2.53 0 0 0 2.53-2.52Zm-4.42 0a1.9 1.9 0 1 1 1.9 1.9 1.9 1.9 0 0 1-1.9-1.9Z"/>',
@@ -239,22 +371,25 @@
       if (v == null || v === false) continue;
       if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
       else if (k === 'class') el.className = v;
-      else if (k === 'style') Object.assign(el.style, v);
+      else if (k === 'style') for (const [p, x] of Object.entries(v)) { if (x != null) el.style.setProperty(p.startsWith('--') ? p : p.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`), x); }
       else el.setAttribute(k, v === true ? '' : v);
     }
     for (const k of kids.flat()) if (k != null && k !== false) el.append(k instanceof Node ? k : String(k));
     return el;
   }
-  const svg = (path, cls) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); if (cls) s.setAttribute('class', cls); s.innerHTML = path; return s; };
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = (path, cls) => { const s = document.createElementNS(NS, 'svg'); s.setAttribute('viewBox', '0 0 24 24'); if (cls) s.setAttribute('class', cls); s.innerHTML = path; return s; };
   const app = document.getElementById('app');
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
+  const fmtNum = n => Math.round(n).toLocaleString();
 
   // ---------- reading the link ----------
   async function inflate(code) {
     const b64 = code.replace(/-/g, '+').replace(/_/g, '/');
     const bin = atob(b64 + '='.repeat((4 - b64.length % 4) % 4));
     const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-    const reader = stream.getReader();
+    const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader();
     const parts = []; let size = 0;
     for (;;) {
       const { done, value } = await reader.read();
@@ -266,7 +401,38 @@
     return JSON.parse(new TextDecoder().decode(await new Blob(parts).arrayBuffer()));
   }
   const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
-  const num = (v, lo, hi) => (typeof v === 'number' && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : 0);
+  const num = (v, lo, hi) => (typeof v === 'number' && isFinite(v) ? clamp(v, lo, hi) : 0);
+  const numOr = (v, lo, hi) => (typeof v === 'number' && isFinite(v) ? clamp(v, lo, hi) : null);
+  const HEX = /^#[0-9a-f]{6}$/i;
+  const FILE = /^[a-z0-9]{6}\.(jpg|png|gif|webp|svg)$/;
+  const MAPNAME = /^[a-z0-9_]{2,32}$/;
+  const RES = s => str(s, 40).replace(/[^WLD]/g, '');
+  function cleanTheme(t) {
+    if (!t || !HEX.test(t.b || '') || !HEX.test(t.a || '')) return null;
+    return {
+      base: t.b, accent: t.a, data: HEX.test(t.d || '') ? t.d : null,
+      pattern: ['hex', 'tri', 'grid', 'diag', 'dots'].includes(t.p) ? t.p : null,
+      scene: ['map', 'team'].includes(t.s) && FILE.test(t.i || '') ? t.s : 'pattern', art: FILE.test(t.i || '') ? t.i : null,
+      look: t.k === 'lit' ? 'lit' : 'neon',
+    };
+  }
+  function cleanStats(s) {
+    if (!s || typeof s !== 'object' || !(s.n > 0)) return null;
+    const arr = (a, n, lo, hi) => (Array.isArray(a) ? a.slice(0, n).map(v => numOr(v, lo, hi)) : []);
+    return {
+      n: Math.round(num(s.n, 0, 1e5)), r: Math.round(num(s.r, 0, 1e7)), rt: numOr(s.rt, 0, 5), r10: numOr(s.r10, 0, 5),
+      w: Math.round(num(s.w, 0, 1e5)), l: Math.round(num(s.l, 0, 1e5)), d: Math.round(num(s.d, 0, 1e5)),
+      k: Math.round(num(s.k, 0, 1e7)), de: Math.round(num(s.de, 0, 1e7)),
+      kd: num(s.kd, 0, 100), adr: num(s.adr, 0, 1000), kast: num(s.kast, 0, 100), hs: num(s.hs, 0, 100),
+      ti: arr(s.ti, 12, 0, 1e4), t10: s.t10 ? arr(s.t10, 12, 0, 1e4) : null,
+      f: RES(s.f).slice(0, 10), tr: arr(s.tr, 40, 0, 500).filter(v => v != null), tw: RES(s.tw),
+      mp: Array.isArray(s.mp) ? s.mp.slice(0, 8).filter(m => Array.isArray(m) && MAPNAME.test(m[0] || '')).map(m => [m[0], Math.round(num(m[1], 0, 1e5)), Math.round(num(m[2], 0, 1e5))]) : [],
+      mk: arr(s.mk, 4, 0, 1e6).map(v => v || 0), tk: Math.round(num(s.tk, 0, 1e6)), fa: Math.round(num(s.fa, 0, 1e6)),
+      cl: Array.isArray(s.cl) ? s.cl.slice(0, 5).map(c => (Array.isArray(c) ? [Math.round(num(c[0], 0, 1e5)), Math.round(num(c[1], 0, 1e5))] : [0, 0])) : [],
+      op: arr(s.op, 6, 0, 1e6).map(v => v || 0),
+      hg: Array.isArray(s.hg) ? s.hg.slice(0, 12).map(x => (Array.isArray(x) && /^[0-9]{16}$/.test(x[2] || '') && numOr(x[0], -1e6, 1e6) != null && numOr(x[1], -1e6, 1e6) != null && x[1] > x[0] ? [x[0], x[1], x[2]] : null)) : [],
+    };
+  }
   function clean(raw) {
     if (!raw || raw.v !== 1 || !Array.isArray(raw.i)) throw new Error('unknown format');
     const items = raw.i.slice(0, 50).map((x, n) => ({
@@ -274,32 +440,152 @@
       video: /^[a-z0-9]{6}\.mp4$/.test(x.v) ? x.v : null,
       thumb: /^[a-z0-9]{6}\.jpg$/.test(x.p) ? x.p : null,
       title: str(x.t, 80) || 'Highlight',
-      map: /^[a-z0-9_]{2,32}$/.test(x.m || '') ? x.m : '',
+      map: MAPNAME.test(x.m || '') ? x.m : '',
       dur: num(x.d, 0, 36000), kills: Math.round(num(x.k, 0, 99)), weapon: str(x.w, 24),
       tags: Array.isArray(x.g) ? x.g.slice(0, 4).map(t => str(t, 24)).filter(Boolean) : [],
       ace: Array.isArray(x.g) && x.g.includes('ACE'),
       round: Math.round(num(x.r, 0, 99)), day: Math.round(num(x.at, 0, 1e6)), vertical: x.o === 1, score: num(x.s, 0, 1e5), montage: x.x === 1,
     })).filter(x => x.video).map(x => ({ ...x, tags: x.tags.filter(t => !/^(ACE|\dK)$/.test(t)) })); // the kill badge already says it
+    const theme = cleanTheme(raw.th);
     return {
       name: str(raw.n, 32),
       steamid: /^7656\d{13}$/.test(raw.s || '') ? raw.s : null,
-      avatar: /^[0-9a-f]{40}$/.test(raw.a || '') ? raw.a : null,
-      accent: /^#[0-9a-f]{6}$/i.test(raw.c || '') ? raw.c : null,
+      avatar: FILE.test(raw.A || '') ? FILES + raw.A : /^[0-9a-f]{40}$/.test(raw.a || '') ? `https://avatars.fastly.steamstatic.com/${raw.a}_full.jpg` : null,
+      theme: theme || (HEX.test(raw.c || '') ? { base: '#0b0f13', accent: raw.c, pattern: 'dots', scene: 'pattern' } : null),
+      stats: cleanStats(raw.st),
       items,
     };
   }
 
+  // ---------- theme: colours and the backdrop (port of src/renderer/scene.js) ----------
+  // Text on the accent colour: dark on light accents, white on dark ones (app.js inkFor).
+  function inkFor(hex) {
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.3 ? '#0a0a0a' : '#ffffff';
+  }
+  const Scene = (() => {
+    const root = document.querySelector('.theme-art');
+    const el = cls => h('div', { class: cls });
+    const photo = el('sc-photo'), sharp = el('sc-img'), soft = el('sc-img soft');
+    const patWrap = el('sc-pattern-wrap'), pattern = el('sc-pattern');
+    const glowA = el('sc-glow a'), glowB = el('sc-glow b');
+    const logoWrap = el('sc-logo'), logo = h('img', { alt: '', decoding: 'async' });
+    const shade = el('sc-shade');
+    photo.append(sharp, soft); patWrap.append(pattern); logoWrap.append(logo);
+    root.append(photo, patWrap, glowA, glowB, logoWrap, shade);
+    const defs = document.createElementNS(NS, 'svg');
+    defs.setAttribute('class', 'sc-defs');
+    document.body.append(defs);
+    const HEX_R = 46, HEX_W = Math.sqrt(3) * HEX_R;
+    const PATTERNS = {
+      hex: { w: HEX_W, h: 3 * HEX_R, d: `M${HEX_W / 2} 0L${HEX_W} ${HEX_R / 2}V${1.5 * HEX_R}L${HEX_W / 2} ${2 * HEX_R}L0 ${1.5 * HEX_R}V${HEX_R / 2}ZM${HEX_W / 2} ${2 * HEX_R}V${3 * HEX_R}` },
+      tri: { w: 64, h: 64 * Math.sqrt(3), d: (() => { const w = 64, r = w * Math.sqrt(3) / 2; return `M0 0L${w} ${2 * r}M${w} 0L0 ${2 * r}M${w / 2} 0L${w} ${r}M0 ${r}L${w / 2} ${2 * r}M${w / 2} 0L0 ${r}M${w} ${r}L${w / 2} ${2 * r}M0 0H${w}M0 ${r}H${w}`; })() },
+      grid: { w: 56, h: 56, d: 'M0 0H56M0 0V56M24 28H32M28 24V32' },
+      diag: { w: 30, h: 30, d: 'M-8 38L38 -8M-8 8L8 -8M22 38L38 22' },
+      dots: { w: 26, h: 26, dots: true },
+    };
+    function patternTile(kind, color) {
+      const p = PATTERNS[kind];
+      if (!p) return null;
+      const body = p.dots ? `<circle cx="${p.w / 2}" cy="${p.h / 2}" r="1.6" fill="${color}"/>` : `<path d="${p.d}" fill="none" stroke="${color}" stroke-width="1.3"/>`;
+      return { ...p, url: `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${p.w}" height="${p.h}">${body}</svg>`)}")` };
+    }
+    // The team logo as a neon sign (scene.js neonFilter, same filter graph).
+    function neonFilter(id, color, k = 1, look = 'neon') {
+      const f = n => +(n * k).toFixed(2), w = n => +(n * Math.max(k, 0.7)).toFixed(2);
+      let node = defs.querySelector(`#${id}`);
+      if (!node) { node = document.createElementNS(NS, 'filter'); node.id = id; defs.append(node); }
+      node.setAttribute('x', '-30%'); node.setAttribute('y', '-30%'); node.setAttribute('width', '160%'); node.setAttribute('height', '160%');
+      node.setAttribute('color-interpolation-filters', 'sRGB');
+      const outline = `<feMorphology in="SourceAlpha" operator="dilate" radius="${w(2.2)}" result="dil"/><feMorphology in="SourceAlpha" operator="erode" radius="${w(1)}" result="ero"/><feComposite in="dil" in2="ero" operator="out" result="ring"/>`;
+      const tube = `<feFlood flood-color="${color}"/><feComposite in2="lines" operator="in" result="line"/><feGaussianBlur in="line" stdDeviation="${f(3)}" result="g1"/><feGaussianBlur in="line" stdDeviation="${f(16)}" result="g2"/><feMorphology in="lines" operator="erode" radius="${w(0.9)}" result="thin"/><feFlood flood-color="#fff" flood-opacity=".55"/><feComposite in2="thin" operator="in" result="core"/>`;
+      node.innerHTML = look === 'lit' ? `${outline}<feMerge result="lines"><feMergeNode in="ring"/></feMerge>${tube}
+        <feColorMatrix in="SourceGraphic" type="luminanceToAlpha" result="lum0"/><feComponentTransfer in="lum0" result="lum"><feFuncA type="gamma" amplitude="1.25" exponent="1.15" offset="0.04"/></feComponentTransfer>
+        <feComposite in="lum" in2="ero" operator="in" result="lumIn"/><feFlood flood-color="${color}"/><feComposite in2="lumIn" operator="in" result="lit"/>
+        <feGaussianBlur in="lit" stdDeviation="${f(5)}" result="litGlow"/><feComponentTransfer in="lumIn" result="hot"><feFuncA type="linear" slope="2.4" intercept="-1.4"/></feComponentTransfer>
+        <feFlood flood-color="#fff" flood-opacity=".45"/><feComposite in2="hot" operator="in" result="hotCore"/><feFlood flood-color="${color}" flood-opacity=".07"/><feComposite in2="SourceAlpha" operator="in" result="fill"/>
+        <feMerge><feMergeNode in="g2"/><feMergeNode in="g2"/><feMergeNode in="fill"/><feMergeNode in="litGlow"/><feMergeNode in="lit"/><feMergeNode in="hotCore"/><feMergeNode in="g1"/><feMergeNode in="line"/><feMergeNode in="core"/></feMerge>`
+        : `${outline}<feColorMatrix in="SourceGraphic" type="luminanceToAlpha" result="lum"/><feComponentTransfer in="lum" result="lumT"><feFuncA type="discrete" tableValues="0 0 1 1 1"/></feComponentTransfer>
+        <feMorphology in="lumT" operator="dilate" radius="${w(1.2)}" result="ld"/><feMorphology in="lumT" operator="erode" radius="${w(0.6)}" result="le"/><feComposite in="ld" in2="le" operator="out" result="lring"/>
+        <feComposite in="lring" in2="ero" operator="in" result="inner"/><feMerge result="lines"><feMergeNode in="ring"/><feMergeNode in="inner"/></feMerge>${tube}
+        <feFlood flood-color="${color}" flood-opacity=".09"/><feComposite in2="SourceAlpha" operator="in" result="fill"/>
+        <feMerge><feMergeNode in="g2"/><feMergeNode in="g2"/><feMergeNode in="fill"/><feMergeNode in="g1"/><feMergeNode in="line"/><feMergeNode in="core"/></feMerge>`;
+      return `url(#${id})`;
+    }
+    const logoSize = () => Math.round(Math.min(innerHeight * 0.74, innerWidth * 0.42, 760));
+    let kind = 'pattern', tileH = 1, t = null;
+    function set(theme) {
+      t = theme;
+      kind = theme.scene;
+      root.dataset.kind = kind;
+      document.documentElement.dataset.scene = kind;
+      const tile = patternTile(theme.pattern, theme.accent);
+      patWrap.hidden = !tile;
+      if (tile) { pattern.style.backgroundImage = tile.url; pattern.style.backgroundSize = `${tile.w}px ${tile.h}px`; tileH = tile.h; pattern.style.setProperty('--tile-h', `${tile.h}px`); }
+      photo.hidden = kind !== 'map';
+      if (kind === 'map') {
+        const url = FILES + theme.art;
+        const img = new Image();
+        img.onload = () => { for (const l of [sharp, soft]) l.style.backgroundImage = `url("${url}")`; photo.classList.add('ready'); };
+        img.src = url;
+      }
+      logoWrap.hidden = kind !== 'team';
+      if (kind === 'team') {
+        logoWrap.dataset.look = theme.look;
+        logo.style.filter = neonFilter('sc-neon', theme.accent, logoSize() / 300, theme.look);
+        logo.onload = () => logo.classList.add('ready');
+        logo.src = FILES + theme.art;
+      }
+      logoWrap.style.setProperty('--size', `${logoSize()}px`);
+      paint(scrollY);
+    }
+    function paint(y) {
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) y = 0;
+      const vh = innerHeight, p = Math.min(1, y / (vh * 0.85));
+      root.style.setProperty('--p', p.toFixed(3));
+      if (kind === 'map') {
+        photo.style.transform = `translate3d(0, ${(-Math.min(y * 0.2, vh * 0.2)).toFixed(1)}px, 0) scale(${(1.08 - 0.05 * p).toFixed(4)})`;
+        soft.style.opacity = p.toFixed(3);
+      }
+      pattern.style.transform = `translate3d(0, ${(-((y * 0.14) % tileH)).toFixed(1)}px, 0)`;
+      glowA.style.transform = `translate3d(0, ${(-Math.min(y * 0.32, vh * 0.5)).toFixed(1)}px, 0)`;
+      glowB.style.transform = `translate3d(0, ${(Math.min(y * 0.12, vh * 0.2)).toFixed(1)}px, 0) scale(${(1 + 0.25 * p).toFixed(3)})`;
+      if (kind === 'team') logoWrap.style.transform = `translate3d(${(-30 * p).toFixed(1)}px, ${(-Math.min(y * 0.3, vh * 0.3)).toFixed(1)}px, 0) rotate(${(-7 * p).toFixed(2)}deg) scale(${(1 - 0.14 * p).toFixed(3)})`;
+    }
+    let raf = 0;
+    addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; paint(scrollY); }); }, { passive: true });
+    addEventListener('resize', () => {
+      if (kind === 'team' && t) logo.style.filter = neonFilter('sc-neon', t.accent, logoSize() / 300, t.look);
+      logoWrap.style.setProperty('--size', `${logoSize()}px`);
+      paint(scrollY);
+    });
+    return { set };
+  })();
+  function applyTheme(t) {
+    const st = document.documentElement.style;
+    for (const p of ['--base', '--accent', '--accent-ink', '--blue']) st.removeProperty(p);
+    t ||= { base: '#0b0f13', accent: '#2fd8a4', pattern: 'dots', scene: 'pattern' };
+    st.setProperty('--base', t.base);
+    st.setProperty('--accent', t.accent);
+    st.setProperty('--accent-ink', inkFor(t.accent));
+    if (t.data) st.setProperty('--blue', t.data);
+    document.querySelector('meta[name=theme-color]').setAttribute('content', t.base);
+    Scene.set(t);
+  }
+
   // ---------- formatting ----------
   const mapName = m => MAPS[m]?.[0] || (m ? m.replace(/^(de|cs|ar)_/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '');
+  const mapColor = m => MAPS[m]?.[1] || '#7a8494';
   const fmtDur = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.round(s % 60)).padStart(2, '0')}`;
   const fmtDay = d => (d ? new Date(d * 86400e3).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '');
   const isAce = x => x.kills >= 5 || x.ace;
   const killBadge = x => (isAce(x) ? 'ACE' : x.kills >= 2 ? `${x.kills}K` : null);
-  const subLine = x => [x.montage ? 'Montage' : mapName(x.map), x.weapon, x.round ? `Round ${x.round}` : '', fmtDay(x.day)].filter(Boolean);
-  function subEl(x) {
-    const parts = subLine(x);
-    return h('div', { class: 'sub' }, ...parts.flatMap((p, i) => (i ? [h('span', { class: 'sep' }, '·'), p] : [p])));
+  const qualityClass = (v, good, bad) => (v >= good ? 'good' : v < bad ? 'bad' : 'mid');
+  function metaEl(x, cls = 'clip-meta') {
+    const parts = [x.montage ? 'Montage' : mapName(x.map), x.weapon, x.round ? `Round ${x.round}` : '', fmtDay(x.day)].filter(Boolean);
+    return h('div', { class: cls }, ...parts.flatMap((p, i) => (i ? [h('span', { class: 'sep' }, '·'), p] : [p])));
   }
+  const mapThumb = m => h('div', { class: 'map-thumb', style: { '--c': mapColor(m), backgroundImage: MAPNAME.test(m) ? `url("${RADAR}${m}.png")` : null } });
 
   let G = null, code = '';
   const state = { sort: 'latest', map: 'all' };
@@ -313,63 +599,172 @@
     try { await navigator.clipboard.writeText(text); toast('Link copied'); } catch { prompt('Copy this link:', text); }
   }
 
-  // ---------- page ----------
-  function render() {
-    const items = G.items;
-    const maps = [...new Set(items.filter(x => x.map && !x.montage).map(x => x.map))];
-    const kills = items.filter(x => !x.montage).reduce((a, x) => a + x.kills, 0);
-    const aces = items.filter(x => !x.montage && isAce(x)).length;
-    const name = G.name || 'CS2 player';
-    document.title = `${name} · CS2 highlights`;
+  // ---------- Overview parts (src/renderer/app.js scorePanel, statTile, cards) ----------
+  const card = (title, body, { span = 1, extra = null } = {}) => h('section', { class: `dcard span-${span}` },
+    title ? h('div', { class: 'dcard-head' }, h('h4', {}, title), h('span', { class: 'spacer' }), extra) : null, ...[body].flat());
+  const big = (value, unit, note) => h('div', { class: 'big-line' }, h('span', { class: 'big' }, value, unit ? h('small', {}, unit) : null), note ? h('span', { class: 'big-note' }, note) : null);
+  const kv = rows => h('div', { class: 'kv' }, ...rows.map(([k, v]) => h('div', { class: 'kv-row' }, h('span', {}, k), h('b', {}, v))));
+  const barList = rows => h('div', { class: 'bars' }, ...rows.map(r => h('div', { class: 'bar-row', title: r.title || null },
+    h('div', { class: 'bar-top' }, h('span', { class: 'bar-label' }, r.label), h('span', { class: 'spacer' }), r.note ? h('span', { class: 'bar-note' }, r.note) : null, h('b', {}, r.value)),
+    h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${r.fillCls || ''}`, style: { width: `${clamp(r.frac, 0, 1) * 100}%` } })))));
 
-    const avatar = G.avatar
-      ? h('img', { class: 'avatar', alt: '', src: `https://avatars.fastly.steamstatic.com/${G.avatar}_full.jpg`, onerror: e => e.target.replaceWith(h('div', { class: 'avatar' }, name[0].toUpperCase())) })
-      : h('div', { class: 'avatar' }, name[0].toUpperCase());
-    const fact = (n, label) => h('span', { class: 'fact' }, h('b', {}, n), label);
-    const profile = h('section', { class: 'profile' },
-      avatar,
-      h('div', { class: 'who' },
-        h('div', { class: 'kicker' }, 'CS2 highlights'),
-        h('h1', { class: 'name' }, name),
-        h('div', { class: 'facts' },
-          fact(items.length, items.length === 1 ? 'clip' : 'clips'),
-          kills ? fact(kills, 'kills') : null,
-          aces ? fact(aces, aces === 1 ? 'ace' : 'aces') : null,
-          maps.length ? fact(maps.length, maps.length === 1 ? 'map' : 'maps') : null)),
-      h('div', { class: 'profile-actions' },
-        G.steamid ? h('a', { class: 'btn', href: `https://steamcommunity.com/profiles/${G.steamid}`, target: '_blank', rel: 'noopener noreferrer' }, svg(ICON.steam), 'Steam profile') : null,
-        h('button', { class: 'btn primary', onclick: () => copy(location.href.split('#')[0] + '#' + code) }, svg(ICON.link), 'Copy link'),
-        h('a', { class: 'made', href: GITHUB, target: '_blank', rel: 'noopener' }, 'Made with ', h('b', {}, 'CS2 DemoLab'))));
-
-    const sorted = items.filter(x => state.map === 'all' || x.map === state.map)
-      .sort(state.sort === 'best' ? (a, b) => b.score - a.score || b.kills - a.kills || a.n - b.n : (a, b) => a.n - b.n);
-    const seg = h('div', { class: 'seg' }, ...[['latest', 'Latest'], ['best', 'Best']].map(([k, l]) =>
-      h('button', { class: state.sort === k ? 'on' : '', onclick: () => { state.sort = k; render(); } }, l)));
-    const chips = maps.length > 1 ? h('div', { class: 'chips' },
-      h('button', { class: `chip ${state.map === 'all' ? 'on' : ''}`, onclick: () => { state.map = 'all'; render(); } }, 'All maps'),
-      ...maps.map(m => h('button', { class: `chip ${state.map === m ? 'on' : ''}`, onclick: () => { state.map = m; render(); } }, mapName(m)))) : null;
-    const toolbar = h('div', { class: 'toolbar' }, seg, chips, h('span', { class: 'spacer' }), h('span', { class: 'count' }, `${sorted.length} of ${items.length}`));
-
-    const grid = h('div', { class: 'grid' }, ...sorted.map((x, i) => card(x, i, sorted)));
-    const footer = h('footer', {},
-      h('span', {}, 'Videos are hosted on ', h('a', { href: 'https://catbox.moe', target: '_blank', rel: 'noopener' }, 'catbox.moe'), '. If they don\'t load, your internet provider may block it: switching your DNS to 1.1.1.1 fixes that.'),
-      h('a', { href: GITHUB, target: '_blank', rel: 'noopener' }, 'Get CS2 DemoLab, free'));
-    app.replaceChildren(profile, toolbar, grid, footer);
+  function scorePanel(s) {
+    const r = s.rt;
+    const level = r == null ? null : RATING_LEVELS.find(([min]) => r >= min)[1];
+    const wr = pct(s.w, s.n);
+    const row = (label, value, frac, cls, title) => h('div', { class: 'sp-row', title },
+      h('div', { class: 'sp-row-top' }, h('span', { class: `sp-dot ${cls}` }), label, h('span', { class: 'spacer' }), h('b', { class: cls }, value)),
+      h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${cls}`, style: { width: `${clamp(frac, 0, 1) * 100}%` } })));
+    const trend = s.r10 != null && r != null ? (s.r10 > r + 0.005 ? 'up' : s.r10 < r - 0.005 ? 'down' : '') : null;
+    return h('aside', { class: 'score-panel' },
+      h('div', { class: 'sp-k', title: 'Approximation of HLTV Rating 2.0, computed from demos' }, 'Rating ≈ HLTV 2.0'),
+      h('div', { class: 'sp-v' }, r == null ? '—' : r.toFixed(2)),
+      level ? h('div', { class: 'sp-level' }, level) : null,
+      h('div', { class: 'bar-track sp-bar' }, h('div', { class: 'bar-fill', style: { width: `${clamp((r ?? 0) / 2, 0, 1) * 100}%` } })),
+      trend != null ? h('div', { class: `sp-trend ${trend}` }, `${trend === 'up' ? '▲' : trend === 'down' ? '▼' : '='} ${s.r10.toFixed(2)} over the last 10 matches`) : null,
+      h('div', { class: 'sp-label' }, 'Breakdown'),
+      row('Win rate', `${wr}%`, wr / 100, qualityClass(wr, 52, 45), `${s.w} won · ${s.l} lost${s.d ? ` · ${s.d} tied` : ''}`),
+      row('K/D', s.kd.toFixed(2), s.kd / 2, qualityClass(s.kd, 1.05, 0.95), s.k ? `${fmtNum(s.k)} kills · ${fmtNum(s.de)} deaths` : null),
+      row('ADR', s.adr.toFixed(0), s.adr / 120, qualityClass(s.adr, 80, 65)),
+      row('KAST', `${s.kast.toFixed(0)}%`, s.kast / 100, qualityClass(s.kast, 72, 64), 'Rounds with a kill, assist, survival or trade'),
+      row('Headshot %', `${s.hs.toFixed(0)}%`, s.hs / 100, qualityClass(s.hs, 45, 33)),
+      s.f ? h('div', { class: 'sp-label' }, 'Form') : null,
+      s.f ? h('div', { class: 'form' }, ...[...s.f].map(x => h('div', { class: `form-m r-${x}` }, x))) : null);
+  }
+  // The distribution over all matches (16 bars, heights 0–9 from the link), with the average (dashed)
+  // and the last 10 matches (solid) as lines: the app's histogram() without the per-match popups.
+  function histogram([lo, hi, bars], avg, rec) {
+    const W = 120, H = 38, n = 16, bw = W / n;
+    const x = v => (clamp((v - lo) / (hi - lo), 0, 1) * W).toFixed(1);
+    const avgBin = avg == null ? -1 : clamp(Math.floor((avg - lo) / (hi - lo) * n), 0, n - 1);
+    const rects = [...bars].map((c, i) => (+c ? `<rect x="${(i * bw + 0.8).toFixed(1)}" width="${(bw - 1.6).toFixed(1)}" y="${(H - 2 - (H - 6) * c / 9).toFixed(1)}" height="${((H - 6) * c / 9).toFixed(1)}" class="${i === avgBin ? 'on' : ''}"/>` : '')).join('');
+    const mark = (v, cls) => (v == null ? '' : `<line x1="${x(v)}" x2="${x(v)}" y1="0" y2="${H}" class="${cls}"/>`);
+    const el = h('div', { class: 'tile-chart' });
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="histo">${rects}<line x1="0" x2="${W}" y1="${H - 1}" y2="${H - 1}" class="base"/>${mark(avg, 'avg')}${mark(rec, 'rec')}</svg>`;
+    return el;
+  }
+  function tile([k, u, d, low], v, rec, hist) {
+    const fmt = x => (x == null ? '—' : x.toFixed(d));
+    const better = rec == null || v == null || Math.abs(rec - v) < 10 ** -d ? null : (rec > v) !== !!low;
+    return h('div', { class: 'tile' },
+      h('div', { class: 'tile-k', title: k }, k),
+      h('div', { class: 'tile-row' },
+        h('div', { class: 'tile-v' }, fmt(v), u && v != null ? h('small', {}, u) : null),
+        h('div', { class: `tile-sub ${better == null ? '' : better ? 'up' : 'down'}` }, rec == null ? '' : [better == null ? null : h('b', {}, rec > v ? '▲ ' : '▼ '), `last 10: ${fmt(rec)}${u}`])),
+      hist ? histogram(hist, v, rec) : null);
+  }
+  function trendCard(s) {
+    const vals = s.tr.map(v => v / 100), res = s.tw;
+    if (vals.length < 2) return null;
+    const W = 1200, H = 300, padL = 34, padR = 12, padT = 12, padB = 22;
+    const lo = Math.min(0.4, Math.floor(Math.min(...vals) * 5) / 5), hi = Math.max(1.6, Math.ceil(Math.max(...vals) * 5) / 5);
+    const x = i => padL + (W - padL - padR) * (i / (vals.length - 1));
+    const y = v => padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo));
+    const avg = vals.map((_, i) => { const a = vals.slice(Math.max(0, i - 4), i + 1); return a.reduce((p, q) => p + q, 0) / a.length; });
+    const line = pts => pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+    let grid = '';
+    for (let v = Math.ceil(lo * 2) / 2; v <= hi + 1e-9; v += 0.5) grid += `<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" class="${Math.abs(v - 1) < 1e-9 ? 'g-one' : 'g'}"/><text x="${padL - 6}" y="${y(v) + 4}" class="g-t">${v.toFixed(1)}</text>`;
+    // Only numbers and fixed classes go into this markup.
+    const markup = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg"><defs><linearGradient id="tFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" class="t-stop-a"/><stop offset="1" class="t-stop-b"/></linearGradient></defs>${grid}
+      <path d="${line(vals)}L${x(vals.length - 1)},${H - padB}L${x(0)},${H - padB}Z" fill="url(#tFill)"/><path d="${line(vals)}" class="t-line"/><path d="${line(avg)}" class="t-avg"/>
+      ${vals.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="4.5" class="t-pt r-${'WLD'.includes(res[i]) ? res[i] : 'D'}"><title>${v.toFixed(2)}</title></circle>`).join('')}</svg>`;
+    const wrap = h('div', { class: 'trend-wrap' });
+    wrap.innerHTML = markup;
+    return card('Rating per match', [wrap, h('div', { class: 'legend' }, h('span', { class: 'lg l-line' }, 'Rating'), h('span', { class: 'lg l-avg' }, '5-match average'), h('span', { class: 'lg l-w' }, 'Win'), h('span', { class: 'lg l-l' }, 'Loss'))],
+      { span: 3, extra: h('span', { class: 'hint' }, `last ${vals.length} matches`) });
+  }
+  function multiCard(s) {
+    const rounds = s.mk.reduce((a, b) => a + b, 0);
+    return card('Multi-kills', [
+      big(fmtNum(rounds), null, `rounds with 2+ kills${s.r ? ` · ${pct(rounds, s.r)}%` : ''}`),
+      h('div', { class: 'multi' }, ...[[0, '2K', 2], [1, '3K', 3], [2, '4K', 4], [3, 'ACE', 5]].map(([i, l, n]) => h('div', { class: `multi-c m${n}` }, h('div', { class: 'v' }, s.mk[i] || 0), h('div', { class: 'k' }, l)))),
+      kv([['Trade kills', fmtNum(s.tk)], ['Flash assists', fmtNum(s.fa)]])]);
+  }
+  function clutchCard(s) {
+    const won = s.cl.reduce((a, c) => a + c[0], 0), played = s.cl.reduce((a, c) => a + c[1], 0);
+    return card('Clutches', [
+      big(`${pct(won, played)}`, '%', `${won} won of ${played}`),
+      barList(s.cl.map(([w, p], i) => ({ label: `1v${i + 1}`, note: `${w}/${p}`, value: p ? `${pct(w, p)}%` : '—', frac: p ? w / p : 0 })))]);
+  }
+  function entryCard(s) {
+    const [fk, fd, tfk, tfd, cfk, cfd] = s.op;
+    const row = (label, k, d, cls) => ({ label, note: `${k}–${d}`, value: `${pct(k, k + d)}%`, frac: k + d ? k / (k + d) : 0, fillCls: cls });
+    return card('Opening duels', [
+      big(`${pct(fk, fk + fd)}`, '%', `won${s.r ? ` · in ${pct(fk + fd, s.r)}% of rounds` : ''}`),
+      barList([row('T side', tfk, tfd, 't'), row('CT side', cfk, cfd, 'ct')])]);
+  }
+  function mapsCard(s) {
+    if (!s.mp.length) return null;
+    return card('Maps', h('div', { class: 'map-rows' }, ...s.mp.map(([m, played, won]) => {
+      const wr = pct(won, played);
+      return h('div', { class: 'map-row', title: `${won} won of ${played}` }, mapThumb(m),
+        h('div', { class: 'map-row-main' },
+          h('div', { class: 'bar-top' }, h('span', { class: 'bar-label' }, mapName(m)), h('span', { class: 'spacer' }), h('span', { class: 'bar-note' }, `${played} played`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`)),
+          h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))));
+    })), { span: 2 });
   }
 
-  function card(x, i, list) {
+  // ---------- page ----------
+  const section = (title, extra, ...body) => h('section', { class: 'ov-sec' }, h('div', { class: 'sec' }, h('h3', {}, title), extra), ...body);
+  function render() {
+    const s = G.stats, items = G.items;
+    const name = G.name || 'CS2 player';
+    document.title = `${name} · CS2 highlights`;
+    const letter = h('div', { class: 'avatar' }, name[0].toUpperCase());
+    const avatar = G.avatar ? h('div', { class: 'avatar' }, h('img', { src: G.avatar, alt: '', onerror: () => avatar.replaceWith(letter) })) : letter;
+    const head = h('div', { class: 'dash-head' },
+      avatar,
+      h('div', { class: 'dash-title' },
+        h('div', { class: 'kicker' }, 'CS2 highlights'),
+        h('h1', {}, name),
+        h('div', { class: 'sub' }, [
+          s ? `${fmtNum(s.n)} match${s.n === 1 ? '' : 'es'} · ${fmtNum(s.r)} rounds` : null,
+          `${items.length} highlight${items.length === 1 ? '' : 's'}`,
+        ].filter(Boolean).join(' · '))),
+      h('span', { class: 'spacer' }),
+      h('div', { class: 'head-actions' },
+        G.steamid ? h('a', { class: 'btn', href: `https://steamcommunity.com/profiles/${G.steamid}`, target: '_blank', rel: 'noopener noreferrer' }, svg(ICON.steam), 'Steam profile') : null,
+        h('button', { class: 'btn primary', onclick: () => copy(`${location.href.split('#')[0]}#${code}`) }, svg(ICON.link), 'Copy link')));
+
+    const top = s ? h('div', { class: 'ov-top' },
+      scorePanel(s),
+      h('div', { class: 'ov-stats' },
+        h('div', { class: 'sec' }, h('h3', {}, 'Stats overview'),
+          h('span', { class: 'hint legend-inline' }, h('i', { class: 'lg-avg' }), `all ${fmtNum(s.n)} matches`, s.t10 ? [h('i', { class: 'lg-rec' }), 'last 10'] : null)),
+        h('div', { class: 'tiles' }, ...TILES.map((d, i) => tile(d, s.ti[i] ?? null, s.t10?.[i] ?? null, s.hg[i]))))) : null;
+
+    const maps = [...new Set(items.filter(x => x.map && !x.montage).map(x => x.map))];
+    const shown = items.filter(x => state.map === 'all' || x.map === state.map)
+      .sort(state.sort === 'best' ? (a, b) => b.score - a.score || b.kills - a.kills || a.n - b.n : (a, b) => a.n - b.n);
+    const controls = h('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' } },
+      maps.length > 1 ? h('div', { class: 'chips' },
+        h('button', { class: `chip ${state.map === 'all' ? 'on' : ''}`, onclick: () => { state.map = 'all'; render(); } }, 'All maps'),
+        ...maps.map(m => h('button', { class: `chip ${state.map === m ? 'on' : ''}`, onclick: () => { state.map = m; render(); } }, mapName(m)))) : null,
+      h('div', { class: 'seg' }, ...[['latest', 'Latest'], ['best', 'Best']].map(([k, l]) =>
+        h('button', { class: state.sort === k ? 'on' : '', onclick: () => { state.sort = k; render(); } }, l))));
+    const highlights = section(`Highlights · ${shown.length}`, controls, h('div', { class: 'grid' }, ...shown.map((x, i) => clipCard(x, i, shown))));
+
+    const form = s ? section('Recent form', null, h('div', { class: 'dash' }, trendCard(s), multiCard(s))) : null;
+    const duels = s ? section('Rounds & maps', null, h('div', { class: 'dash' }, clutchCard(s), entryCard(s), mapsCard(s))) : null;
+    const footer = h('footer', {},
+      h('span', {}, 'Stats from this player’s own demos. Videos are hosted on ', h('a', { href: 'https://catbox.moe', target: '_blank', rel: 'noopener' }, 'catbox.moe'), ': if they don’t load, your internet provider may block it (switching your DNS to 1.1.1.1 fixes that).'),
+      h('a', { href: GITHUB, target: '_blank', rel: 'noopener' }, 'Made with CS2 DemoLab, free'));
+    app.replaceChildren(head, top, highlights, form, duels, footer);
+  }
+
+  function clipCard(x, i, list) {
     const pic = x.thumb ? FILES + x.thumb : '';
     const thumb = h('div', { class: `thumb ${x.vertical ? 'vertical' : ''}` },
       x.vertical && pic ? h('div', { class: 'blur', style: { backgroundImage: `url("${pic}")` } }) : null,
       pic ? h('img', { src: pic, alt: '', loading: 'lazy', decoding: 'async' }) : null,
-      x.montage ? h('span', { class: 'badge map' }, h('i'), 'Montage') : x.map ? h('span', { class: 'badge map' }, h('i', { style: MAPS[x.map] ? { background: MAPS[x.map][1], boxShadow: `0 0 8px ${MAPS[x.map][1]}` } : null }), mapName(x.map)) : null,
+      x.montage ? h('span', { class: 'badge map' }, h('i'), 'Montage') : x.map ? h('span', { class: 'badge map', style: { '--c': mapColor(x.map) } }, h('i'), mapName(x.map)) : null,
       !x.montage && killBadge(x) ? h('span', { class: `badge kills ${isAce(x) ? 'ace' : ''}` }, killBadge(x)) : null,
       h('span', { class: 'badge dur' }, fmtDur(x.dur)),
       h('span', { class: 'play' }, svg(ICON.play)));
     let timer = null, video = null;
     const stop = () => { clearTimeout(timer); video?.remove(); video = null; el.classList.remove('previewing'); };
     const el = h('button', {
-      class: 'card', style: { animationDelay: `${Math.min(i, 12) * 35}ms` }, 'aria-label': `Play ${x.title}`,
+      class: 'clip', style: { animationDelay: `${Math.min(i, 12) * 35}ms` }, 'aria-label': `Play ${x.title}`,
       onclick: () => { stop(); open(list, i); },
       onmouseenter: () => {
         if (!matchMedia('(hover: hover)').matches) return;
@@ -381,8 +776,8 @@
         }, 280);
       },
       onmouseleave: stop,
-    }, thumb, h('div', { class: 'meta' },
-      h('div', { class: 'title', title: x.title }, x.title), subEl(x),
+    }, thumb, h('div', { class: 'clip-body' },
+      h('div', { class: 'clip-title', title: x.title }, x.title), metaEl(x),
       x.tags.length ? h('div', { class: 'tags' }, ...x.tags.map(t => h('span', { class: 'tag' }, t))) : null));
     return el;
   }
@@ -405,7 +800,7 @@
     cur = { list, i };
     history.replaceState(null, '', `#${code}!${x.n}`);
     const video = h('video', { src: FILES + x.video, controls: true, autoplay: true, playsinline: true, poster: x.thumb ? FILES + x.thumb : null });
-    try { video.volume = Math.min(1, Math.max(0, Number(localStorage.getItem('vol') ?? 0.6))); } catch {}
+    try { video.volume = clamp(Number(localStorage.getItem('vol') ?? 0.6), 0, 1); } catch {}
     video.addEventListener('volumechange', () => { try { localStorage.setItem('vol', video.volume); } catch {} });
     video.addEventListener('ended', () => { if (i + 1 < list.length) open(list, i + 1); });
     video.addEventListener('error', () => video.replaceWith(h('div', { class: 'vid-error' },
@@ -413,8 +808,8 @@
       'It is on files.catbox.moe, which some internet providers block. Switching your DNS to 1.1.1.1 (or a VPN) usually fixes it. Catbox also removes clips nobody watched for 2 years.')));
     lb = h('div', { class: 'lightbox', role: 'dialog', 'aria-label': x.title, onclick: e => { if (e.target === lb || e.target.classList.contains('stage')) close(); } },
       h('div', { class: 'lb-head' },
-        h('div', { class: 'lb-title' }, h('h2', {}, x.title), subEl(x)),
-        h('button', { class: 'btn', onclick: () => copy(location.href) }, svg(ICON.link), 'Copy clip link'),
+        h('div', { class: 'lb-title' }, h('h2', {}, x.title), metaEl(x)),
+        h('button', { class: 'btn', onclick: () => copy(location.href) }, svg(ICON.link), h('span', {}, 'Copy clip link')),
         h('a', { class: 'icon-btn', href: FILES + x.video, target: '_blank', rel: 'noopener', title: 'Open the video file' }, svg(ICON.download)),
         h('button', { class: 'icon-btn', title: 'Close (Esc)', onclick: close }, svg(ICON.close))),
       h('div', { class: 'stage' }, video,
@@ -422,36 +817,29 @@
         h('button', { class: 'nav next', title: 'Next (→)', hidden: i + 1 >= list.length, onclick: () => open(list, i + 1) }, svg(ICON.right))),
       h('div', { class: 'lb-foot' },
         x.tags.length ? h('div', { class: 'tags' }, ...x.tags.map(t => h('span', { class: 'tag' }, t))) : null,
-        h('span', { class: 'count' }, `${i + 1} / ${list.length}`)));
+        h('span', {}, `${i + 1} / ${list.length}`)));
     document.body.append(lb);
   }
 
   function empty(title, text) {
     document.title = 'CS2 highlights';
+    applyTheme(null);
     app.replaceChildren(h('div', { class: 'empty' },
       h('div', { class: 'ico' }, svg(ICON.film)), h('h1', {}, title), h('p', {}, text),
       h('p', {}, h('a', { class: 'btn primary', href: GITHUB, target: '_blank', rel: 'noopener' }, 'Get CS2 DemoLab'))));
   }
 
   async function load() {
-    const hash = location.hash.slice(1);
-    const [c, pick] = hash.split('!');
+    const [c, pick] = location.hash.slice(1).split('!');
     if (c === code && G) return;
-    if (!c) return empty('CS2 highlights', 'Share your best CS2 plays with one link: CS2 DemoLab records them from your demos and makes this page for you.');
+    if (!c) return empty('CS2 highlights', 'Share your best CS2 plays and your stats with one link: CS2 DemoLab records them from your demos and makes this page for you.');
     try {
       G = clean(await inflate(c));
       code = c;
     } catch {
       return empty('This link is broken', 'Part of the link is probably missing. Ask for it again, and copy it whole.');
     }
-    document.documentElement.style.removeProperty('--accent');
-    document.documentElement.style.removeProperty('--accent-ink');
-    if (G.accent) {
-      document.documentElement.style.setProperty('--accent', G.accent);
-      // dark text on light accents, light text on dark ones
-      const [r, g, b] = [1, 3, 5].map(i => parseInt(G.accent.slice(i, i + 2), 16) / 255);
-      document.documentElement.style.setProperty('--accent-ink', 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? '#06110d' : '#ffffff');
-    }
+    applyTheme(G.theme);
     if (!G.items.length) return empty('No clips here yet', 'This highlights page is empty.');
     render();
     const n = Number(pick);
