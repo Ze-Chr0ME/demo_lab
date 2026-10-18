@@ -6,7 +6,9 @@
 //    the link is just that file's name (…/demo_lab/#a1b2c3); until it is uploaded, the data travels in the
 //    link itself, deflated and base64url'd after the #. Either way the link changes whenever the gallery
 //    does, and the part after the # never reaches GitHub.
-// Kept in <userData>/gallery.json: { name, showSteam, userhash, assets, items: [...] }, items newest first.
+//  - That link then goes through a free link shortener that needs no account (da.gd, else TinyURL), so the
+//    one to share is like https://da.gd/AbC12. Without one, the github.io link above is shared as is.
+// Kept in <userData>/gallery.json: { name, showSteam, userhash, assets, short, tiny, items: [...] }, items newest first.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -23,6 +25,13 @@ const MAX_ITEMS = 20;       // keeps the link under Discord's 2000 characters, w
 const PAGE_URL = 'https://ze-chr0me.github.io/demo_lab/share/';
 const SHORT_URL = 'https://ze-chr0me.github.io/demo_lab/'; // docs/index.html sends #<id> on to the page
 const CODE_VERSION = 1;
+// Link shorteners without an account or key, tried in order: the page link (# part included) goes in,
+// a short link that redirects to it comes out.
+const SHORTENERS = [
+  { api: u => `https://da.gd/s?url=${encodeURIComponent(u)}`, out: /^https:\/\/da\.gd\/[A-Za-z0-9_-]{1,32}$/ },
+  { api: u => `https://tinyurl.com/api-create.php?url=${encodeURIComponent(u)}`, out: /^https:\/\/tinyurl\.com\/[A-Za-z0-9_-]{1,32}$/ },
+];
+const isPageLink = url => typeof url === 'string' && (url.startsWith(SHORT_URL) || url.startsWith(PAGE_URL) || SHORTENERS.some(x => x.out.test(url)));
 
 // Web copy of a clip: at most 1080p, ~6 Mbit/s (a 20 s clip is about 15 MB), starts playing before it
 // has fully loaded (faststart).
@@ -83,6 +92,33 @@ function catboxUpload(file, { userhash = '', onProgress } = {}) {
     stream.on('end', () => req.end(tail));
     stream.pipe(req, { end: false });
   });
+}
+
+function getText(url) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'CS2-DemoLab' }, timeout: 15000 }, res => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', d => { body += d; if (body.length > 4096) req.destroy(new Error('answer too long')); });
+      res.on('end', () => (res.statusCode === 200 ? resolve(body.trim()) : reject(new Error(`HTTP ${res.statusCode}`))));
+    });
+    req.on('timeout', () => req.destroy(new Error('no answer')));
+    req.on('error', reject);
+  });
+}
+
+// A short link to url, from the first shortener that gives one.
+async function shortenLink(url) {
+  const errors = [];
+  for (const s of SHORTENERS) {
+    const host = new URL(s.api('')).host;
+    try {
+      const out = await getText(s.api(url));
+      if (s.out.test(out)) return out;
+      errors.push(`${host}: ${out.slice(0, 80)}`);
+    } catch (e) { errors.push(`${host}: ${e.message}`); }
+  }
+  throw new Error(errors.join('; '));
 }
 
 function catboxDelete(names, userhash) {
@@ -158,9 +194,10 @@ function mainWeapon(c) {
 
 class Gallery {
   // upload / remove: overridable for tests (default: catbox.moe)
-  constructor(dir, { upload = catboxUpload, remove = catboxDelete, log = () => {} } = {}) {
+  constructor(dir, { upload = catboxUpload, remove = catboxDelete, shorten = shortenLink, log = () => {} } = {}) {
     this.file = path.join(dir, 'gallery.json');
     this.upload = upload;
+    this.shorten = shorten;
     this.removeFiles = remove;
     this.log = log;
     this.busy = null;
@@ -309,41 +346,68 @@ class Gallery {
     return { json, hash: crypto.createHash('sha1').update(json).digest('hex') };
   }
 
-  // The link: short (the data file on catbox) when it matches the page's data, else the data deflated into
-  // the link itself until syncShort has uploaded it.
-  link(opts = {}) {
+  // The github.io link: short (the data file on catbox) when it matches the page's data, else the data
+  // deflated into the link itself until syncShort has uploaded it.
+  fullLink(opts = {}) {
     const d = this.data(opts);
     if (!d) return null;
     const short = this.load().short;
     if (short?.hash === d.hash) return `${SHORT_URL}#${short.id.replace(/\.json$/, '')}`;
     return `${opts.page || PAGE_URL}#${zlib.deflateRawSync(Buffer.from(d.json, 'utf8'), { level: 9 }).toString('base64url')}`;
   }
+  // The link to share: the shortener's link to fullLink once syncShort has made it, else fullLink.
+  link(opts = {}) {
+    const full = this.fullLink(opts);
+    const tiny = this.load().tiny;
+    return full && tiny?.link === full ? tiny.url : full;
+  }
+  // Short enough to share: the shortener's link, or the github.io one with the catbox file name.
   isShort(opts = {}) {
     const d = this.data(opts);
-    return !!d && this.load().short?.hash === d.hash;
+    return !!d && (this.load().short?.hash === d.hash || this.isTiny(opts));
   }
-  // Uploads the page's data as a JSON file, so the link is just its name (catbox serves it to any page).
-  // Each change makes a new file and a new link; older links keep showing the older data.
+  isTiny(opts = {}) {
+    const full = this.fullLink(opts);
+    return !!full && this.load().tiny?.link === full;
+  }
+  // Uploads the page's data as a JSON file, so the link is just its name (catbox serves it to any page),
+  // then gets the shortener's link to that. Each change makes a new file and a new link; older links keep
+  // showing the older data.
   async syncShort(opts = {}) {
     const d = this.data(opts);
-    if (!d || this.load().short?.hash === d.hash) return this.link(opts);
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'demolab-gallery-'));
-    try {
-      const file = path.join(tmp, 'highlights.json');
-      fs.writeFileSync(file, d.json);
-      const id = await this.upload(file, { userhash: this.load().userhash });
-      if (!/^[a-z0-9]{6}\.json$/.test(id)) throw new Error(`catbox.moe gave an unexpected file name (${id}).`);
-      const g = this.load();
-      g.short = { hash: d.hash, id };
-      this.save(g);
-      this.log('gallery: short link', id);
-    } catch (e) {
-      this.log('gallery: short link failed', e.message);
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+    if (!d) return null;
+    if (this.load().short?.hash !== d.hash) {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'demolab-gallery-'));
+      try {
+        const file = path.join(tmp, 'highlights.json');
+        fs.writeFileSync(file, d.json);
+        const id = await this.upload(file, { userhash: this.load().userhash });
+        if (!/^[a-z0-9]{6}\.json$/.test(id)) throw new Error(`catbox.moe gave an unexpected file name (${id}).`);
+        const g = this.load();
+        g.short = { hash: d.hash, id };
+        this.save(g);
+        this.log('gallery: short link', id);
+      } catch (e) {
+        this.log('gallery: short link failed', e.message);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    }
+    // The long link too when catbox could not be reached: shortened, it is as easy to share.
+    const full = this.fullLink(opts);
+    if (this.load().tiny?.link !== full) {
+      try {
+        const url = await this.shorten(full);
+        const g = this.load();
+        g.tiny = { link: full, url };
+        this.save(g);
+        this.log('gallery: tiny link', url);
+      } catch (e) {
+        this.log('gallery: tiny link failed', e.message);
+      }
     }
     return this.link(opts);
   }
 }
 
-module.exports = { Gallery, encode, decode, payload, cleanLook, catboxUpload, PAGE_URL, SHORT_URL, MAX_ITEMS };
+module.exports = { Gallery, encode, decode, payload, cleanLook, catboxUpload, shortenLink, isPageLink, PAGE_URL, SHORT_URL, MAX_ITEMS };

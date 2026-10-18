@@ -1,6 +1,7 @@
 // The Utility page's lineups (grenade throws to remember) in <userData>/utility/lineups.json, with
 // their screenshots in <userData>/utility/images. Positions are CS2 world coordinates.
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -127,7 +128,7 @@ class UtilityStore {
   }
 }
 
-// ---- Share codes: lineups as one line of text to paste in Discord or a chat ("DLU1-…").
+// ---- Share codes: lineups as one line of text to paste in Discord or a chat ("DLU2-…", or "DLU1-…" long).
 // Everything but the pictures, practice counts and the source demo (only on your PC): compact arrays,
 // the flight cut to SHARE_PATH points and stored as steps from the previous point, deflated, base64url.
 const CODE_PREFIX = 'DLU1-';
@@ -136,8 +137,8 @@ const TYPE_LIST = ['smoke', 'flash', 'molotov', 'he'];
 const SIDE_LIST = ['both', 'T', 'CT'];
 const zlib = require('zlib');
 
-function shareCode(items) {
-  const packed = items.map(x => {
+function pack(items) {
+  return items.map(x => {
     let flat = null;
     if (x.path?.length > 1) {
       const step = Math.max(1, Math.ceil((x.path.length - 1) / (SHARE_PATH - 1)));
@@ -149,20 +150,60 @@ function shareCode(items) {
     return [x.map, TYPE_LIST.indexOf(x.type), SIDE_LIST.indexOf(x.side), x.name, x.from?.map(r1) || null, x.angle?.map(v => Math.round(v * 100) / 100) || null,
       x.to?.map(v => (v == null ? null : Math.round(v))) || null, x.lower ? 1 : 0, x.move || '', x.click || '', x.aim || '', x.notes || '', flat];
   });
-  return CODE_PREFIX + zlib.deflateRawSync(Buffer.from(JSON.stringify(packed)), { level: 9 }).toString('base64url');
+}
+
+function shareCode(items) {
+  return CODE_PREFIX + zlib.deflateRawSync(Buffer.from(JSON.stringify(pack(items))), { level: 9 }).toString('base64url');
+}
+
+// Short codes ("DLU2-a1b2c3", whatever the number of lineups): the same packed lineups as a small JSON file
+// on catbox.moe (upload: lib/gallery.js), the code being its name. Codes already made are kept in cacheFile
+// so sharing the same lineups again gives the same code. shareCode is the fallback when catbox can't be reached.
+const SHORT_PREFIX = 'DLU2-';
+async function shortCode(items, { upload, cacheFile }) {
+  const json = JSON.stringify(pack(items));
+  const hash = crypto.createHash('sha1').update(json).digest('hex');
+  let cache = {};
+  try { cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8')); } catch {}
+  if (/^[a-z0-9]{6}$/.test(cache[hash] || '')) return SHORT_PREFIX + cache[hash];
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'demolab-lineups-'));
+  try {
+    const file = path.join(tmp, 'lineups.json');
+    fs.writeFileSync(file, json);
+    const name = await upload(file);
+    const id = /^([a-z0-9]{6})\.json$/.exec(name)?.[1];
+    if (!id) throw new Error(`catbox.moe gave an unexpected file name (${name}).`);
+    delete cache[hash];
+    cache[hash] = id;
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    fs.writeFileSync(cacheFile, JSON.stringify(Object.fromEntries(Object.entries(cache).slice(-300))));
+    return SHORT_PREFIX + id;
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 // Text that contains one or more codes (spaces and line breaks inside a code are fine) → lineups, not saved.
-function readCodes(text) {
-  // Split on the prefix: "-" and the prefix's letters are base64url characters too, so codes pasted one
+// fetchShort(id) gets the packed lineups of a short code (the JSON file on catbox).
+async function readCodes(text, { fetchShort } = {}) {
+  // Split on the prefixes: "-" and the prefixes' letters are base64url characters too, so codes pasted one
   // after the other (line breaks are dropped first) would otherwise run together.
-  const codes = String(text || '').replace(/\s+/g, '').split(CODE_PREFIX).slice(1).map(s => /^[A-Za-z0-9_-]+/.exec(s)?.[0]).filter(Boolean);
-  if (!codes.length) throw new Error('No DemoLab lineup code found. Codes start with DLU1-.');
+  const parts = String(text || '').replace(/\s+/g, '').split(/(DLU[12]-)/);
+  const codes = [];
+  for (let i = 1; i < parts.length; i += 2) {
+    const short = parts[i] === SHORT_PREFIX;
+    const body = (short ? /^[a-z0-9]{6}/ : /^[A-Za-z0-9_-]+/).exec(parts[i + 1])?.[0];
+    if (body) codes.push({ short, body });
+  }
+  if (!codes.length) throw new Error('No DemoLab lineup code found. Codes start with DLU2- (or DLU1- for long ones).');
   const out = [];
   for (const code of codes) {
     let packed;
-    try { packed = JSON.parse(zlib.inflateRawSync(Buffer.from(code, 'base64url'), { maxOutputLength: 4 * 1048576 }).toString('utf8')); }
-    catch { throw new Error('This code is incomplete or damaged. Copy it again, all of it.'); }
+    if (code.short) packed = await fetchShort(code.body);
+    else {
+      try { packed = JSON.parse(zlib.inflateRawSync(Buffer.from(code.body, 'base64url'), { maxOutputLength: 4 * 1048576 }).toString('utf8')); }
+      catch { throw new Error('This code is incomplete or damaged. Copy it again, all of it.'); }
+    }
     if (!Array.isArray(packed)) throw new Error('This is not a lineup code.');
     for (const p of packed.slice(0, 500)) {
       if (!Array.isArray(p)) continue;
@@ -207,4 +248,4 @@ function steamScreenshots(steamPath, steamid64, limit = 24) {
   }).sort((a, b) => b.time - a.time).slice(0, limit);
 }
 
-module.exports = { UtilityStore, steamScreenshots, shareCode, readCodes, sameLineup };
+module.exports = { UtilityStore, steamScreenshots, shareCode, shortCode, readCodes, sameLineup };

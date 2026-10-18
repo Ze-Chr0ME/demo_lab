@@ -2785,7 +2785,7 @@ function renderUtility() {
     h('button', { class: 'btn', title: `Copy commands for a private practice server (sv_cheats, infinite ammo and grenades, grenade preview, no bots). Paste them in the CS2 console after "map ${u.map === 'all' ? 'de_mirage' : u.map}".`,
       onclick: async () => { await copyText(PRACTICE_CMDS); toast('Practice commands copied. In CS2 start a private map (e.g. "map de_mirage" in the console), then paste them.', 'ok'); } }, 'Copy practice commands'),
     u.items.length ? h('button', { class: 'btn', title: 'Test yourself: where does it land, where is it thrown from, which lineup is this picture', onclick: () => quizSetup() }, 'Practice quiz') : null,
-    h('button', { class: 'btn', title: 'Add lineups from a code a friend shared (DLU1-…)', onclick: () => importDialog() }, 'Import code'),
+    h('button', { class: 'btn', title: 'Add lineups from a code a friend shared (DLU2-…)', onclick: () => importDialog() }, 'Import code'),
     u.items.length ? h('button', { class: 'btn', title: 'Copy the lineups shown below as one code to paste in Discord or a chat', onclick: () => shareLineups(utFiltered()) }, 'Share these') : null,
     h('button', { class: 'btn primary', onclick: () => editLineup({ map: u.map !== 'all' ? u.map : undefined }) }, icon(PLUS), 'New lineup'));
 

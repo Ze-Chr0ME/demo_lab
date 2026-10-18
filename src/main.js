@@ -27,11 +27,11 @@ const { MatchDownloader, fetchGcMatches } = require('./lib/matches');
 const { decode } = require('./lib/proto');
 const { Community, signIn, signOut, watchCookies, loginCookieSummary, PARTITION } = require('./lib/community');
 const hlae = require('./lib/hlae');
-const { UtilityStore, steamScreenshots, shareCode, readCodes, sameLineup } = require('./lib/utility');
+const { UtilityStore, steamScreenshots, shareCode, shortCode, readCodes, sameLineup } = require('./lib/utility');
 const { AvatarStore } = require('./lib/avatars');
 const { ThemeArt } = require('./lib/themeArt');
 const { Updater } = require('./lib/updater');
-const { Gallery, SHORT_URL: GALLERY_SHORT } = require('./lib/gallery');
+const { Gallery, SHORT_URL: GALLERY_SHORT, isPageLink } = require('./lib/gallery');
 const { InventoryStore, localCurrency } = require('./lib/inventory');
 
 let win;
@@ -1122,15 +1122,26 @@ function registerIpc() {
   handle('utility:screenshots', () => steamScreenshots(env.steamPath, mySteamId()));
   // Share codes (lib/utility.js): the code of some lineups, and the lineups in a pasted code (not saved yet;
   // dupe = already in the library).
-  handle('utility:code', ids => {
+  handle('utility:code', async ids => {
     const items = utility.list();
     const list = ids.map(id => items.find(x => x.id === id)).filter(Boolean);
     if (!list.length) throw new Error('No lineup to share.');
-    return shareCode(list);
+    try { return await shortCode(list, { upload: file => gallery.upload(file, {}), cacheFile: path.join(utility.dir, 'codes.json') }); }
+    catch (e) { log('utility: short code failed', e.message); return shareCode(list); }
   });
-  handle('utility:readCode', text => {
+  const fetchLineupFile = async id => {
+    let res;
+    try { res = await net.fetch(`https://files.catbox.moe/${id}.json`, { cache: 'no-store' }); }
+    catch (e) { throw new Error(`Could not reach catbox.moe, where DLU2- codes keep their lineups (${e.message}). Some internet providers block it: changing your DNS to 1.1.1.1 usually fixes that.`); }
+    if (res.status === 404) throw new Error(`The lineups of DLU2-${id} are no longer on catbox.moe. Ask for the code again.`);
+    if (!res.ok) throw new Error(`catbox.moe did not send the lineups of DLU2-${id} (HTTP ${res.status}). Try again later.`);
+    const text = await res.text();
+    try { if (text.length <= 4 * 1048576) return JSON.parse(text); } catch {}
+    throw new Error(`DLU2-${id} is not a lineup code.`);
+  };
+  handle('utility:readCode', async text => {
     const items = utility.list();
-    return readCodes(text).map(x => ({ ...x, dupe: items.some(y => sameLineup(x, y)) }));
+    return (await readCodes(text, { fetchShort: fetchLineupFile })).map(x => ({ ...x, dupe: items.some(y => sameLineup(x, y)) }));
   });
   handle('utility:import', list => {
     let n = 0;
@@ -1193,8 +1204,8 @@ function registerIpc() {
     return {
       name: g.name, showSteam: g.showSteam !== false, hasUserhash: !!g.userhash, items: g.items, busy: gallery.busy, featured: g.featured || null,
       // not ready yet (new clip, theme, Steam picture or stats): gallery:sync uploads what's missing and the
-      // page's data, which gives the short link
-      missing: (!!opts.files.avatarFile && !ids.avatar) || (!!opts.files.artFile && !ids.art) || g.items.some(x => !x.ctx) || !gallery.isShort(opts),
+      // page's data and the shortener's link, which give the short link
+      missing: (!!opts.files.avatarFile && !ids.avatar) || (!!opts.files.artFile && !ids.art) || g.items.some(x => !x.ctx) || !gallery.isTiny(opts) || !gallery.fullLink(opts)?.startsWith(GALLERY_SHORT),
       short: gallery.isShort(opts),
       link: gallery.link(opts),
     };
@@ -1265,7 +1276,7 @@ function registerIpc() {
   handle('gallery:move', (id, delta, look) => { gallery.move(id, delta); return galleryState(look); });
   handle('gallery:feature', (id, look) => { gallery.feature(id); return galleryState(look); });
   handle('gallery:set', (patch, look) => { gallery.set(patch); return galleryState(look); });
-  handle('gallery:open', url => { if (typeof url === 'string' && url.startsWith(GALLERY_SHORT)) shell.openExternal(url); return true; });
+  handle('gallery:open', url => { if (isPageLink(url)) shell.openExternal(url); return true; });
 
   // Kill times of a clip for "Export for sharing". Clips recorded before kill times were saved get them
   // from their highlight, as long as it still has the clip's length (the timing settings may have changed).
@@ -1465,7 +1476,7 @@ app.whenReady().then(() => {
   // Dev aid: DEMOLAB_FAKE_UPLOAD=<folder> "uploads" the highlights page's files into that folder, not to catbox.
   const fakeDir = process.env.DEMOLAB_FAKE_UPLOAD;
   const fakeUpload = async file => { const name = require('crypto').randomBytes(3).toString('hex') + path.extname(file); fs.copyFileSync(file, path.join(fakeDir, name)); return name; };
-  gallery = new Gallery(app.getPath('userData'), { log, ...(fakeDir ? { upload: fakeUpload, remove: async () => {} } : {}) });
+  gallery = new Gallery(app.getPath('userData'), { log, ...(fakeDir ? { upload: fakeUpload, remove: async () => {}, shorten: async u => u } : {}) });
   updater = new Updater({ dir: path.join(app.getPath('userData'), 'updates'), version: app.getVersion(), fetch: net.fetch, installed: app.isPackaged, log, onChange: v => send('update:state', v) });
   refreshEnv();
   ffmpegFound = ffmpeg.resolve(settings.get().ffmpegPath);
