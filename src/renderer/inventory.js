@@ -12,6 +12,9 @@ api.onInventorySales(v => {
   const st = state.inv;
   st.salesJob = v.running ? v : null;
   const mine = st.data && st.data.steamid === v.steamid;
+  // Keep the loaded copy's progress current too, or coming back to the page shows the progress it was loaded with.
+  if (mine && st.data.sales) st.data.sales.job = st.salesJob;
+  if (mine && !v.running && state.view !== 'inventory') st.stale = true; // new prices: read them when the page is shown again
   if (!mine || state.view !== 'inventory') return;
   if (!v.running || v.done % 5 === 0) loadInventory();
   else { const el = $('#invSales'); if (el) el.textContent = ` checking Steam sales ${v.done}/${v.total}`; }
@@ -78,7 +81,7 @@ function renderInventory() {
   const back = st.who ? h('button', { class: 'btn', onclick: () => openInventory(null) }, '← My inventory') : null;
   if (!st.who && !me) return page(h('div', { class: 'empty' }, h('h2', {}, 'Which player are you?'), h('div', {}, 'No Steam account was found on this PC. Enter your SteamID64 in Settings → Counter-Strike 2.')));
   const d = st.data && (st.data.steamid === (st.who || me)) ? st.data : null;
-  if (!d && !st.loading && !st.error) loadInventory();
+  if ((!d || st.stale) && !st.loading && !st.error) { st.stale = false; loadInventory(); }
   if (!d) {
     return page(st.error
       ? h('div', { class: 'empty' }, icon(ICONS.demo, 'class="big"'), h('h2', {}, 'Could not read the inventory'), h('div', { class: 'err-box' }, st.error),
