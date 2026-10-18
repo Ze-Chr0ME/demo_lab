@@ -412,7 +412,8 @@ class InventoryStore {
     if (disk && Date.now() - disk.t < (force ? 60e3 : MARKET_TTL)) return disk;
     try {
       return await this.once(`market|${name}`, async () => {
-        const res = await this.fetch(`https://steamcommunity.com/market/listings/730/${encodeURIComponent(name)}`);
+        // The page is 2-4 MB and can take 10 s; a request that hangs must not stall the whole sales check.
+        const res = await this.fetch(`https://steamcommunity.com/market/listings/730/${encodeURIComponent(name)}`, { signal: AbortSignal.timeout(45e3) });
         if (res.status === 429) throw Object.assign(new Error('Steam is limiting market requests right now. Try again in a minute.'), { status: 429 });
         if (!res.ok) throw httpError('Steam Market', res);
         const h = marketHistory(await res.text(), name);
