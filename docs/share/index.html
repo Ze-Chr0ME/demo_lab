@@ -18,9 +18,9 @@
 <!--
   The page of a "My highlights" link made by CS2 DemoLab (src/lib/gallery.js). Everything it shows comes
   from the link: after the # is the gallery, deflate-raw + base64url JSON: clips, the app theme and a
-  snapshot of the Overview. Videos and thumbnails are on qu.ax (older ones on catbox), pictures on
-  files.catbox.moe. qu.ax only plays its files on pages that send a Referer, hence the strict-origin referrer
-  (just https://ze-chr0me.github.io/, never the # part). Only qu.ax/catbox file names, a Steam
+  snapshot of the Overview. Videos and pictures are on qu.ax (older ones on files.catbox.moe), big videos
+  with a smaller copy for Discord. qu.ax only shows its files on pages that send a Referer, hence the
+  strict-origin referrer (just https://ze-chr0me.github.io/, never the # part). Only qu.ax/catbox file names, a Steam
   ID, a Steam avatar hash, colours and numbers are taken from the link, never whole URLs, so a link can't
   make this page show or point to anything else.
   Looks like the app: the backdrop is a trimmed port of src/renderer/scene.js, the cards use the
@@ -393,6 +393,8 @@
   })();
   // A clip's video or thumbnail: "q/<id>.<ext>" is on qu.ax, anything else a catbox file name.
   const fileUrl = f => (f.startsWith('q/') ? `https://qu.ax/x/${f.slice(2)}` : FILES + f);
+  // The same file for Discord, which sends no Referer: qu.ax serves it to anyone from /dc/.
+  const discordUrl = f => (f.startsWith('q/') ? `https://qu.ax/dc/${f.slice(2)}` : FILES + f);
   const MEDIA = ext => new RegExp(`^(?:[a-z0-9]{6}|q/[A-Za-z0-9]{3,16})\\.${ext}$`);
   const GITHUB = 'https://github.com/Ze-Chr0ME/demo_lab';
   // The app's radar pictures, for the map thumbnails (src/renderer/radar in the repository).
@@ -472,7 +474,7 @@
   const num = (v, lo, hi) => (typeof v === 'number' && isFinite(v) ? clamp(v, lo, hi) : 0);
   const numOr = (v, lo, hi) => (typeof v === 'number' && isFinite(v) ? clamp(v, lo, hi) : null);
   const HEX = /^#[0-9a-f]{6}$/i;
-  const FILE = /^[a-z0-9]{6}\.(jpg|png|gif|webp|svg)$/;
+  const FILE = /^(?:[a-z0-9]{6}|q\/[A-Za-z0-9]{3,16})\.(jpg|png|gif|webp|svg)$/;
   const MAPNAME = /^[a-z0-9_]{2,32}$/;
   const RES = s => str(s, 40).replace(/[^WLD]/g, '');
   function cleanTheme(t) {
@@ -513,6 +515,7 @@
       tags: Array.isArray(x.g) ? x.g.slice(0, 4).map(t => str(t, 24)).filter(Boolean) : [],
       ace: Array.isArray(x.g) && x.g.includes('ACE'),
       round: Math.round(num(x.r, 0, 99)), day: Math.round(num(x.at, 0, 1e6)), vertical: x.o === 1, score: num(x.s, 0, 1e5), montage: x.x === 1,
+      discord: MEDIA('mp4').test(x.dc || '') ? x.dc : null,
       kl: Array.isArray(x.kl) ? x.kl.slice(0, 12).filter(k => k && typeof k.t === 'number').map(k => ({
         t: num(k.t, 0, 36000), w: str(k.w, 24), v: str(k.v, 32), p: k.p === 'Unknown' ? '' : str(k.p, 32),
         f: Array.isArray(k.f) ? k.f.slice(0, 4).map(v => str(v, 16)).filter(Boolean) : [],
@@ -527,7 +530,7 @@
     return {
       name: str(raw.n, 32),
       steamid: /^7656\d{13}$/.test(raw.s || '') ? raw.s : null,
-      avatar: FILE.test(raw.A || '') ? FILES + raw.A : /^[0-9a-f]{40}$/.test(raw.a || '') ? `https://avatars.fastly.steamstatic.com/${raw.a}_full.jpg` : null,
+      avatar: FILE.test(raw.A || '') ? fileUrl(raw.A) : /^[0-9a-f]{40}$/.test(raw.a || '') ? `https://avatars.fastly.steamstatic.com/${raw.a}_full.jpg` : null,
       theme: theme || (HEX.test(raw.c || '') ? { base: '#0b0f13', accent: raw.c, pattern: 'dots', scene: 'pattern' } : null),
       stats: cleanStats(raw.st),
       featured: Number.isInteger(raw.f) ? items.find(x => x.n === raw.f) || null : null,
@@ -602,7 +605,7 @@
       if (tile) { pattern.style.backgroundImage = tile.url; pattern.style.backgroundSize = `${tile.w}px ${tile.h}px`; tileH = tile.h; pattern.style.setProperty('--tile-h', `${tile.h}px`); }
       photo.hidden = kind !== 'map';
       if (kind === 'map') {
-        const url = FILES + theme.art;
+        const url = fileUrl(theme.art);
         const img = new Image();
         img.onload = () => { for (const l of [sharp, soft]) l.style.backgroundImage = `url("${url}")`; photo.classList.add('ready'); };
         img.src = url;
@@ -612,7 +615,7 @@
         logoWrap.dataset.look = theme.look;
         logo.style.filter = neonFilter('sc-neon', theme.accent, logoSize() / 300, theme.look);
         logo.onload = () => logo.classList.add('ready');
-        logo.src = FILES + theme.art;
+        logo.src = fileUrl(theme.art);
       }
       logoWrap.style.setProperty('--size', `${logoSize()}px`);
       paint(scrollY);
@@ -947,7 +950,7 @@
       h('div', { class: 'lb-head' },
         h('div', { class: 'lb-title' }, h('h2', {}, x.title), metaEl(x)),
         h('button', { class: 'btn', title: 'A link to this page that opens this clip', onclick: () => copy(pageLink(x.n)) }, svg(ICON.link), h('span', {}, 'Copy clip link')),
-        h('button', { class: 'btn', title: 'The video file itself: Discord and most chats play it right in the conversation', onclick: () => copy(x.video.startsWith('q/') ? `https://qu.ax/${x.video.slice(2, -4)}` : fileUrl(x.video), 'Video link copied: Discord plays it right in the chat') }, svg(ICON.video), h('span', {}, 'Copy video link')),
+        h('button', { class: 'btn', title: 'The video file itself: Discord and most chats play it right in the conversation', onclick: () => copy(discordUrl(x.discord || x.video),'Video link copied: Discord plays it right in the chat') }, svg(ICON.video), h('span', {}, 'Copy video link')),
         h('a', { class: 'icon-btn', href: fileUrl(x.video), target: '_blank', rel: 'noopener', title: 'Open the video file' }, svg(ICON.download)),
         h('button', { class: 'icon-btn', title: 'Close (Esc)', onclick: close }, svg(ICON.close))),
       h('div', { class: 'stage' }, video, killbar,
