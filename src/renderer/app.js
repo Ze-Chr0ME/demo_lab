@@ -1385,7 +1385,9 @@ function radarView() {
   if (R.frameSrc !== frame.src) { R.frameSrc = frame.src; resetZoom(R.view); }
   const stop = roundStop(data, rd);
   const slider = h('input', { type: 'range', class: 'radar-slider', min: rd.startTick, max: stop, step: 1, value: R.tick,
-    oninput: e => { R.tick = +e.target.value; } });
+    oninput: e => { R.tick = +e.target.value; },
+    // Only hold the knob still while it is being dragged: the slider keeps focus after release, so focus is no test.
+    onpointerdown: () => { R.els.dragging = true; addEventListener('pointerup', () => { R.els.dragging = false; }, { once: true }); } });
   const playBtn = h('button', { class: 'icon-btn', title: 'Play / pause (Space)', onclick: () => { R.playing = !R.playing; if (R.tick >= stop) setRadarRound(R.round, true); } });
   const hud = h('div', { class: 'radar-hud' });
   const card = h('div', { class: 'nade-card-slot' });
@@ -1985,7 +1987,7 @@ function drawRadar() {
   }
 
   // Controls, HUD, team lists and side lists (DOM; only touched when something visible changed)
-  if (document.activeElement !== els.slider) els.slider.value = t;
+  if (!els.dragging) els.slider.value = t;
   if (els.playing !== R.playing) {
     els.playing = R.playing;
     els.playBtn.replaceChildren(icon(R.playing ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/>' : ICONS.play));
