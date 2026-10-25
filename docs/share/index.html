@@ -13,12 +13,14 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#0b0f13">
-<meta name="referrer" content="no-referrer">
+<meta name="referrer" content="strict-origin">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0f13'/%3E%3Cpath d='M12 9.5v13l10.5-6.5z' fill='%232fd8a4'/%3E%3C/svg%3E">
 <!--
   The page of a "My highlights" link made by CS2 DemoLab (src/lib/gallery.js). Everything it shows comes
   from the link: after the # is the gallery, deflate-raw + base64url JSON: clips, the app theme and a
-  snapshot of the Overview. Videos and pictures are on files.catbox.moe. Only catbox file names, a Steam
+  snapshot of the Overview. Videos and pictures are on qu.ax (older ones on files.catbox.moe), big videos
+  with a smaller copy for Discord. qu.ax only shows its files on pages that send a Referer, hence the
+  strict-origin referrer (just https://ze-chr0me.github.io/, never the # part). Only qu.ax/catbox file names, a Steam
   ID, a Steam avatar hash, colours and numbers are taken from the link, never whole URLs, so a link can't
   make this page show or point to anything else.
   Looks like the app: the backdrop is a trimmed port of src/renderer/scene.js, the cards use the
@@ -389,6 +391,11 @@
     const local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).get('files');
     return local || 'https://files.catbox.moe/';
   })();
+  // A clip's video or thumbnail: "q/<id>.<ext>" is on qu.ax, anything else a catbox file name.
+  const fileUrl = f => (f.startsWith('q/') ? `https://qu.ax/x/${f.slice(2)}` : FILES + f);
+  // The same file for Discord, which sends no Referer: qu.ax serves it to anyone from /dc/.
+  const discordUrl = f => (f.startsWith('q/') ? `https://qu.ax/dc/${f.slice(2)}` : FILES + f);
+  const MEDIA = ext => new RegExp(`^(?:[a-z0-9]{6}|q/[A-Za-z0-9]{3,16})\\.${ext}$`);
   const GITHUB = 'https://github.com/Ze-Chr0ME/demo_lab';
   // The app's radar pictures, for the map thumbnails (src/renderer/radar in the repository).
   const RADAR = 'https://raw.githubusercontent.com/Ze-Chr0ME/demo_lab/main/src/renderer/radar/';
@@ -467,7 +474,7 @@
   const num = (v, lo, hi) => (typeof v === 'number' && isFinite(v) ? clamp(v, lo, hi) : 0);
   const numOr = (v, lo, hi) => (typeof v === 'number' && isFinite(v) ? clamp(v, lo, hi) : null);
   const HEX = /^#[0-9a-f]{6}$/i;
-  const FILE = /^[a-z0-9]{6}\.(jpg|png|gif|webp|svg)$/;
+  const FILE = /^(?:[a-z0-9]{6}|q\/[A-Za-z0-9]{3,16})\.(jpg|png|gif|webp|svg)$/;
   const MAPNAME = /^[a-z0-9_]{2,32}$/;
   const RES = s => str(s, 40).replace(/[^WLD]/g, '');
   function cleanTheme(t) {
@@ -500,14 +507,15 @@
     if (!raw || raw.v !== 1 || !Array.isArray(raw.i)) throw new Error('unknown format');
     const items = raw.i.slice(0, 50).map((x, n) => ({
       n,
-      video: /^[a-z0-9]{6}\.mp4$/.test(x.v) ? x.v : null,
-      thumb: /^[a-z0-9]{6}\.jpg$/.test(x.p) ? x.p : null,
+      video: MEDIA('mp4').test(x.v || '') ? x.v : null,
+      thumb: MEDIA('jpg').test(x.p || '') ? x.p : null,
       title: str(x.t, 80) || 'Highlight',
       map: MAPNAME.test(x.m || '') ? x.m : '',
       dur: num(x.d, 0, 36000), kills: Math.round(num(x.k, 0, 99)), weapon: str(x.w, 24),
       tags: Array.isArray(x.g) ? x.g.slice(0, 4).map(t => str(t, 24)).filter(Boolean) : [],
       ace: Array.isArray(x.g) && x.g.includes('ACE'),
       round: Math.round(num(x.r, 0, 99)), day: Math.round(num(x.at, 0, 1e6)), vertical: x.o === 1, score: num(x.s, 0, 1e5), montage: x.x === 1,
+      discord: MEDIA('mp4').test(x.dc || '') ? x.dc : null,
       kl: Array.isArray(x.kl) ? x.kl.slice(0, 12).filter(k => k && typeof k.t === 'number').map(k => ({
         t: num(k.t, 0, 36000), w: str(k.w, 24), v: str(k.v, 32), p: k.p === 'Unknown' ? '' : str(k.p, 32),
         f: Array.isArray(k.f) ? k.f.slice(0, 4).map(v => str(v, 16)).filter(Boolean) : [],
@@ -522,7 +530,7 @@
     return {
       name: str(raw.n, 32),
       steamid: /^7656\d{13}$/.test(raw.s || '') ? raw.s : null,
-      avatar: FILE.test(raw.A || '') ? FILES + raw.A : /^[0-9a-f]{40}$/.test(raw.a || '') ? `https://avatars.fastly.steamstatic.com/${raw.a}_full.jpg` : null,
+      avatar: FILE.test(raw.A || '') ? fileUrl(raw.A) : /^[0-9a-f]{40}$/.test(raw.a || '') ? `https://avatars.fastly.steamstatic.com/${raw.a}_full.jpg` : null,
       theme: theme || (HEX.test(raw.c || '') ? { base: '#0b0f13', accent: raw.c, pattern: 'dots', scene: 'pattern' } : null),
       stats: cleanStats(raw.st),
       featured: Number.isInteger(raw.f) ? items.find(x => x.n === raw.f) || null : null,
@@ -597,7 +605,7 @@
       if (tile) { pattern.style.backgroundImage = tile.url; pattern.style.backgroundSize = `${tile.w}px ${tile.h}px`; tileH = tile.h; pattern.style.setProperty('--tile-h', `${tile.h}px`); }
       photo.hidden = kind !== 'map';
       if (kind === 'map') {
-        const url = FILES + theme.art;
+        const url = fileUrl(theme.art);
         const img = new Image();
         img.onload = () => { for (const l of [sharp, soft]) l.style.backgroundImage = `url("${url}")`; photo.classList.add('ready'); };
         img.src = url;
@@ -607,7 +615,7 @@
         logoWrap.dataset.look = theme.look;
         logo.style.filter = neonFilter('sc-neon', theme.accent, logoSize() / 300, theme.look);
         logo.onload = () => logo.classList.add('ready');
-        logo.src = FILES + theme.art;
+        logo.src = fileUrl(theme.art);
       }
       logoWrap.style.setProperty('--size', `${logoSize()}px`);
       paint(scrollY);
@@ -838,7 +846,7 @@
     const form = s ? section('Recent form', null, h('div', { class: 'dash' }, trendCard(s), multiCard(s))) : null;
     const duels = s ? section('Rounds & maps', null, h('div', { class: 'dash' }, clutchCard(s), entryCard(s), mapsCard(s))) : null;
     const footer = h('footer', {},
-      h('span', {}, s ? 'Stats from this player’s own demos. ' : null, 'Videos are hosted on ', h('a', { href: 'https://catbox.moe', target: '_blank', rel: 'noopener' }, 'catbox.moe'), ': if they don’t load, your internet provider may block it (switching your DNS to 1.1.1.1 fixes that).'),
+      h('span', {}, s ? 'Stats from this player’s own demos. ' : null, 'Videos are hosted on ', h('a', { href: 'https://qu.ax', target: '_blank', rel: 'noopener' }, 'qu.ax'), ' and ', h('a', { href: 'https://catbox.moe', target: '_blank', rel: 'noopener' }, 'catbox.moe'), ': if they don’t load, your internet provider may block them (switching your DNS to 1.1.1.1 usually fixes that).'),
       h('a', { href: GITHUB, target: '_blank', rel: 'noopener' }, 'Made with CS2 DemoLab, free'));
     app.replaceChildren(...[hero(head), top, highlights, form, duels, footer].filter(Boolean)); // (null would show as text)
   }
@@ -851,11 +859,11 @@
     const x = G.featured || [...items].sort((a, b) => a.montage - b.montage || b.score - a.score || b.kills - a.kills)[0];
     if (!x) return head;
     const light = matchMedia('(max-width: 720px), (prefers-reduced-motion: reduce)').matches || navigator.connection?.saveData;
-    const pic = x.thumb ? FILES + x.thumb : null;
+    const pic = x.thumb ? fileUrl(x.thumb) : null;
     let media;
     if (light || !pic) media = pic ? h('img', { class: `hero-media ${x.vertical ? 'vertical' : ''}`, src: pic, alt: '' }) : null;
     else {
-      media = h('video', { class: `hero-media ${x.vertical ? 'vertical' : ''}`, src: FILES + x.video, poster: pic, muted: true, autoplay: true, loop: true, playsinline: true, preload: 'auto' });
+      media = h('video', { class: `hero-media ${x.vertical ? 'vertical' : ''}`, src: fileUrl(x.video), poster: pic, muted: true, autoplay: true, loop: true, playsinline: true, preload: 'auto' });
       media.muted = true;
       media.addEventListener('playing', () => media.classList.add('ready'), { once: true });
     }
@@ -869,7 +877,7 @@
   }
 
   function clipCard(x, i, list) {
-    const pic = x.thumb ? FILES + x.thumb : '';
+    const pic = x.thumb ? fileUrl(x.thumb) : '';
     const thumb = h('div', { class: `thumb ${x.vertical ? 'vertical' : ''}` },
       x.vertical && pic ? h('div', { class: 'blur', style: { backgroundImage: `url("${pic}")` } }) : null,
       pic ? h('img', { src: pic, alt: '', loading: 'lazy', decoding: 'async' }) : null,
@@ -885,7 +893,7 @@
       onmouseenter: () => {
         if (!matchMedia('(hover: hover)').matches) return;
         timer = setTimeout(() => {
-          video = h('video', { src: FILES + x.video, muted: true, autoplay: true, loop: true, playsinline: true, preload: 'auto' });
+          video = h('video', { src: fileUrl(x.video), muted: true, autoplay: true, loop: true, playsinline: true, preload: 'auto' });
           video.muted = true;
           video.addEventListener('playing', () => { video?.classList.add('ready'); el.classList.add('previewing'); }, { once: true });
           thumb.insertBefore(video, thumb.querySelector('.badge'));
@@ -916,13 +924,13 @@
     lb?.remove();
     cur = { list, i };
     history.replaceState(null, '', `#${code}!${x.n}`);
-    const video = h('video', { src: FILES + x.video, controls: true, autoplay: true, playsinline: true, poster: x.thumb ? FILES + x.thumb : null });
+    const video = h('video', { src: fileUrl(x.video), controls: true, autoplay: true, playsinline: true, poster: x.thumb ? fileUrl(x.thumb) : null });
     try { video.volume = clamp(Number(localStorage.getItem('vol') ?? 0.6), 0, 1); } catch {}
     video.addEventListener('volumechange', () => { try { localStorage.setItem('vol', video.volume); } catch {} });
     video.addEventListener('ended', () => { if (i + 1 < list.length) open(list, i + 1); });
     video.addEventListener('error', () => video.replaceWith(h('div', { class: 'vid-error' },
       h('b', {}, 'This video won’t load'),
-      'It is on files.catbox.moe, which some internet providers block. Switching your DNS to 1.1.1.1 (or a VPN) usually fixes it. Catbox also removes clips nobody watched for 2 years.')));
+      x.video.startsWith('q/') ? 'It is on qu.ax, which did not send it. Try again later; if it keeps failing, switching your DNS to 1.1.1.1 (or a VPN) may help.' : 'It is on files.catbox.moe, which some internet providers block. Switching your DNS to 1.1.1.1 (or a VPN) usually fixes it. Catbox also removes clips nobody watched for 2 years.')));
     // The kills: markers on a line as wide as the video, and one chip each; both jump just before the kill.
     const seek = t => { video.currentTime = Math.max(0, t - 1.5); video.play().catch(() => {}); };
     const fmtT = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -942,8 +950,8 @@
       h('div', { class: 'lb-head' },
         h('div', { class: 'lb-title' }, h('h2', {}, x.title), metaEl(x)),
         h('button', { class: 'btn', title: 'A link to this page that opens this clip', onclick: () => copy(pageLink(x.n)) }, svg(ICON.link), h('span', {}, 'Copy clip link')),
-        h('button', { class: 'btn', title: 'The video file itself: Discord and most chats play it right in the conversation', onclick: () => copy(FILES + x.video, 'Video link copied: Discord plays it right in the chat') }, svg(ICON.video), h('span', {}, 'Copy video link')),
-        h('a', { class: 'icon-btn', href: FILES + x.video, target: '_blank', rel: 'noopener', title: 'Open the video file' }, svg(ICON.download)),
+        h('button', { class: 'btn', title: 'The video file itself: Discord and most chats play it right in the conversation', onclick: () => copy(discordUrl(x.discord || x.video),'Video link copied: Discord plays it right in the chat') }, svg(ICON.video), h('span', {}, 'Copy video link')),
+        h('a', { class: 'icon-btn', href: fileUrl(x.video), target: '_blank', rel: 'noopener', title: 'Open the video file' }, svg(ICON.download)),
         h('button', { class: 'icon-btn', title: 'Close (Esc)', onclick: close }, svg(ICON.close))),
       h('div', { class: 'stage' }, video, killbar,
         h('button', { class: 'nav prev', title: 'Previous (←)', hidden: i === 0, onclick: () => open(list, i - 1) }, svg(ICON.left)),

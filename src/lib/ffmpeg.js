@@ -102,10 +102,25 @@ async function concat(inputs, output) {
   } finally { fs.rmSync(list, { force: true }); }
 }
 
-// Montage with short fade between clips. Everything is normalised to the first clip's size/fps.
-async function montage(inputs, output, { fade = 0.25, onProgress } = {}) {
+// Montage with short fade between clips. Everything is normalised to the first clip's size/fps,
+// or to what fits in `mb` MB when a target size is given.
+async function montage(inputs, output, { fade = 0.25, mb = 0, onProgress } = {}) {
   const infos = await Promise.all(inputs.map(probe));
-  const W = infos[0].width || 1920, H = infos[0].height || 1080, F = Math.min(infos[0].fps || 60, 240);
+  const total = infos.reduce((s, x) => s + x.duration, 0);
+  const src = { width: infos[0].width || 1920, height: infos[0].height || 1080, fps: Math.min(infos[0].fps || 60, 240) };
+  if (!mb) {
+    await montageOnce(inputs, infos, output, src, fade, [...videoArgs(), ...audioArgs], onProgress, total);
+    return { duration: total };
+  }
+  const r = await encodeToSize(mb, sizePlan(mb, total, src), async p => {
+    await montageOnce(inputs, infos, output, p, fade,
+      [...bitrateArgs(p.videoKbps), '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', `${p.audioKbps}k`, '-ar', '48000', '-ac', '2'], onProgress, total);
+    return output;
+  });
+  return { duration: total, plan: r };
+}
+
+async function montageOnce(inputs, infos, output, { width: W, height: H, fps: F }, fade, encodeArgs, onProgress, total) {
   const parts = [];
   const labels = [];
   infos.forEach((info, i) => {
@@ -118,10 +133,67 @@ async function montage(inputs, output, { fade = 0.25, onProgress } = {}) {
     labels.push(`[v${i}][a${i}]`);
   });
   parts.push(`${labels.join('')}concat=n=${inputs.length}:v=1:a=1[v][a]`);
-  const total = infos.reduce((s, x) => s + x.duration, 0);
   await run(ffmpegPath, ['-y', '-hide_banner', ...inputs.flatMap(f => ['-i', f]), '-filter_complex', parts.join(';'),
-    '-map', '[v]', '-map', '[a]', ...videoArgs(), ...audioArgs, '-movflags', '+faststart', output], { onProgress, totalSeconds: total });
-  return { duration: total };
+    '-map', '[v]', '-map', '[a]', ...encodeArgs, '-movflags', '+faststart', output], { onProgress, totalSeconds: total });
+}
+
+// ---------- Target file size ----------
+// The user picks a rough size in MB (MiB, as Windows shows it); bitrate, resolution and fps follow from the length.
+const MB = 1024 * 1024;
+const LADDER = [[0, 0], [1080, 0], [720, 0], [720, 30], [540, 30], [480, 30], [360, 30]]; // [height, fps], 0 = source
+const MIN_BPP = 0.045;  // bits per pixel per frame below which H.264 gets visibly blocky in CS2's fast motion
+const MAX_BPP = 0.3;    // above this more bits don't show: the file just ends up smaller than the target
+
+function sizePlan(mb, seconds, src = {}) {
+  const W = src.width || 1920, H = src.height || 1080, F = src.fps || 60;
+  const totalKbps = mb * MB * 8 * 0.97 / Math.max(seconds, 0.5) / 1000; // ~3% container overhead
+  const audioKbps = totalKbps > 3000 ? 192 : totalKbps > 1000 ? 128 : 96;
+  let videoKbps = Math.max(150, Math.floor(totalKbps - audioKbps));
+  const steps = LADDER.map(([h, f]) => [Math.min(H, h || H), Math.min(F, f || F)])
+    .filter(([h, f], i, a) => a.findIndex(x => x[0] === h && x[1] === f) === i);
+  let height = H, fps = F;
+  for (const [h, f] of steps) {
+    height = h; fps = f;
+    if (videoKbps * 1000 / (Math.round(W * h / H) * h * f) >= MIN_BPP) break;
+  }
+  const width = Math.round(W * height / H / 2) * 2;
+  const bpp = videoKbps * 1000 / (width * height * fps);
+  if (bpp > MAX_BPP) videoKbps = Math.round(MAX_BPP * width * height * fps / 1000);
+  const quality = bpp >= 0.1 ? 'excellent' : bpp >= 0.06 ? 'good' : bpp >= MIN_BPP ? 'fair' : 'low';
+  return { videoKbps, audioKbps, width, height, fps, quality, scaled: height !== H || fps !== F };
+}
+
+function bitrateArgs(kbps) {
+  const k = Math.round(kbps);
+  const rate = ['-b:v', `${k}k`, '-maxrate', `${Math.round(k * 1.5)}k`, '-bufsize', `${k * 2}k`];
+  return {
+    libx264: ['-c:v', 'libx264', '-preset', 'medium', ...rate],
+    h264_nvenc: ['-c:v', 'h264_nvenc', '-preset', 'p6', '-tune', 'hq', '-rc', 'vbr', '-multipass', 'fullres', ...rate],
+    h264_amf: ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'vbr_peak', ...rate],
+    h264_qsv: ['-c:v', 'h264_qsv', ...rate],
+  }[chosenEncoder] || ['-c:v', 'libx264', '-preset', 'medium', ...rate];
+}
+
+// Runs encode(plan) and, if the file came out more than 4% over the target, once more with a lower bitrate.
+async function encodeToSize(mb, plan, encode) {
+  for (let tries = 0; ; tries++) {
+    const out = await encode(plan);
+    const size = fs.statSync(out).size;
+    if (size <= mb * MB * 1.04 || tries >= 2) return { ...plan, bytes: size };
+    plan = { ...plan, videoKbps: Math.max(100, Math.floor(plan.videoKbps * (mb * MB / size) * 0.97)) };
+  }
+}
+
+// Re-encodes a finished clip to about `mb` MB. A clip already under the target is kept as it is.
+async function fitToSize(input, output, mb, { onProgress } = {}) {
+  const info = await probe(input);
+  if (fs.statSync(input).size <= mb * MB) { fs.copyFileSync(input, output); return { kept: true }; }
+  return encodeToSize(mb, sizePlan(mb, info.duration, info), async p => {
+    const vf = p.scaled ? ['-vf', `scale=${p.width}:${p.height}:flags=lanczos,fps=${p.fps}`] : [];
+    await run(ffmpegPath, ['-y', '-hide_banner', '-i', input, '-map', '0:v', '-map', '0:a?', ...vf, ...bitrateArgs(p.videoKbps), '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-b:a', `${p.audioKbps}k`, '-ar', '48000', '-ac', '2', '-movflags', '+faststart', output], { onProgress, totalSeconds: info.duration });
+    return output;
+  });
 }
 
 // Small JPEG thumbnail for the clip library.
@@ -129,4 +201,4 @@ function thumbnail(input, output, at = 1) {
   return run(ffmpegPath, ['-y', '-hide_banner', '-ss', String(at), '-i', input, '-frames:v', '1', '-vf', 'scale=320:-2', '-q:v', '4', output]);
 }
 
-module.exports = { resolve, probe, pickEncoder, mux, concat, montage, thumbnail, run, videoArgs, audioArgs, get encoder() { return chosenEncoder; }, get path() { return ffmpegPath; } };
+module.exports = { resolve, probe, pickEncoder, mux, concat, montage, thumbnail, sizePlan, fitToSize, run, videoArgs, audioArgs, get encoder() { return chosenEncoder; }, get path() { return ffmpegPath; } };

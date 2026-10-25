@@ -1,5 +1,5 @@
 // ---------- "My highlights" page ----------
-// Clips published here get a web copy uploaded to catbox.moe and show on a page anyone can open from one
+// Clips published here get a web copy uploaded to qu.ax and show on a page anyone can open from one
 // link (docs/share on GitHub Pages; the link carries the whole gallery, see lib/gallery.js).
 // Hooks in app.js: galleryBadge / galleryAction in clipCard, galleryHeadButton in renderClips,
 // galleryPlayButton in playClip.
@@ -96,10 +96,10 @@ function publishDialog(c) {
     h('h2', {}, 'Publish to your highlights page?'),
     h('p', {}, h('b', {}, c.title), ` · ${fmtDur(c.duration || 0)}`),
     h('ul', { class: 'steps' },
-      h('li', {}, 'A web copy of the clip (1080p) is uploaded to ', h('b', {}, 'catbox.moe'), ', a free video host. No account needed.'),
+      h('li', {}, 'A web copy of the clip (1080p, at most 250 MB) is uploaded to ', h('b', {}, 'qu.ax'), ', a free video host, plus a smaller one for Discord when it is over 50 MB. No account needed.'),
       h('li', {}, h('b', {}, 'Anyone with your page link can watch it'), '. Your page link changes each time you add or remove a clip.'),
       h('li', {}, 'The page wears your DemoLab theme and shows your Overview stats. Your Steam picture and the theme’s picture (team logo or map) are uploaded too, once.'),
-      h('li', {}, 'Catbox keeps files as long as someone watches them now and then (it deletes them after 2 years without views).')),
+      h('li', {}, 'qu.ax keeps the video for good. Catbox keeps files as long as someone watches them now and then (it deletes them after 2 years without views).')),
     h('div', { class: 'actions' },
       h('button', { class: 'btn', onclick: () => closeModal() }, 'Cancel'),
       h('button', { class: 'btn primary', onclick: () => publishRun(c) }, icon(GLOBE_ICON), 'Publish')),
@@ -176,7 +176,7 @@ async function galleryDialog() {
     rows.length ? h('div', { class: 'gal-list' }, ...rows) : null,
     h('details', { class: 'gal-adv' },
       h('summary', {}, 'catbox.moe account (optional)'),
-      h('p', { class: 'hint' }, 'Clips are uploaded without an account. With a free catbox.moe account, they never expire and taking a clip off your page also deletes the video from catbox. Paste the "user hash" from catbox.moe → Manage account. It only applies to clips you publish after saving it.'),
+      h('p', { class: 'hint' }, 'Clips and pictures go to qu.ax, without an account; catbox.moe keeps the page data (and clips published before). With a free catbox.moe account, those never expire and taking a clip that went to catbox off your page also deletes it there. Paste the "user hash" from catbox.moe → Manage account. It only applies to files uploaded after saving it.'),
       h('div', { class: 'gal-link' }, hash,
         h('button', { class: 'btn', onclick: () => update(() => api.gallerySet({ userhash: hash.value }, look)) }, 'Save'),
         g.hasUserhash ? h('button', { class: 'link-btn', onclick: () => update(() => api.gallerySet({ userhash: '' }, look)) }, 'Forget') : null)),
@@ -190,7 +190,7 @@ function removeFromGallery(x) {
     h('p', {}, h('b', {}, x.title)),
     h('p', {}, x.owned && state.gallery.hasUserhash
       ? 'It is also deleted from catbox.moe. Your page gets a new link: old links still list the clip, but it won’t play any more.'
-      : 'Your page gets a new link without it. The video itself stays on catbox.moe (it was uploaded without an account), so people who have an older link can still watch it.'),
+      : `Your page gets a new link without it. The video itself stays on ${x.video?.startsWith('q/') ? 'qu.ax' : 'catbox.moe'} (it was uploaded without an account), so people who have an older link can still watch it.`),
     h('div', { class: 'actions' },
       h('button', { class: 'btn', onclick: () => galleryDialog() }, 'Cancel'),
       h('button', { class: 'btn primary', onclick: async () => {

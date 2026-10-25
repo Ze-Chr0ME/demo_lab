@@ -1,14 +1,20 @@
 // "My highlights" page: a link anyone can open to watch your best clips, without a server of ours.
-//  - Videos and thumbnails go to catbox.moe: a free file host that needs no account or API key and serves
-//    files straight to a <video> tag. Anonymous files stay up as long as someone opens them now and then
-//    (deleted after 2 years without views); with a catbox account hash they stay for good and can be deleted.
+//  - Videos, thumbnails and pictures (profile picture, theme picture) go to qu.ax: a free file host that
+//    needs no account or API key, uploads about 3x faster than catbox and keeps files for good (they can't
+//    be deleted). It serves the raw file to a <video> or <img> tag only when the request has a Referer, so
+//    the page sends its origin; https://qu.ax/dc/<id> serves it to anyone, Discord included. Clips published
+//    before went to catbox.moe and stay there.
+//  - Discord plays a video link right in the chat only when the file is small enough (a 29 MB clip played,
+//    a 164 MB montage did not): bigger web copies get a smaller Discord copy too, item.dc.
+//  - The page's data goes to catbox: qu.ax refuses .json and sends no CORS header (the page could not read
+//    it), catbox does.
 //  - The page is static (docs/share on GitHub Pages). What it shows is a small JSON file on catbox too, so
 //    the link is just that file's name (…/demo_lab/#a1b2c3); until it is uploaded, the data travels in the
 //    link itself, deflated and base64url'd after the #. Either way the link changes whenever the gallery
 //    does, and the part after the # never reaches GitHub.
-//  - That link then goes through a free link shortener that needs no account (da.gd, else TinyURL), so the
-//    one to share is like https://da.gd/AbC12. Without one, the github.io link above is shared as is.
-// Kept in <userData>/gallery.json: { name, showSteam, userhash, assets, short, tiny, items: [...] }, items newest first.
+//  - The short one is shared as is. The long one (catbox could not be reached) goes through a free link
+//    shortener that needs no account (is.gd, else TinyURL), like https://is.gd/AbC12; without one, as is.
+// Kept in <userData>/gallery.json: { name, showSteam, userhash, pictures, short, tiny, items: [...] }, items newest first.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -20,17 +26,23 @@ const ffmpeg = require('./ffmpeg');
 const CATBOX_API = 'https://catbox.moe/user/api.php';
 const CATBOX_FILE = /^https:\/\/files\.catbox\.moe\/([a-z0-9]{6}\.(?:mp4|jpg|png|gif|webp|svg|json))$/;
 const TYPES = { '.mp4': 'video/mp4', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.json': 'application/json' };
-const MAX_UPLOAD = 195e6;   // catbox takes up to 200 MB
+const QUAX_API = 'https://qu.ax/upload.php';
+const QUAX_FILE = /^[A-Za-z0-9]{3,16}$/;
+const MAX_UPLOAD = 250e6;   // qu.ax takes up to 256 MB: bigger web copies are encoded again to fit
+const DISCORD_MAX = 50e6;   // bigger web copies get a Discord copy of about 45 MB (fitToSize may land 4% over)
 const MAX_ITEMS = 20;       // keeps the link under Discord's 2000 characters, with the stats and theme
 const PAGE_URL = 'https://ze-chr0me.github.io/demo_lab/share/';
 const SHORT_URL = 'https://ze-chr0me.github.io/demo_lab/'; // docs/index.html sends #<id> on to the page
 const CODE_VERSION = 1;
 // Link shorteners without an account or key, tried in order: the page link (# part included) goes in,
-// a short link that redirects to it comes out.
+// a short link that redirects to it comes out. Only ones that send browsers straight on (da.gd shows
+// them a page with a link to click first).
 const SHORTENERS = [
-  { api: u => `https://da.gd/s?url=${encodeURIComponent(u)}`, out: /^https:\/\/da\.gd\/[A-Za-z0-9_-]{1,32}$/ },
+  { api: u => `https://is.gd/create.php?format=simple&url=${encodeURIComponent(u)}`, out: /^https:\/\/is\.gd\/[A-Za-z0-9_-]{1,32}$/ },
   { api: u => `https://tinyurl.com/api-create.php?url=${encodeURIComponent(u)}`, out: /^https:\/\/tinyurl\.com\/[A-Za-z0-9_-]{1,32}$/ },
 ];
+// The saved short link to full, unless it came from a shortener no longer used.
+const tinyFor = (g, full) => (full && g.tiny?.link === full && SHORTENERS.some(x => x.out.test(g.tiny.url)) ? g.tiny.url : null);
 const isPageLink = url => typeof url === 'string' && (url.startsWith(SHORT_URL) || url.startsWith(PAGE_URL) || SHORTENERS.some(x => x.out.test(url)));
 
 // Web copy of a clip: at most 1080p, ~6 Mbit/s (a 20 s clip is about 15 MB), starts playing before it
@@ -57,17 +69,30 @@ function poster(input, output, at) {
 }
 
 // POST one file to catbox (multipart, streamed so big videos don't sit in memory). Returns the file name
-// on files.catbox.moe, e.g. "a1b2c3.mp4".
-function catboxUpload(file, { userhash = '', onProgress } = {}) {
+// on files.catbox.moe, e.g. "a1b2c3.mp4". When busy, catbox answers HTTP 200 with an empty body (or a 5xx,
+// or stops answering): those are tried again a few times before giving up.
+async function catboxUpload(file, opts = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try { return await catboxUploadOnce(file, opts); }
+    catch (e) {
+      if (!e.retry || attempt >= 3) throw e;
+      await new Promise(r => setTimeout(r, 4000 * attempt));
+    }
+  }
+}
+
+// POST fields and one file as multipart/form-data, the file streamed. Resolves { status, body }.
+// host names the site in errors; busy(msg) makes the errors worth trying again.
+function postFile(url, fields, fileField, file, { onProgress, host, busy }) {
   return new Promise((resolve, reject) => {
     const boundary = `----DemoLab${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
     const field = (name, value) => `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
     const type = TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream';
-    const head = Buffer.from(field('reqtype', 'fileupload') + (userhash ? field('userhash', userhash) : '') +
-      `--${boundary}\r\nContent-Disposition: form-data; name="fileToUpload"; filename="${path.basename(file)}"\r\nContent-Type: ${type}\r\n\r\n`);
+    const head = Buffer.from(Object.entries(fields).map(([k, v]) => field(k, v)).join('') +
+      `--${boundary}\r\nContent-Disposition: form-data; name="${fileField}"; filename="${path.basename(file)}"\r\nContent-Type: ${type}\r\n\r\n`);
     const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
     const size = fs.statSync(file).size;
-    const req = https.request(CATBOX_API, {
+    const req = https.request(url, {
       method: 'POST',
       headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': head.length + size + tail.length, 'User-Agent': 'CS2-DemoLab' },
       timeout: 120000,
@@ -75,15 +100,11 @@ function catboxUpload(file, { userhash = '', onProgress } = {}) {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', d => { body += d; });
-      res.on('end', () => {
-        const m = CATBOX_FILE.exec(body.trim());
-        if (res.statusCode === 200 && m) resolve(m[1]);
-        else reject(new Error(`catbox.moe did not take the file (HTTP ${res.statusCode}${body ? `: ${body.trim().slice(0, 160)}` : ''}).`));
-      });
+      res.on('end', () => resolve({ status: res.statusCode, body: body.trim() }));
     });
-    req.on('timeout', () => req.destroy(new Error('catbox.moe stopped answering. Try again later.')));
+    req.on('timeout', () => req.destroy(busy(`${host} stopped answering. Try again later.`)));
     req.on('error', e => reject(/ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN/.test(e.code || '')
-      ? new Error(`Could not reach catbox.moe (${e.code}). Some internet providers block it: changing your DNS to 1.1.1.1 usually fixes that.`) : e));
+      ? new Error(`Could not reach ${host} (${e.code}). Some internet providers block it: changing your DNS to 1.1.1.1 usually fixes that.`) : e));
     req.write(head);
     let sent = 0;
     const stream = fs.createReadStream(file);
@@ -91,6 +112,49 @@ function catboxUpload(file, { userhash = '', onProgress } = {}) {
     stream.on('error', e => req.destroy(e));
     stream.on('end', () => req.end(tail));
     stream.pipe(req, { end: false });
+  });
+}
+
+const busyError = msg => Object.assign(new Error(msg), { retry: true });
+
+async function catboxUploadOnce(file, { userhash = '', onProgress } = {}) {
+  const { status, body } = await postFile(CATBOX_API, { reqtype: 'fileupload', ...(userhash ? { userhash } : {}) }, 'fileToUpload', file, { onProgress, host: 'catbox.moe', busy: busyError });
+  const m = CATBOX_FILE.exec(body);
+  if (status === 200 && m) return m[1];
+  if ((status === 200 && !body) || status >= 500) throw busyError(`catbox.moe is busy and did not take the file (HTTP ${status}). Try again in a few minutes.`);
+  throw new Error(`catbox.moe did not take the file (HTTP ${status}${body ? `: ${body.slice(0, 160)}` : ''}).`);
+}
+
+// POST one video or picture to qu.ax, kept for good (expiry -1). Returns "q/<id>.<ext>": the page plays it
+// from https://qu.ax/x/<id>.<ext>, Discord from https://qu.ax/dc/<id>.<ext>. Tried twice.
+async function quaxUpload(file, { onProgress } = {}) {
+  const ext = path.extname(file).toLowerCase();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const { status, body } = await postFile(QUAX_API, { expiry: '-1' }, 'files[]', file, { onProgress, host: 'qu.ax', busy: busyError });
+      let res = null;
+      try { res = JSON.parse(body); } catch {}
+      const id = res?.files?.[0]?.file_name;
+      if (status === 200 && res?.success && QUAX_FILE.test(id || '')) return `q/${id}${ext}`;
+      const msg = `qu.ax did not take the file (HTTP ${status}${res?.message ? `: ${String(res.message).slice(0, 160)}` : ''}).`;
+      throw status >= 500 || !body ? busyError(msg) : new Error(msg);
+    } catch (e) {
+      if (!e.retry || attempt >= 2) throw e;
+      await new Promise(r => setTimeout(r, 4000));
+    }
+  }
+}
+
+// The size of a file on the web, or null. Asks for its first byte (catbox answers HEAD with no size).
+function remoteSize(url) {
+  return new Promise(resolve => {
+    const req = https.get(url, { headers: { 'User-Agent': 'CS2-DemoLab', Range: 'bytes=0-0' }, timeout: 15000 }, res => {
+      res.destroy();
+      const n = res.statusCode === 206 ? Number(/\/(\d+)$/.exec(res.headers['content-range'] || '')?.[1]) : NaN;
+      resolve(n > 0 ? n : null);
+    });
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve(null));
   });
 }
 
@@ -150,10 +214,11 @@ function cleanLook(look) {
 
 // The gallery as the page reads it (docs/share/index.html), with short keys. It goes to catbox as a small
 // JSON file (the link is then just its name, see Gallery.syncShort), or deflated into the link itself.
-//   th: theme { b base, a accent, d data colour, p pattern, s scene, k logo look, i its picture on catbox }
-//   A: profile picture on catbox (a: Steam avatar hash), st: the Overview's numbers (renderer galleryStats)
+//   th: theme { b base, a accent, d data colour, p pattern, s scene, k logo look, i its picture file }
+//   A: profile picture file (a: Steam avatar hash), st: the Overview's numbers (renderer galleryStats)
 //   f: the featured clip (index), shown big at the top
-//   per clip: kl kills [{ t time in the clip, w weapon, v victim, f flags, p place }],
+//   per clip: dc its Discord copy (when the video is too big for Discord),
+//             kl kills [{ t time in the clip, w weapon, v victim, f flags, p place }],
 //             cx round { s side, sc score before it [us, them], b our buy, eb their buy, w won }
 function payload(g) {
   const { theme, stats } = cleanLook(g.look);
@@ -172,7 +237,7 @@ function payload(g) {
       v: x.video, p: x.thumb, t: x.title, m: x.map || undefined, d: Math.round((x.duration || 0) * 10) / 10,
       k: x.kills || undefined, w: x.weapon || undefined, g: x.tags?.length ? x.tags : undefined,
       r: x.round || undefined, at: x.date ? Math.round(x.date / 86400e3) : undefined, o: x.vertical ? 1 : undefined,
-      s: x.score || undefined, x: x.kind === 'montage' ? 1 : undefined,
+      s: x.score || undefined, x: x.kind === 'montage' ? 1 : undefined, dc: x.dc || undefined,
       kl: x.kl?.length ? x.kl : undefined, cx: x.cx || undefined,
     })),
   };
@@ -193,10 +258,12 @@ function mainWeapon(c) {
 }
 
 class Gallery {
-  // upload / remove: overridable for tests (default: catbox.moe)
-  constructor(dir, { upload = catboxUpload, remove = catboxDelete, shorten = shortenLink, log = () => {} } = {}) {
+  // upload / remove: overridable for tests (default: catbox.moe, for the page's data). uploadMedia, for
+  // videos and pictures: qu.ax (default) or, when upload is overridden, that.
+  constructor(dir, { upload = catboxUpload, uploadMedia = upload === catboxUpload ? quaxUpload : upload, remove = catboxDelete, shorten = shortenLink, log = () => {} } = {}) {
     this.file = path.join(dir, 'gallery.json');
     this.upload = upload;
+    this.uploadMedia = uploadMedia;
     this.shorten = shorten;
     this.removeFiles = remove;
     this.log = log;
@@ -240,18 +307,38 @@ class Gallery {
       onProgress({ step: 'Preparing the web version…', progress: 0 });
       const web = path.join(tmp, 'clip.mp4');
       const info = await webCopy(clip.file, web, p => onProgress({ step: 'Preparing the web version…', progress: p * 0.45 }));
-      const size = fs.statSync(web).size;
-      if (size > MAX_UPLOAD) throw new Error(`The web version is ${Math.round(size / 1e6)} MB, more than catbox.moe takes (200 MB). Shorter clips or montages only.`);
+      let size = fs.statSync(web).size;
+      // Too big to upload: encoded again to fit, a little under the limit (fitToSize may land up to 4% over).
+      if (size > MAX_UPLOAD) {
+        this.log('gallery: web copy is', Math.round(size / 1e6), 'MB, making it smaller');
+        const fit = path.join(tmp, 'fit.mp4');
+        await ffmpeg.fitToSize(web, fit, MAX_UPLOAD * 0.94 / 1048576, { onProgress: p => onProgress({ step: 'Making the web version smaller…', progress: p * 0.45 }) });
+        fs.renameSync(fit, web);
+        size = fs.statSync(web).size;
+      }
+      if (size > MAX_UPLOAD) throw new Error(`The web version is ${Math.round(size / 1e6)} MB, more than can be uploaded (250 MB). Shorter clips or montages only.`);
+      let dcFile = null, dcSize = 0;
+      if (size > DISCORD_MAX) {
+        dcFile = path.join(tmp, 'discord.mp4');
+        await this.discordCopy(web, dcFile, p => onProgress({ step: 'Preparing the Discord version…', progress: 0.45 + p * 0.1 }));
+        dcSize = fs.statSync(dcFile).size;
+      }
       const jpg = path.join(tmp, 'thumb.jpg');
       // The picture: just before the last kill, else the middle.
       const last = clip.kills?.at(-1)?.t;
       await poster(web, jpg, last ? last - 0.15 : (info.duration || 2) / 2).catch(() => poster(web, jpg, 0));
       const g = this.load();
-      onProgress({ step: 'Uploading…', progress: 0.45 });
-      const thumb = await this.upload(jpg, { userhash: g.userhash });
-      const video = await this.upload(web, { userhash: g.userhash, onProgress: p => onProgress({ step: `Uploading… ${Math.round(size * p / 1e6)} / ${Math.round(size / 1e6)} MB`, progress: 0.47 + p * 0.53 }) });
+      const start = dcFile ? 0.55 : 0.45, total = size + dcSize;
+      const uploaded = (before, part) => p => {
+        const n = before + p * part;
+        onProgress({ step: `Uploading… ${Math.round(n / 1e6)} / ${Math.round(total / 1e6)} MB`, progress: start + 0.02 + n / total * (0.98 - start) });
+      };
+      onProgress({ step: 'Uploading…', progress: start });
+      const thumb = await this.uploadMedia(jpg, { userhash: g.userhash });
+      const video = await this.uploadMedia(web, { userhash: g.userhash, onProgress: uploaded(0, size) });
+      const dc = dcFile ? await this.uploadMedia(dcFile, { userhash: g.userhash, onProgress: uploaded(size, dcSize) }) : null;
       const item = {
-        id: clip.id, video, thumb, owned: !!g.userhash, player: clip.player || '',
+        id: clip.id, video, thumb, dc, owned: !!g.userhash && !video.startsWith('q/'), player: clip.player || '',
         title: (clip.title || 'Highlight').slice(0, 80), kind: clip.kind, map: clip.kind === 'montage' ? '' : clip.map || '',
         duration: info.duration || clip.duration || 0, kills: clip.killWeapons?.length || clip.kills?.length || 0,
         weapon: clip.kind === 'montage' ? null : mainWeapon(clip), tags: (clip.tags || []).slice(0, 3).map(t => String(t).slice(0, 24)),
@@ -271,24 +358,58 @@ class Gallery {
     }
   }
 
+  // A smaller copy of a web copy for Discord, about 45 MB.
+  discordCopy(input, output, onProgress) {
+    return ffmpeg.fitToSize(input, output, DISCORD_MAX * 0.9 / 1048576, { onProgress });
+  }
+
+  // For a clip published before Discord copies (item.dc undefined): none needed when its video is small
+  // enough (dc null), else one made from file, the clip in the library. Checked again next time when the
+  // video's size can't be had.
+  async addDiscordCopy(id, file) {
+    const item = this.load().items.find(x => x.id === id);
+    if (!item || item.dc !== undefined || this.busy) return;
+    const size = await remoteSize(item.video.startsWith('q/') ? `https://qu.ax/dc/${item.video.slice(2)}` : `https://files.catbox.moe/${item.video}`);
+    if (size == null) return;
+    if (size <= DISCORD_MAX || !file || !fs.existsSync(file)) { this.patch(id, { dc: null }); return; }
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'demolab-gallery-'));
+    this.busy = id;
+    try {
+      const out = path.join(tmp, 'discord.mp4');
+      await this.discordCopy(file, out);
+      const dc = await this.uploadMedia(out, { userhash: this.load().userhash });
+      this.patch(id, { dc });
+      this.log('gallery: Discord copy', id, dc);
+    } finally {
+      this.busy = null;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+
   // Pictures the page shows besides the clips (profile picture, theme picture), uploaded once each and
-  // remembered by file name and size: assets { 'name:size': 'abc123.png' }.
+  // remembered by file name and size: pictures { 'name:size': 'q/AbC12.png' } (assets: the same, on
+  // catbox, from before; used until the qu.ax one is there).
   assetKey(file) {
     try { return file && fs.existsSync(file) ? `${path.basename(file)}:${fs.statSync(file).size}` : null; } catch { return null; }
   }
   assetIds({ avatarFile, artFile } = {}) {
-    const a = this.load().assets || {};
+    const g = this.load();
+    const a = { ...g.assets, ...g.pictures };
     return { avatar: a[this.assetKey(avatarFile)] || null, art: a[this.assetKey(artFile)] || null };
   }
-  // Uploads the ones not on catbox yet. Failures are only logged: the page works without them.
+  picturesMissing(files = {}) {
+    const p = this.load().pictures || {};
+    return [files.avatarFile, files.artFile].some(f => { const k = this.assetKey(f); return k && !p[k]; });
+  }
+  // Uploads the ones not on qu.ax yet. Failures are only logged: the page works without them.
   async syncAssets(files = {}) {
     for (const file of [files.avatarFile, files.artFile]) {
       const key = this.assetKey(file);
-      if (!key || this.load().assets?.[key] || !TYPES[path.extname(file).toLowerCase()] || fs.statSync(file).size > 20e6) continue;
+      if (!key || this.load().pictures?.[key] || !TYPES[path.extname(file).toLowerCase()] || fs.statSync(file).size > 20e6) continue;
       try {
-        const id = await this.upload(file, { userhash: this.load().userhash });
+        const id = await this.uploadMedia(file, { userhash: this.load().userhash });
         const g = this.load();
-        g.assets = { ...g.assets, [key]: id };
+        g.pictures = { ...g.pictures, [key]: id };
         this.save(g);
         this.log('gallery: uploaded', key, id);
       } catch (e) { this.log('gallery: picture upload failed', key, e.message); }
@@ -305,7 +426,7 @@ class Gallery {
     this.save(g);
     let deleted = false;
     if (item.owned && g.userhash) {
-      try { await this.removeFiles([item.video, item.thumb], g.userhash); deleted = true; } catch (e) { this.log('gallery: catbox delete failed', e.message); }
+      try { await this.removeFiles([item.video, item.thumb].filter(x => x && !x.startsWith('q/')), g.userhash); deleted = true; } catch (e) { this.log('gallery: catbox delete failed', e.message); }
     }
     return { removed: true, deleted };
   }
@@ -355,23 +476,24 @@ class Gallery {
     if (short?.hash === d.hash) return `${SHORT_URL}#${short.id.replace(/\.json$/, '')}`;
     return `${opts.page || PAGE_URL}#${zlib.deflateRawSync(Buffer.from(d.json, 'utf8'), { level: 9 }).toString('base64url')}`;
   }
-  // The link to share: the shortener's link to fullLink once syncShort has made it, else fullLink.
+  // The link to share: fullLink, through the shortener only when it still carries the data itself.
   link(opts = {}) {
     const full = this.fullLink(opts);
-    const tiny = this.load().tiny;
-    return full && tiny?.link === full ? tiny.url : full;
+    return (!this.isUploaded(opts) && tinyFor(this.load(), full)) || full;
+  }
+  isUploaded(opts = {}) {
+    const d = this.data(opts);
+    return !!d && this.load().short?.hash === d.hash;
   }
   // Short enough to share: the shortener's link, or the github.io one with the catbox file name.
   isShort(opts = {}) {
-    const d = this.data(opts);
-    return !!d && (this.load().short?.hash === d.hash || this.isTiny(opts));
+    return this.isUploaded(opts) || this.isTiny(opts);
   }
   isTiny(opts = {}) {
-    const full = this.fullLink(opts);
-    return !!full && this.load().tiny?.link === full;
+    return !this.isUploaded(opts) && !!tinyFor(this.load(), this.fullLink(opts));
   }
   // Uploads the page's data as a JSON file, so the link is just its name (catbox serves it to any page),
-  // then gets the shortener's link to that. Each change makes a new file and a new link; older links keep
+  // or, when catbox could not be reached, the shortener's link to the long one. Each change makes a new file and a new link; older links keep
   // showing the older data.
   async syncShort(opts = {}) {
     const d = this.data(opts);
@@ -393,9 +515,9 @@ class Gallery {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     }
-    // The long link too when catbox could not be reached: shortened, it is as easy to share.
+    // The long link when catbox could not be reached: shortened, it is as easy to share.
     const full = this.fullLink(opts);
-    if (this.load().tiny?.link !== full) {
+    if (full && !this.isUploaded(opts) && !tinyFor(this.load(), full)) {
       try {
         const url = await this.shorten(full);
         const g = this.load();
@@ -410,4 +532,4 @@ class Gallery {
   }
 }
 
-module.exports = { Gallery, encode, decode, payload, cleanLook, catboxUpload, shortenLink, isPageLink, PAGE_URL, SHORT_URL, MAX_ITEMS };
+module.exports = { Gallery, encode, decode, payload, cleanLook, catboxUpload, quaxUpload, shortenLink, isPageLink, PAGE_URL, SHORT_URL, MAX_ITEMS };

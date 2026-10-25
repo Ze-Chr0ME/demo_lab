@@ -265,6 +265,19 @@ class Recorder {
     }
     await ffmpeg.concat(parts, file);
     parts.forEach(p => fs.rmSync(p, { force: true }));
+    // Target size chosen before recording: re-encode the joined clip to about that many MB.
+    if (this.s.targetMB > 0) {
+      const tmp = `${file}.fit.mp4`;
+      this.emit({ step: `Fitting "${h.title}" into ${this.s.targetMB} MB…` });
+      try {
+        const r = await ffmpeg.fitToSize(file, tmp, this.s.targetMB);
+        fs.renameSync(tmp, file);
+        if (!r.kept) this.log(`${path.basename(file)}: ${(r.bytes / 1048576).toFixed(1)} MB at ${r.width}×${r.height} ${r.fps} fps, ${(r.videoKbps / 1000).toFixed(1)} Mbps`);
+      } catch (e) {
+        fs.rmSync(tmp, { force: true });
+        this.log(`Could not fit ${path.basename(file)} into ${this.s.targetMB} MB, kept full quality: ${e.message}`);
+      }
+    }
 
     if (!this.s.keepRaw) for (const r of segRaws) fs.rmSync(r.dir, { recursive: true, force: true });
 
