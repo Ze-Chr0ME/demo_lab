@@ -446,12 +446,15 @@ async function shareLineups(list) {
   const code = await guard(() => api.utilityCode(list.map(x => x.id)));
   if (!code) return;
   await copyText(code);
-  toast(`${list.length === 1 ? `“${list[0].name}”` : `${list.length} lineups`} copied as a code (${fmtNum(code.length)} characters). Your friend pastes it in Utility → Import code.`, 'ok');
+  const what = list.length === 1 ? `“${list[0].name}”` : `${list.length} lineups`;
+  toast(code.startsWith('DLU2-')
+    ? `${what} copied as the code ${code}. Your friend pastes it in Utility → Import code.`
+    : `${what} copied as a long code (${fmtNum(code.length)} characters: catbox.moe did not answer, so no short one). Your friend pastes it in Utility → Import code.`, 'ok');
 }
 
 async function importDialog(prefill = '') {
-  if (!prefill) { try { const t = await navigator.clipboard.readText(); if (/DLU1-/.test(t)) prefill = t; } catch {} }
-  const area = h('textarea', { class: 'code-area mono', placeholder: 'Paste one or more DLU1-… codes here', spellcheck: 'false' }, prefill);
+  if (!prefill) { try { const t = await navigator.clipboard.readText(); if (/DLU[12]-/.test(t)) prefill = t; } catch {} }
+  const area = h('textarea', { class: 'code-area mono', placeholder: 'Paste one or more DLU2-… codes here', spellcheck: 'false' }, prefill);
   const err = h('div', {});
   const read = async () => {
     err.replaceChildren();

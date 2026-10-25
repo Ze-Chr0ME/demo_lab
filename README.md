@@ -216,10 +216,11 @@ Thresholds were checked on 1,015 deaths from 14 matches. The positions it needs 
 <br>
 
 **Utility** keeps the grenade lineups you want to remember: where to stand, where to aim, how to throw,
-pictures, and a practice quiz. **Share** copies a lineup (or **Share these** for the whole list) as one line
-of text starting with `DLU1-`, about 250 characters per lineup with its flight path, ready to paste in
-Discord. **Import code** shows what's inside before adding anything and skips lineups you already have.
-Pictures stay on your PC.
+pictures, and a practice quiz. **Share** copies a lineup (or **Share these** for the whole list) as a short
+code like `DLU2-a1b2c3`, ready to paste in Discord: the lineups are a small file on catbox.moe and the code
+is its name. If catbox can't be reached you get a long `DLU1-` code instead, which holds everything itself
+(about 250 characters per lineup). **Import code** shows what's inside before adding anything and skips
+lineups you already have. Pictures stay on your PC.
 
 </details>
 

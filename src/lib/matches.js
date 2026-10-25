@@ -92,6 +92,9 @@ class MatchDownloader {
     this.queue = [];
     this.active = null;
     this.checking = false;
+    // FACEIT demos come through FACEIT's own page (you click "Watch demo" there):
+    // id -> { waiting: true } until you do, then { received, total } while that download runs.
+    this.external = new Map();
   }
 
   // Never throws: a failed save must not abort a check or mark a finished download as failed.
@@ -112,6 +115,8 @@ class MatchDownloader {
   // | 'queued' | 'downloading' | 'available' | 'expired'
   status(m) {
     if (this.active?.id === m.id) return 'downloading';
+    const ext = this.external.get(m.id);
+    if (ext) return ext.waiting ? 'waiting' : 'downloading';
     if (this.queue.some(q => q.id === m.id)) return 'queued';
     if (this.localFile(m)) return 'downloaded';
     if (!m.url) return 'expired';
@@ -139,7 +144,7 @@ class MatchDownloader {
     return {
       lastCheck: this.state.lastCheck,
       checking: this.checking,
-      progress: this.active ? { id: this.active.id, ...this.active.progress } : null,
+      progress: this.active ? { id: this.active.id, ...this.active.progress } : this.externalProgress(),
       matches: this.state.matches.map(m => ({ ...m, raw: undefined, status: this.status(m), file: this.localFile(m) })),
     };
   }
@@ -170,7 +175,7 @@ class MatchDownloader {
       const fresh = [];
       for (const [name, run] of Object.entries(sources)) {
         if (!run) continue;
-        try { fresh.push(...await run()); } catch (e) { notes.push(`${name === 'gc' ? 'Valve match list' : 'Steam Community'}: ${e.message}`); }
+        try { fresh.push(...await run()); } catch (e) { notes.push(`${SOURCE_NAMES[name] || name}: ${e.message}`); }
       }
       if (!fresh.length && notes.length) throw new Error(notes.join('\n'));
       const before = new Set(this.state.matches.filter(m => this.status(m) !== 'available').map(m => m.id));
@@ -179,7 +184,7 @@ class MatchDownloader {
       this.save();
       const newOnes = this.state.matches.filter(m => this.status(m) === 'available' && fresh.some(f => f.id === m.id) && !before.has(m.id));
       if (autoDownload) newOnes.forEach(m => this.enqueue(m.id));
-      return { ...this.list(), newCount: newOnes.length, notes };
+      return { ...this.list(), newCount: newOnes.length, newIds: newOnes.map(m => m.id), notes };
     } finally {
       this.checking = false;
       this.emit({ checking: false });
@@ -188,10 +193,34 @@ class MatchDownloader {
 
   enqueue(id) {
     const m = this.state.matches.find(x => x.id === id);
-    if (!m || !m.url || !m.fileBase || this.active?.id === id || this.queue.some(q => q.id === id)) return;
+    if (!m || !m.url || !m.fileBase || m.source === 'faceit' || this.active?.id === id || this.queue.some(q => q.id === id)) return;
     this.queue.push(m);
     this.emit({ queued: id });
     this.pump();
+  }
+
+  externalProgress() {
+    const [id, p] = [...this.external].find(([, x]) => !x.waiting) || [];
+    return id ? { id, received: p.received, total: p.total } : null;
+  }
+
+  // step: { waiting: true } | { received, total } | { done: file } | { failed: message } | { closed: true }
+  externalStep(id, step) {
+    if (step.done) {
+      this.external.delete(id);
+      this.state.downloaded[id] = step.done;
+      this.save();
+      this.emit({ done: id, file: step.done });
+    } else if (step.failed) {
+      this.external.delete(id);
+      this.emit({ failed: id, error: step.failed });
+    } else if (step.closed) {
+      this.external.delete(id);
+      this.emit({ closed: id });
+    } else {
+      this.external.set(id, step);
+      this.emit(step.waiting ? { waiting: id } : { progress: { id, received: step.received, total: step.total } });
+    }
   }
 
   async pump() {
@@ -243,6 +272,8 @@ class MatchDownloader {
     return target;
   }
 }
+
+const SOURCE_NAMES = { gc: 'Valve match list', community: 'Steam Community', faceit: 'FACEIT' };
 
 function get(url, redirects = 3) {
   return new Promise((resolve, reject) => {

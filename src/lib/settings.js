@@ -26,7 +26,9 @@ const DEFAULTS = {
     setup: 'cl_drawhud 1; cl_draw_only_deathnotices 0',
   },
   montage: { fade: 0.25 },
+  videoSize: { clip: 0, montage: 0 }, // target size in MB picked before recording / building a montage, 0 = best quality
   downloads: { auto: true, intervalMin: 30 },
+  faceit: { playerId: '', nickname: '' }, // the FACEIT account signed in through the Downloads page
   uiScale: 0,                // 0 = automatic (bigger on 1440p and up), else a zoom factor like 1.1
   theme: 'demolab',          // a THEMES id from app.js, or 'custom'
   customTheme: { base: '#0b0f13', accent: '#2fd8a4', data: '', map: '', shot: '', logo: '', pattern: 'dots' }, // data empty = accent; map (a screenshot) or logo for the backdrop

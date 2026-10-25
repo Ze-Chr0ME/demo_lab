@@ -1385,7 +1385,9 @@ function radarView() {
   if (R.frameSrc !== frame.src) { R.frameSrc = frame.src; resetZoom(R.view); }
   const stop = roundStop(data, rd);
   const slider = h('input', { type: 'range', class: 'radar-slider', min: rd.startTick, max: stop, step: 1, value: R.tick,
-    oninput: e => { R.tick = +e.target.value; } });
+    oninput: e => { R.tick = +e.target.value; },
+    // Only hold the knob still while it is being dragged: the slider keeps focus after release, so focus is no test.
+    onpointerdown: () => { R.els.dragging = true; addEventListener('pointerup', () => { R.els.dragging = false; }, { once: true }); } });
   const playBtn = h('button', { class: 'icon-btn', title: 'Play / pause (Space)', onclick: () => { R.playing = !R.playing; if (R.tick >= stop) setRadarRound(R.round, true); } });
   const hud = h('div', { class: 'radar-hud' });
   const card = h('div', { class: 'nade-card-slot' });
@@ -1985,7 +1987,7 @@ function drawRadar() {
   }
 
   // Controls, HUD, team lists and side lists (DOM; only touched when something visible changed)
-  if (document.activeElement !== els.slider) els.slider.value = t;
+  if (!els.dragging) els.slider.value = t;
   if (els.playing !== R.playing) {
     els.playing = R.playing;
     els.playBtn.replaceChildren(icon(R.playing ? '<path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/>' : ICONS.play));
@@ -2785,7 +2787,7 @@ function renderUtility() {
     h('button', { class: 'btn', title: `Copy commands for a private practice server (sv_cheats, infinite ammo and grenades, grenade preview, no bots). Paste them in the CS2 console after "map ${u.map === 'all' ? 'de_mirage' : u.map}".`,
       onclick: async () => { await copyText(PRACTICE_CMDS); toast('Practice commands copied. In CS2 start a private map (e.g. "map de_mirage" in the console), then paste them.', 'ok'); } }, 'Copy practice commands'),
     u.items.length ? h('button', { class: 'btn', title: 'Test yourself: where does it land, where is it thrown from, which lineup is this picture', onclick: () => quizSetup() }, 'Practice quiz') : null,
-    h('button', { class: 'btn', title: 'Add lineups from a code a friend shared (DLU1-…)', onclick: () => importDialog() }, 'Import code'),
+    h('button', { class: 'btn', title: 'Add lineups from a code a friend shared (DLU2-…)', onclick: () => importDialog() }, 'Import code'),
     u.items.length ? h('button', { class: 'btn', title: 'Copy the lineups shown below as one code to paste in Discord or a chat', onclick: () => shareLineups(utFiltered()) }, 'Share these') : null,
     h('button', { class: 'btn primary', onclick: () => editLineup({ map: u.map !== 'all' ? u.map : undefined }) }, icon(PLUS), 'New lineup'));
 
@@ -3384,6 +3386,71 @@ function modal(content, { wide = false, onClose } = {}) {
 }
 function closeModal(cb) { $('#overlay').classList.add('hidden'); $('#overlay').replaceChildren(); if (typeof cb === 'function') cb(); }
 
+// "Video size" window shown before recording clips or building a montage. kind: 'clip' | 'montage';
+// clips: [{ label, seconds }] (each recorded clip gets the target) or ids (the montage as a whole gets it).
+const SIZE_PRESETS = [50, 25, 10];
+function sizeDialog({ kind, title, clips = [], ids, goLabel, goIcon, onBack, onGo }) {
+  let mb = state.settings.videoSize?.[kind] || 0;
+  let isCustom = mb > 0 && !SIZE_PRESETS.includes(mb);
+  const custom = h('input', { type: 'number', min: 1, max: 4000, step: 1, placeholder: 'MB', class: 'size-custom',
+    value: isCustom ? mb : '',
+    oninput: e => { const v = Math.round(+e.target.value); if (v >= 1) { mb = v; refresh(); } } });
+  const customWrap = h('span', { class: 'size-custom-wrap' }, custom, ' MB');
+  // Built once (refresh only flips classes) so the custom field keeps focus while typing.
+  const pick = (v, label) => h('button', { class: 'chip-toggle', onclick: () => { mb = v; isCustom = false; refresh(); } }, label);
+  const presets = [[0, pick(0, 'Best quality')], ...SIZE_PRESETS.map(v => [v, pick(v, `${v} MB`)])];
+  const customBtn = h('button', { class: 'chip-toggle', onclick: () => {
+    isCustom = true;
+    mb = Math.round(+custom.value) || mb || 75;
+    custom.value = mb;
+    refresh();
+    custom.focus();
+    custom.select();
+  } }, 'Custom');
+  const chips = h('div', { class: 'chips' }, ...presets.map(p => p[1]), customBtn, customWrap);
+  const out = h('div', { class: 'size-plan' });
+  const fmtRate = k => k >= 1000 ? `${(k / 1000).toFixed(1)} Mbps` : `${k} kbps`;
+  let seq = 0;
+  async function refresh() {
+    presets.forEach(([v, b]) => b.classList.toggle('on', !isCustom && mb === v));
+    customBtn.classList.toggle('on', isCustom);
+    customWrap.classList.toggle('hidden', !isCustom);
+    if (!mb) {
+      out.replaceChildren(h('div', { class: 'hint' }, kind === 'montage'
+        ? 'No size limit: the montage keeps the clips\' quality.'
+        : `No size limit: clips keep the full recording quality (${state.settings.hlae.width}×${state.settings.hlae.height}, ${state.settings.hlae.fps} fps).`));
+      return;
+    }
+    const n = ++seq;
+    const plans = await guard(() => api.sizePlan({ mb, ids, seconds: clips.map(c => c.seconds) }));
+    if (n !== seq || !plans) return;
+    const line = (p, label) => h('div', { class: `size-row q-${p.quality}` },
+      label ? h('span', { class: 't' }, label) : null,
+      h('span', {}, `${p.width}×${p.height} · ${p.fps} fps · ${fmtRate(p.videoKbps)}`),
+      h('span', { class: 'q' }, p.quality === 'low' ? 'low quality — pick a bigger size' : `${p.quality} quality`));
+    const rows = kind === 'montage' ? [line(plans[0], `${fmtDur(plans[0].seconds)} montage`)]
+      : clips.slice(0, 8).map((c, i) => line(plans[i], `${c.label} · ${Math.round(c.seconds)} s`));
+    out.replaceChildren(...rows,
+      clips.length > 8 ? h('div', { class: 'hint' }, `…and ${clips.length - 8} more`) : null,
+      h('div', { class: 'hint' }, kind === 'montage'
+        ? 'The whole montage ends up close to this size. Resolution and fps drop only when the bitrate would get too low.'
+        : 'Each clip ends up close to this size. Clips already smaller stay untouched; resolution and fps drop only when the bitrate would get too low.'));
+  }
+  modal([
+    h('h2', {}, title),
+    h('p', {}, kind === 'montage' ? 'Pick a rough size for the montage file.' : 'Pick a rough size for each clip.', ' DemoLab adapts the bitrate (and if needed the resolution and fps) to fit.'),
+    chips, out,
+    h('div', { class: 'actions' },
+      h('button', { class: 'btn', onclick: () => onBack ? onBack() : closeModal() }, onBack ? 'Back' : 'Cancel'),
+      h('button', { class: 'btn primary', onclick: () => {
+        if ((state.settings.videoSize?.[kind] || 0) !== mb) save({ videoSize: { [kind]: mb } });
+        onGo(mb);
+      } }, goIcon ? icon(goIcon) : null, goLabel),
+    ),
+  ]);
+  refresh();
+}
+
 function confirmRecord(hls) {
   const mins = Math.ceil(estimateSeconds(hls) / 60);
   const steps = [
@@ -3402,17 +3469,25 @@ function confirmRecord(hls) {
     h('ul', { class: 'steps' }, ...steps),
     h('div', { class: 'actions' },
       h('button', { class: 'btn', onclick: () => closeModal() }, 'Cancel'),
-      dup.length && fresh.length ? h('button', { class: 'btn', onclick: () => startRecord(fresh) }, `Skip clipped · record ${fresh.length}`) : null,
-      h('button', { class: 'btn primary', onclick: () => startRecord(hls) }, icon(ICONS.rec), dup.length ? `Record all ${hls.length}` : 'Start recording'),
+      dup.length && fresh.length ? h('button', { class: 'btn', onclick: () => pickRecordSize(hls, fresh) }, `Skip clipped · record ${fresh.length}`) : null,
+      h('button', { class: 'btn primary', onclick: () => pickRecordSize(hls, hls) }, dup.length ? `Record all ${hls.length}` : 'Next'),
     ),
   ]);
 }
 
-async function startRecord(hls) {
+function pickRecordSize(all, hls) {
+  sizeDialog({
+    kind: 'clip', title: `Video size · ${hls.length} clip${hls.length > 1 ? 's' : ''}`,
+    clips: hls.map(x => ({ label: `R${x.round} ${x.title}`, seconds: x.duration })),
+    goLabel: 'Start recording', goIcon: ICONS.rec, onBack: () => confirmRecord(all), onGo: mb => startRecord(hls, mb),
+  });
+}
+
+async function startRecord(hls, mb = state.settings.videoSize?.clip || 0) {
   const items = hls.map(x => ({ demoPath: state.demo.path, highlightId: x.id }));
   const steamid = state.analysis.player?.steamid;
   try {
-    const r = await api.record(items, steamid);
+    const r = await api.record(items, steamid, { mb });
     state.recording = { total: r.count, log: [] };
     renderRecording({ state: 'running', step: 'Starting…', progress: 0 });
   } catch (e) {
@@ -3629,17 +3704,24 @@ function montageBar() {
     h('button', { class: 'link-btn', onclick: () => { state.montageSel = []; renderClips(); } }, 'Clear'),
     h('span', { style: { flex: 1 } }),
     name,
-    h('button', { class: 'btn primary', disabled: n < 2, onclick: () => makeMontage(name.value.trim()) }, icon(ICONS.film), 'Create montage'),
+    h('button', { class: 'btn primary', disabled: n < 2, onclick: () => pickMontageSize(name.value.trim()) }, icon(ICONS.film), 'Create montage'),
   );
 }
 
-async function makeMontage(name) {
+function pickMontageSize(name) {
+  sizeDialog({
+    kind: 'montage', title: 'Video size · montage', ids: [...state.montageSel],
+    goLabel: 'Build montage', goIcon: ICONS.film, onGo: mb => makeMontage(name, mb),
+  });
+}
+
+async function makeMontage(name, mb = 0) {
   const ids = [...state.montageSel];
   const progress = h('div', {});
-  modal([h('h2', {}, 'Building montage…'), h('div', { class: 'progress' }, progress), h('p', {}, 'Joining clips with ffmpeg.')], { onClose: false });
+  modal([h('h2', {}, 'Building montage…'), h('div', { class: 'progress' }, progress), h('p', {}, mb ? `Joining clips with ffmpeg and fitting them into ${mb} MB (may take a second pass).` : 'Joining clips with ffmpeg.')], { onClose: false });
   const off = api.onMontage(u => { if (u.progress !== undefined) progress.style.width = `${Math.round(u.progress * 100)}%`; });
   try {
-    const item = await api.montage(ids, name);
+    const item = await api.montage(ids, name, { mb });
     state.montageSel = [];
     closeModal();
     await loadClips();
@@ -3963,7 +4045,7 @@ function renderSettings() {
 }
 
 // ---------- Downloads ----------
-state.dl = { matches: [], lastCheck: null, checking: false, progress: null, error: null, notes: [], community: 'unknown' };
+state.dl = { matches: [], lastCheck: null, checking: false, progress: null, error: null, notes: [], community: 'unknown', faceit: { state: 'signedOut', nickname: '' } };
 
 async function loadDownloads() {
   const r = await guard(() => api.listDownloads());
@@ -3984,7 +4066,7 @@ async function checkNow() {
   } catch (e) {
     state.dl.error = e.message;
     const r = await api.listDownloads().catch(() => null);
-    if (r) state.dl.community = r.community;
+    if (r) Object.assign(state.dl, { community: r.community, faceit: r.faceit });
   }
   state.dl.checking = false;
   renderDownloads();
@@ -3995,6 +4077,11 @@ async function steamSignIn() {
   if (ok) { toast('Signed in to Steam Community', 'ok'); checkNow(); } else renderDownloads();
 }
 
+async function faceitSignIn() {
+  const account = await guard(() => api.faceitSignIn());
+  if (account) { toast(`Signed in to FACEIT${account.nickname ? ` as ${account.nickname}` : ''}`, 'ok'); checkNow(); } else loadDownloads();
+}
+
 api.onDownloads(async e => {
   if (e.progress) {
     state.dl.progress = e.progress;
@@ -4003,6 +4090,7 @@ api.onDownloads(async e => {
   }
   if (e.done) { toast('Match downloaded — added to Matches', 'ok'); state.dl.progress = null; loadDemos(); }
   if (e.failed) { toast(`Download failed: ${e.error}`, 'error'); state.dl.progress = null; }
+  if (e.waiting) toast('FACEIT opened: click "Watch demo" there', '');
   if (e.found) toast(`${e.found} new match${e.found > 1 ? 'es' : ''} found`, 'ok');
   if (e.autoError) state.dl.error = e.autoError;
   const r = await api.listDownloads().catch(() => null);
@@ -4011,7 +4099,7 @@ api.onDownloads(async e => {
 });
 
 function updateDlCount() {
-  const n = state.dl.matches.filter(m => ['available', 'queued', 'downloading'].includes(m.status)).length;
+  const n = state.dl.matches.filter(m => ['available', 'queued', 'downloading', 'waiting'].includes(m.status)).length;
   $('#dlCount').textContent = n || '';
 }
 
@@ -4021,6 +4109,7 @@ function renderDownloads() {
   const STATUS = {
     downloaded: ['ok', 'On your PC'], available: ['new', 'Not downloaded'], queued: ['', 'Queued'],
     downloading: ['new', 'Downloading'], removed: ['', 'Deleted / moved'], expired: ['bad', 'Expired'],
+    waiting: ['new', 'Waiting for you'], // FACEIT room open: you click "Watch demo" there
   };
   const autoToggle = toggle('Auto-download new matches', state.settings.downloads.auto, async v => { await save({ downloads: { auto: v } }); });
   const head = h('div', { class: 'page-head' },
@@ -4041,6 +4130,17 @@ function renderDownloads() {
       ? h('button', { class: 'btn', onclick: async () => { await guard(() => api.communitySignOut()); loadDownloads(); } }, 'Sign out')
       : h('button', { class: 'btn primary', onclick: steamSignIn }, 'Sign in to Steam'),
   );
+  const fc = d.faceit || {};
+  const faceitIn = fc.state === 'ok' || fc.state === 'unknown'; // 'unknown': account saved, session not checked yet
+  const faceitCard = h('div', { class: 'info-box steam-box' },
+    h('div', { style: { flex: 1 } },
+      h('b', {}, 'FACEIT '),
+      faceitIn ? h('span', { class: 'pill ok' }, fc.nickname || 'Signed in') : fc.state === 'signedOut' && fc.nickname ? h('span', { class: 'pill bad' }, 'Signed out') : null,
+      h('div', {}, 'Lists your FACEIT matches. FACEIT only hands out demos on its own page, so “Get demo” opens the match there: click ', h('b', {}, 'Watch demo'), ' (and solve the captcha if FACEIT shows one) and DemoLab takes the file from there.')),
+    faceitIn
+      ? h('button', { class: 'btn', onclick: async () => { await guard(() => api.faceitSignOut()); loadDownloads(); } }, 'Sign out')
+      : h('button', { class: 'btn primary', onclick: faceitSignIn }, 'Sign in to FACEIT'),
+  );
   const info = h('div', { class: 'info-box' },
     'Also asks Valve for your latest matches through your Steam client (like CS2’s ', h('b', {}, 'Watch → Your Matches'), ') when CS2 is closed. ',
     state.settings.downloads.auto ? `Checks automatically every ${state.settings.downloads.intervalMin} minutes and downloads new demos to your replays folder.` : 'Automatic checking is off.');
@@ -4049,7 +4149,7 @@ function renderDownloads() {
     const [cls, label] = STATUS[m.status] || ['', m.status];
     const prog = d.progress?.id === m.id ? d.progress : null;
     let action = null;
-    if (m.status === 'available') action = h('button', { class: 'btn', onclick: async () => { await guard(() => api.download(m.id)); loadDownloads(); } }, 'Download');
+    if (m.status === 'available' || m.status === 'waiting') action = h('button', { class: 'btn', onclick: async () => { await guard(() => api.download(m.id)); loadDownloads(); } }, m.source !== 'faceit' ? 'Download' : m.status === 'waiting' ? 'Show FACEIT' : 'Get demo');
     else if (m.status === 'removed') action = h('button', { class: 'btn', title: 'You downloaded this before and then deleted or moved it', onclick: async () => { await guard(() => api.download(m.id)); loadDownloads(); } }, 'Download again');
     else if (m.status === 'downloaded') action = h('button', { class: 'btn', title: m.file || '', onclick: () => {
       const demo = state.demos.find(x => x.path === m.file) || state.demos.find(x => x.name === m.fileBase + '.dem');
@@ -4072,7 +4172,7 @@ function renderDownloads() {
   $('#view-downloads').replaceChildren(h('div', { class: 'page dl-page' },
     head,
     h('div', { class: 'dl-layout' },
-      h('aside', { class: 'dl-side' }, steamCard, info),
+      h('aside', { class: 'dl-side' }, steamCard, faceitCard, info),
       h('div', { class: 'dl-main' },
         d.error ? h('div', { class: 'err-box' }, d.error) : null,
         d.notes?.length && !d.error ? h('div', { class: 'warn-box' }, d.notes.join('\n')) : null,

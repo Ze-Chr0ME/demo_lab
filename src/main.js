@@ -26,12 +26,13 @@ const { ensureGeometry } = require('./lib/geometry');
 const { MatchDownloader, fetchGcMatches } = require('./lib/matches');
 const { decode } = require('./lib/proto');
 const { Community, signIn, signOut, watchCookies, loginCookieSummary, PARTITION } = require('./lib/community');
+const faceitLib = require('./lib/faceit');
 const hlae = require('./lib/hlae');
-const { UtilityStore, steamScreenshots, shareCode, readCodes, sameLineup } = require('./lib/utility');
+const { UtilityStore, steamScreenshots, shareCode, shortCode, readCodes, sameLineup } = require('./lib/utility');
 const { AvatarStore } = require('./lib/avatars');
 const { ThemeArt } = require('./lib/themeArt');
 const { Updater } = require('./lib/updater');
-const { Gallery, SHORT_URL: GALLERY_SHORT } = require('./lib/gallery');
+const { Gallery, SHORT_URL: GALLERY_SHORT, isPageLink } = require('./lib/gallery');
 const { InventoryStore, localCurrency } = require('./lib/inventory');
 
 let win;
@@ -45,6 +46,8 @@ let encoderReady = Promise.resolve();
 let downloader;
 const community = new Community();
 let communityState = 'unknown'; // 'ok' | 'signedOut' | 'unknown' (not checked yet)
+let faceit; // Faceit: match rooms where you click "Watch demo", and catching those downloads
+let faceitState = 'unknown'; // same values as communityState
 let store; // DemoStore: parsed data, failures and custom names, keyed by demo content
 let utility; // UtilityStore: the Utility page's lineups
 let avatars; // AvatarStore: Steam profile pictures
@@ -983,9 +986,28 @@ function registerIpc() {
     return true;
   });
 
-  handle('downloads:list', () => ({ ...downloader.list(), community: communityState }));
+  handle('downloads:list', () => ({ ...downloader.list(), community: communityState, faceit: faceitInfo() }));
   handle('downloads:check', () => checkMatches(true));
-  handle('downloads:get', id => { downloader.enqueue(id); return downloader.list(); });
+  handle('downloads:get', id => {
+    const m = downloader.state.matches.find(x => x.id === id);
+    if (m?.source === 'faceit') openFaceitRoom(m);
+    else downloader.enqueue(id);
+    return downloader.list();
+  });
+  handle('faceit:signIn', async () => {
+    const account = await faceitLib.signIn(log);
+    if (!account) return null;
+    settings.update({ faceit: { playerId: account.id, nickname: account.nickname } });
+    faceitState = 'ok';
+    return account;
+  });
+  handle('faceit:signOut', async () => {
+    await faceitLib.signOut();
+    settings.update({ faceit: { playerId: '', nickname: '' } });
+    faceitState = 'signedOut';
+    log('signed out of FACEIT (button)');
+    return true;
+  });
   handle('community:signIn', async () => {
     const ok = await signIn(log);
     if (ok) communityState = 'ok';
@@ -993,7 +1015,7 @@ function registerIpc() {
   });
   handle('community:signOut', async () => { await signOut(); communityState = 'signedOut'; log('signed out of Steam Community (button)'); return true; });
 
-  handle('record:start', async (items, steamid) => {
+  handle('record:start', async (items, steamid, opts = {}) => {
     if (recorder) throw new Error('A recording is already running.');
     if (watching) throw new Error('CS2 is still opening a demo for watching. Try again in a moment.');
     // The recording reuses a CS2 left open by "Watch in CS2" and closes it at the end.
@@ -1022,7 +1044,7 @@ function registerIpc() {
     if (!jobs.length) throw new Error('Nothing to record.');
 
     recorder = new Recorder({
-      settings: { ...s(), outputDir: outputDir(), hlae: { ...s().hlae, path: hlaeDir() } }, env,
+      settings: { ...s(), outputDir: outputDir(), hlae: { ...s().hlae, path: hlaeDir() }, targetMB: +opts.mb || 0 }, env,
       emit: u => send('record:update', u),
     });
     const r = recorder;
@@ -1122,15 +1144,26 @@ function registerIpc() {
   handle('utility:screenshots', () => steamScreenshots(env.steamPath, mySteamId()));
   // Share codes (lib/utility.js): the code of some lineups, and the lineups in a pasted code (not saved yet;
   // dupe = already in the library).
-  handle('utility:code', ids => {
+  handle('utility:code', async ids => {
     const items = utility.list();
     const list = ids.map(id => items.find(x => x.id === id)).filter(Boolean);
     if (!list.length) throw new Error('No lineup to share.');
-    return shareCode(list);
+    try { return await shortCode(list, { upload: file => gallery.upload(file, {}), cacheFile: path.join(utility.dir, 'codes.json') }); }
+    catch (e) { log('utility: short code failed', e.message); return shareCode(list); }
   });
-  handle('utility:readCode', text => {
+  const fetchLineupFile = async id => {
+    let res;
+    try { res = await net.fetch(`https://files.catbox.moe/${id}.json`, { cache: 'no-store' }); }
+    catch (e) { throw new Error(`Could not reach catbox.moe, where DLU2- codes keep their lineups (${e.message}). Some internet providers block it: changing your DNS to 1.1.1.1 usually fixes that.`); }
+    if (res.status === 404) throw new Error(`The lineups of DLU2-${id} are no longer on catbox.moe. Ask for the code again.`);
+    if (!res.ok) throw new Error(`catbox.moe did not send the lineups of DLU2-${id} (HTTP ${res.status}). Try again later.`);
+    const text = await res.text();
+    try { if (text.length <= 4 * 1048576) return JSON.parse(text); } catch {}
+    throw new Error(`DLU2-${id} is not a lineup code.`);
+  };
+  handle('utility:readCode', async text => {
     const items = utility.list();
-    return readCodes(text).map(x => ({ ...x, dupe: items.some(y => sameLineup(x, y)) }));
+    return (await readCodes(text, { fetchShort: fetchLineupFile })).map(x => ({ ...x, dupe: items.some(y => sameLineup(x, y)) }));
   });
   handle('utility:import', list => {
     let n = 0;
@@ -1189,12 +1222,11 @@ function registerIpc() {
   const galleryState = look => {
     const g = gallery.load();
     const opts = galleryOpts(look);
-    const ids = gallery.assetIds(opts.files);
     return {
       name: g.name, showSteam: g.showSteam !== false, hasUserhash: !!g.userhash, items: g.items, busy: gallery.busy, featured: g.featured || null,
-      // not ready yet (new clip, theme, Steam picture or stats): gallery:sync uploads what's missing and the
-      // page's data, which gives the short link
-      missing: (!!opts.files.avatarFile && !ids.avatar) || (!!opts.files.artFile && !ids.art) || g.items.some(x => !x.ctx) || !gallery.isShort(opts),
+      // not ready yet (new clip, theme, Steam picture, stats or Discord copy): gallery:sync uploads what's
+      // missing and the page's data and the shortener's link, which give the short link
+      missing: gallery.picturesMissing(opts.files) || g.items.some(x => !x.ctx || x.dc === undefined) || !gallery.isTiny(opts) || !gallery.fullLink(opts)?.startsWith(GALLERY_SHORT),
       short: gallery.isShort(opts),
       link: gallery.link(opts),
     };
@@ -1230,13 +1262,19 @@ function registerIpc() {
     return { kl, cx };
   }
   // Uploads what the page still needs, then the page's data (the short link). Clips published before
-  // kills and rounds were shown get them here, once.
+  // kills and rounds were shown, or before Discord copies, get them here, once.
   async function gallerySync(look) {
     if (!gallery.load().items.length) return;
     const lib = library().list();
     for (const x of gallery.load().items.filter(i => !i.ctx)) {
       const extra = await clipContext(lib.find(c => c.id === x.id)).catch(e => { log('gallery: context', x.id, e.message); return {}; });
       gallery.patch(x.id, { ...extra, ctx: true });
+    }
+    if (ffmpegFound && gallery.load().items.some(i => i.dc === undefined)) {
+      await encoderReady;
+      for (const x of gallery.load().items.filter(i => i.dc === undefined)) {
+        await gallery.addDiscordCopy(x.id, lib.find(c => c.id === x.id)?.file).catch(e => log('gallery: Discord copy', x.id, e.message));
+      }
     }
     const opts = galleryOpts(look);
     await gallery.syncAssets(opts.files);
@@ -1265,7 +1303,7 @@ function registerIpc() {
   handle('gallery:move', (id, delta, look) => { gallery.move(id, delta); return galleryState(look); });
   handle('gallery:feature', (id, look) => { gallery.feature(id); return galleryState(look); });
   handle('gallery:set', (patch, look) => { gallery.set(patch); return galleryState(look); });
-  handle('gallery:open', url => { if (typeof url === 'string' && url.startsWith(GALLERY_SHORT)) shell.openExternal(url); return true; });
+  handle('gallery:open', url => { if (isPageLink(url)) shell.openExternal(url); return true; });
 
   // Kill times of a clip for "Export for sharing". Clips recorded before kill times were saved get them
   // from their highlight, as long as it still has the clip's length (the timing settings may have changed).
@@ -1325,7 +1363,21 @@ function registerIpc() {
     }
   });
 
-  handle('montage:make', async (ids, name) => {
+  // What a target size gives: bitrate, resolution and fps for each length (seconds). For a montage (ids),
+  // the length is the clips together and the source size is the first clip's.
+  handle('video:sizePlan', async ({ mb, seconds = [], ids }) => {
+    let src = { width: s().hlae.width, height: s().hlae.height, fps: s().hlae.fps };
+    if (ids?.length) {
+      const all = library().list();
+      const clips = ids.map(id => all.find(c => c.id === id)).filter(Boolean);
+      const first = clips[0] && await ffmpeg.probe(clips[0].file).catch(() => null);
+      if (first?.width) src = first;
+      seconds = [clips.reduce((t, c) => t + (c.duration || 0), 0)];
+    }
+    return seconds.map(t => ({ seconds: t, ...ffmpeg.sizePlan(mb, t, src) }));
+  });
+
+  handle('montage:make', async (ids, name, opts = {}) => {
     const lib = library();
     const all = lib.list();
     const clips = ids.map(id => all.find(c => c.id === id)).filter(Boolean);
@@ -1338,7 +1390,7 @@ function registerIpc() {
     send('montage:update', { state: 'running', progress: 0 });
     try {
       const { duration } = await ffmpeg.montage(clips.map(c => c.file), file, {
-        fade: s().montage.fade, onProgress: p => send('montage:update', { state: 'running', progress: p }),
+        fade: s().montage.fade, mb: +opts.mb || 0, onProgress: p => send('montage:update', { state: 'running', progress: p }),
       });
       const thumb = path.join(outputDir(), '.thumbs', path.basename(file, '.mp4') + '.jpg');
       fs.mkdirSync(path.dirname(thumb), { recursive: true });
@@ -1380,13 +1432,47 @@ async function checkMatches(manual) {
         }
       },
       gc: cs2Open || recorder ? null : () => fetchGcMatches(env),
+      faceit: s().faceit.playerId ? async () => {
+        try {
+          const known = id => downloader.state.matches.find(m => m.id === id);
+          const entries = await faceitLib.fetchMatches(s().faceit.playerId, known);
+          faceitState = 'ok';
+          return entries;
+        } catch (e) {
+          if (e.signedOut) faceitState = 'signedOut';
+          throw e;
+        }
+      } : null,
     },
   });
   if (cs2Open) r.notes.push('Valve match list skipped while CS2 is open.');
-  log(`check: ${r.matches.length} matches, ${r.newCount} new, community=${communityState}${r.notes.length ? ', notes: ' + r.notes.join(' | ') : ''}`);
+  log(`check: ${r.matches.length} matches, ${r.newCount} new, community=${communityState}, faceit=${faceitState}${r.notes.length ? ', notes: ' + r.notes.join(' | ') : ''}`);
   existingCache.clear();
   if (!manual && r.newCount) send('downloads:update', { found: r.newCount });
-  return { ...r, community: communityState };
+  // New FACEIT demos need your click on FACEIT's page: say so outside the app too.
+  const fresh = r.matches.filter(m => m.source === 'faceit' && m.status === 'available' && r.newIds.includes(m.id));
+  if (!manual && fresh.length && s().autoProcess.notify) notifyFaceit(fresh);
+  return { ...r, community: communityState, faceit: faceitInfo() };
+}
+
+function faceitInfo() {
+  const f = s().faceit;
+  return { state: f.playerId ? faceitState : 'signedOut', nickname: f.nickname };
+}
+
+function openFaceitRoom(m) {
+  if (!m.url) throw new Error('FACEIT no longer has a demo for this match.');
+  downloader.externalStep(m.id, { waiting: true });
+  faceit.open(m);
+}
+
+function notifyFaceit(list) {
+  if (!Notification.isSupported()) { if (win && !win.isDestroyed()) win.flashFrame(true); return; }
+  const m = list[0];
+  const title = list.length > 1 ? `${list.length} new FACEIT matches` : `New FACEIT match${m.mapLabel ? ` · ${m.mapLabel}` : ''}${m.score?.length === 2 ? ` ${m.score[0]}:${m.score[1]}` : ''}`;
+  const n = new Notification({ title, body: 'Click, then press "Watch demo" on FACEIT: DemoLab reads it as soon as it arrives.', icon: auto.icon || undefined });
+  n.on('click', () => { try { openFaceitRoom(m); } catch (e) { log('FACEIT room:', e.message); } });
+  n.show();
 }
 
 // HLAE has to keep up with CS2 updates: look for a newer release at startup and every 6 hours.
@@ -1465,7 +1551,7 @@ app.whenReady().then(() => {
   // Dev aid: DEMOLAB_FAKE_UPLOAD=<folder> "uploads" the highlights page's files into that folder, not to catbox.
   const fakeDir = process.env.DEMOLAB_FAKE_UPLOAD;
   const fakeUpload = async file => { const name = require('crypto').randomBytes(3).toString('hex') + path.extname(file); fs.copyFileSync(file, path.join(fakeDir, name)); return name; };
-  gallery = new Gallery(app.getPath('userData'), { log, ...(fakeDir ? { upload: fakeUpload, remove: async () => {} } : {}) });
+  gallery = new Gallery(app.getPath('userData'), { log, ...(fakeDir ? { upload: fakeUpload, remove: async () => {}, shorten: async u => u } : {}) });
   updater = new Updater({ dir: path.join(app.getPath('userData'), 'updates'), version: app.getVersion(), fetch: net.fetch, installed: app.isPackaged, log, onChange: v => send('update:state', v) });
   refreshEnv();
   ffmpegFound = ffmpeg.resolve(settings.get().ffmpegPath);
@@ -1482,6 +1568,15 @@ app.whenReady().then(() => {
     },
     findExisting,
   });
+  faceit = new faceitLib.Faceit({
+    dir: () => downloader.replaysDir(),
+    log,
+    onProgress: (id, received, total) => downloader.externalStep(id, { received, total }),
+    onDone: (id, file) => downloader.externalStep(id, { done: file }),
+    onError: (id, message) => downloader.externalStep(id, { failed: message }),
+    onClosed: id => downloader.externalStep(id, { closed: true }),
+  });
+  if (s().faceit.playerId) faceitLib.me().then(a => { faceitState = a ? 'ok' : 'signedOut'; log('startup - FACEIT:', faceitState); }).catch(() => {});
   watchCookies(log);
   loginCookieSummary().then(c => log('startup - Steam login cookies:', c)).catch(() => {});
   registerIpc();
