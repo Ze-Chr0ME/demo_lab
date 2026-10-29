@@ -5,18 +5,18 @@
 <h1 align="center">CS2 DemoLab</h1>
 
 <p align="center">
-  <b>Stats, 2D replays, lineups and highlight clips from your CS2 demos. Everything runs on your PC.</b>
+  <b>Stats, 2D replays, training, lineups and highlight clips from your CS2 demos.</b>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows&logoColor=white" alt="Windows 10 | 11">
   <img src="https://img.shields.io/badge/Counter--Strike%202-demos-F5A623?logo=counterstrike&logoColor=white" alt="Counter-Strike 2">
   <img src="https://img.shields.io/badge/Electron-app-47848F?logo=electron&logoColor=white" alt="Electron">
-  <img src="https://img.shields.io/badge/no%20account-100%25%20local-2fd8a4" alt="100% local">
+  <img src="https://img.shields.io/badge/demo%20analysis-local-2fd8a4" alt="Local demo analysis">
 </p>
 
 <p align="center">
-  <a href="https://github.com/Ze-Chr0ME/demo_lab/releases"><b>Download</b></a> ·
+  <a href="https://github.com/Ze-Chr0ME/demo_lab/releases/latest"><b>Download V1.02</b></a> ·
   <a href="#-features">Features</a> ·
   <a href="#-install">Install</a> ·
   <a href="#-making-clips">Making clips</a> ·
@@ -31,7 +31,11 @@
 DemoLab reads each of your demos once and turns them into a stats dashboard, per-match breakdowns,
 heatmaps and a 2D replay. It also spots your best moments (multi-kills, clutches, no-scopes, wallbangs…)
 and records them as clips through [HLAE](https://www.advancedfx.org/) while you keep using your PC.
-No website, no upload, no subscription.
+Analysis runs on your PC, with no subscription. Sharing clips, lineup pictures or short codes uses online hosting.
+
+**[V1.02](https://github.com/Ze-Chr0ME/demo_lab/releases/tag/v1.0.2)** adds Training with custom scenarios,
+Aim Botz and a procedural training map; a Highlights page across all your matches; lineup screenshot
+sharing; and inventory improvements. The installer and updater use version `1.0.2`.
 
 ## ✨ Features
 
@@ -43,10 +47,12 @@ No website, no upload, no subscription.
 | 🗺️ **Maps** | Zoomable heatmaps of kills, deaths, damage and grenades over all your matches on a map |
 | 💀 **Death review** | Every death checked for what went wrong: died alone, not traded, grenades unused, caught off guard… |
 | ⚖️ **Compare** | You against any player from your demos, or against the median of your lobbies |
-| 💰 **Inventory** | What your CS2 items are worth (Steam Market or Skinport prices, in your currency), item by item with floats, patterns and stickers, plus the value over time |
-| 💨 **Utility** | A library of your grenade lineups, with a practice quiz and share codes for Discord |
-| 🎬 **Clips & montages** | Multi-kills, clutches and special kills recorded in the background and joined into montages |
-| 📥 **Auto downloads** | New matches pulled from Steam, including Scrimmage and Rush replays |
+| 💰 **Inventory** | Steam Market or Skinport prices in your currency, floats, patterns, stickers, trade-protected items and value over time |
+| 🎯 **Training** | Warm-up in Aim Botz, a procedural training map, custom bot scenarios and session results |
+| 💨 **Utility** | Your grenade lineups under Training, with a practice quiz and share codes including screenshots |
+| ⭐ **Highlights** | Highlights from every parsed match, with weapon, map, kill-type and star filters and a recording queue |
+| 🎬 **Clips & montages** | Record in the background, choose a target file size, make montages and publish a shareable highlights page |
+| 📥 **Downloads** | Steam matches including Scrimmage and Rush, plus FACEIT demo downloads |
 | 🎨 **Themes** | Neon team logos and map backdrops taken from your own CS2 install |
 
 ## 📸 Screenshots
@@ -75,7 +81,8 @@ No website, no upload, no subscription.
 
 ### Installer (recommended)
 
-1. Download **`CS2-DemoLab-Setup-<version>.exe`** from the [releases page](https://github.com/Ze-Chr0ME/demo_lab/releases) and run it.
+1. Download **[CS2-DemoLab-Setup-1.0.2.exe](https://github.com/Ze-Chr0ME/demo_lab/releases/download/v1.0.2/CS2-DemoLab-Setup-1.0.2.exe)** (V1.02) and run it.
+   Future versions appear on the [latest release page](https://github.com/Ze-Chr0ME/demo_lab/releases/latest).
    It installs for your Windows account only (no admin rights), with ffmpeg included.
 2. Open **Settings → Recording** and click **Check for updates → Install HLAE**.
 3. Check that the status panel shows **CS2**, **Steam**, **ffmpeg** and **HLAE** in green.
@@ -121,10 +128,16 @@ the ffmpeg and ffprobe found on your PC into the installer and writes it to `dis
 
 1. Download your matches in CS2 (**Watch → Your Matches**), or let the **Downloads** tab do it. They show up in DemoLab automatically.
 2. **Close CS2.** Recording needs its own CS2 session, started through HLAE.
-3. Open a match and go to **Highlights & clips**. The 2★-and-up highlights are already ticked.
-4. Click **Record**. CS2 opens in a window and plays the demo. **Keep using your PC**: you can cover or
+3. Open **Highlights** to browse all parsed matches, filter the moments and add them to the recording queue.
+   Or open a match and go to **Highlights & clips**, where the 2★-and-up highlights are already ticked.
+4. Record the queue or click **Record** in the match. Choose **Best quality** or a target file size in MB.
+   CS2 opens in a window and plays the demo. **Keep using your PC**: you can cover or
    minimize CS2 (minimized, it renders more slowly). It closes by itself when it's done.
 5. Find your clips in the **Clips** tab and in `Videos\CS2 Clips`. Click them in order and hit **Create montage**.
+
+From **Clips**, use **My highlights page** to publish selected clips, pick a featured clip and copy one
+link for friends. Published clips and pictures are hosted on qu.ax; short page links use catbox.moe.
+The page opens in a browser, and individual clip links can be shared in Discord.
 
 ## 🔎 What's in it
 
@@ -211,16 +224,48 @@ Thresholds were checked on 1,015 deaths from 14 matches. The positions it needs 
 </details>
 
 <details>
+<summary><b>Training</b>: warm-up, scenarios and session results</summary>
+
+<br>
+
+Open **Training** for four ways to practise: **Utility**, **My scenarios**, **Warm-up** and **Procedural map**.
+Close your normal CS2 session first and install HLAE from **Settings → Recording**.
+
+- **Warm-up** opens Aim Botz on a private server. Use **Subscribe in the Workshop** if it is not installed,
+  let Steam finish downloading it, then choose **Start in CS2**. Set the bots and weapons with the map's buttons.
+- **Procedural map** opens SCOPE.GG's training map, with a new room layout each run. Subscribe through its
+  Workshop button first, then choose the map's settings in CS2.
+- **My scenarios** lets you build repeatable fights with bots holding the positions and angles you choose.
+  Set their guns and behaviour, your loadout, the timer and either a repetition count or a first-to score.
+- **Utility** opens your lineup library and practice quiz.
+
+Finish a session with **Finish** or **F3** in CS2. DemoLab records and reads its demo, then saves the results:
+score, kills, deaths and the available aim and engagement metrics. Recent sessions, best scores and progress
+appear in Training; open a session for detailed results. Training demos stay separate from match demos.
+
+**Creating a scenario:** open **My scenarios → New scenario**, choose a map and select **Record in CS2**
+or the 2D editor. While recording, stand where a bot should be, aim where it should look and press **F5**;
+press **F6** at your own start spot. **F7** removes the last bot, **F8** tests your start position and **F3**
+finishes recording so you can edit and save. Crouching and the weapon in your hands are captured for each bot.
+
+The 2D editor lets you place and adjust the same spots on the radar. Heights come from downloaded map
+geometry or your parsed matches; opening a match's **Integrity** tab downloads the geometry if needed.
+Use **Share** and **Import** to exchange scenarios as `DLS2-` codes (or a longer `DLS1-` fallback).
+
+</details>
+
+<details>
 <summary><b>Utility</b>: lineups and share codes</summary>
 
 <br>
 
-**Utility** keeps the grenade lineups you want to remember: where to stand, where to aim, how to throw,
+**Training → Utility** keeps the grenade lineups you want to remember: where to stand, where to aim, how to throw,
 pictures, and a practice quiz. **Share** copies a lineup (or **Share these** for the whole list) as a short
 code like `DLU2-a1b2c3`, ready to paste in Discord: the lineups are a small file on catbox.moe and the code
 is its name. If catbox can't be reached you get a long `DLU1-` code instead, which holds everything itself
 (about 250 characters per lineup). **Import code** shows what's inside before adding anything and skips
-lineups you already have. Pictures stay on your PC.
+lineups you already have. Lineup pictures are backed up to qu.ax, and their links travel with the code so
+imported lineups can recover their screenshots. Sharing needs an internet connection.
 
 </details>
 
@@ -252,13 +297,15 @@ cards over the extra room. **Theme → Display** sets the size by hand.
 
 <br>
 
-The **Downloads** tab collects your matches from two places and saves new demos to CS2's `replays` folder:
+The **Downloads** tab collects your matches from Steam and FACEIT and saves new demos to CS2's `replays` folder:
 
 1. **Steam Community match history** (your private Personal Game Data pages). This is the **only** place that
    lists **Scrimmage** and **Rush** replays. Click **Sign in to Steam** once: Steam's own login page opens in
    a separate window, so the app never sees your password. **Sign out** clears it.
 2. **Valve's recent-match list**, through the Steam client already running on your PC, like CS2's Watch tab.
    Only while CS2 is closed; Steam shows you as playing CS2 for about 5 seconds during the check.
+3. **FACEIT**: sign in from Downloads to find your matches. If a demo needs the FACEIT room, DemoLab opens
+   it and asks you to click **Watch demo** there.
 
 - Checked every 30 minutes, or right away with **Check now**.
 - Demos you already have under another name are recognized (map, rounds and players), so they aren't downloaded twice.
@@ -383,8 +430,9 @@ start and every 6 hours, downloads it in the background (checked against GitHub'
 DemoLab. Matches, settings, lineups and the install folder are kept. **Settings → Updates** has the release
 notes, "Check now" and the on/off switch. Run from the source, DemoLab only reports new releases (`git pull` to update).
 
-To publish a release: raise `version` in `package.json`, commit and push, then run `npm run release` (notes from
-the commits) or `npm run release -- notes.md`. It builds the installer and uploads it to a new `v<version>`
+To publish a release: raise `version` in `package.json` and the root package versions in `package-lock.json`,
+commit and push, then run `npm run release` (notes from the commits) or `npm run release -- notes.md`.
+It builds the installer and uploads it to a new `v<version>`
 release with the GitHub CLI (`gh`).
 
 </details>
@@ -404,6 +452,12 @@ src/lib/profile.js       Your per-match summary for the overview and the Maps pa
 src/lib/rounds.js        Money, loadouts, callouts per round; positions and grenades at each kill
 src/lib/deaths.js        Death review: tags for every death
 src/lib/utility.js       Utility lineups on disk, share codes
+src/lib/lineupImages.js   Lineup image validation and backup coordination
+src/lib/training.js      HLAE training sessions, scenario recording and live game state
+src/lib/drills.js        Training definitions and angles extracted from demos
+src/lib/scenarios.js     Saved scenarios, map heights and share codes
+src/lib/botBrains.js     Bot behaviour trees for drills and scenarios
+src/lib/drillStats.js    Training demo analysis and scores
 src/lib/track.js         Sampled player positions for the 2D replay
 src/lib/integrity.js     Aim/visibility anomalies per player (Integrity tab) and their scoring
 src/lib/geometry.js      Map collision meshes (awpy-data download) and line-of-sight ray casts
@@ -413,6 +467,9 @@ src/lib/hlae.js          Starting CS2 through HLAE, console port, HLAE updates
 src/lib/recorder.js      Playback + recording orchestration
 src/lib/ffmpeg.js        Mux, join, montage, thumbnails
 src/lib/matches.js       Match downloads (gcWorker.js: Valve's list, community.js: Steam Community)
+src/lib/faceit.js        FACEIT sign-in, match discovery and demo downloads
+src/lib/inventory.js     Inventory, pricing and Steam sales refreshes
+src/lib/gallery.js       Published highlights pages and clip uploads
 src/lib/steam.js         Finding Steam, CS2 and the logged-in account
 src/lib/updater.js       DemoLab's own updates from GitHub releases
 src/renderer/            UI (radar/: bundled radar images and their world coordinates)
