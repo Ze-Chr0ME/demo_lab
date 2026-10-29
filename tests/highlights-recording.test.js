@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8').replace(/\r\n/g, '\n');
 const app = read('src/renderer/app.js');
 const main = read('src/main.js');
 const h = (tag, attrs = {}, ...children) => ({ tag, attrs, children: children.flat().filter(x => x != null) });
