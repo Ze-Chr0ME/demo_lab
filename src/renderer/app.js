@@ -502,11 +502,10 @@ function renderDemoList() {
   }
 }
 
-// Small square map badge: the radar image when there is one, else the map's color.
+// Official emblem, with initials until the art is ready.
 function mapThumb(map, fallback) {
-  const info = map && radarMaps ? radarInfo(map) : null;
-  const src = info ? `radar/${radarName(info, map)}.png` : null;
-  return h('div', { class: 'map-thumb', style: { '--c': mapColor(map), backgroundImage: src ? `url("${src}")` : null } },
+  return h('div', { class: 'map-thumb', style: { '--c': mapColor(map) } },
+    map ? mapEmblem(map, 'map-thumb-emblem') : null,
     h('span', {}, map ? mapName(map).slice(0, 3).toUpperCase() : fallback));
 }
 
@@ -730,10 +729,9 @@ function scoreboardView() {
   };
   return [
     h('div', { class: 'section-head' }, h('h3', {}, 'Scoreboard'),
-      h('div', { class: 'tabs' }, ...[[false, 'Compact'], [true, 'Detailed']].map(([v, l]) =>
-        h('button', { class: detailed === v ? 'on' : '', onclick: () => { state.sbDetailed = v; renderDetail(); } }, l))),
-      st.sides ? h('div', { class: 'tabs', title: 'Count everything, or only the rounds each player spent on one side' }, ...[[null, 'Both sides'], ['CT', 'CT'], ['T', 'T']].map(([v, l]) =>
-        h('button', { class: `${side === v ? 'on' : ''} ${v ? 'side-' + v : ''}`, onclick: () => { state.sbSide = v; renderDetail(); } }, l))) : null,
+      h('button', { class: 'chip-toggle sb-mode', 'aria-pressed': String(detailed), title: 'Switch scoreboard detail', onclick: () => { state.sbDetailed = !detailed; renderDetail(); } }, pickSvg(PICK_ICONS[detailed ? 'layers' : 'list']), detailed ? 'Advanced' : 'Simple'),
+      st.sides ? h('div', { class: 'tabs', title: 'Count everything, or only the rounds each player spent on one side' }, ...[[null, 'Both sides'], ['CT', 'CT side'], ['T', 'T side']].map(([v, l]) =>
+        h('button', { class: `${side === v ? 'on' : ''} ${v ? 'side-' + v : ''}`, 'aria-pressed': String(side === v), title: l, 'aria-label': l, onclick: () => { state.sbSide = v; renderDetail(); } }, sideIcon(v || 'both')))) : null,
       h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Click a column to sort it, a player to view the match as them, the bars icon for their stats over all your demos.')),
     ...teams.map(t => h('div', { class: 'sb-wrap' }, table(t))),
   ];
@@ -1031,7 +1029,7 @@ const HEAT_LAYERS = [
 ];
 const GRENADE_KINDS = new Set(['smoke', 'flash', 'he', 'molotov']);
 const WEAPON_KINDS = new Set([0, 2, 3]); // kill, shot, dealt: the weapon filter means "your weapon"
-state.heat = { layers: new Set(['kill', 'death']), scope: 'match', weapon: 'all', floor: 'upper', room: 'auto', display: 'heat', lines: true, data: null, loading: null, view: newView() };
+state.heat = { layers: new Set(['kill', 'death']), scope: 'match', weapon: new Set(), floor: 'upper', room: 'auto', display: 'heat', lines: true, data: null, loading: null, view: newView() };
 
 function heatData() {
   const steamid = state.analysis?.player?.steamid;
@@ -1046,6 +1044,27 @@ function heatData() {
       .finally(() => { if (hs.loading === key) hs.loading = null; if (state.tab === 'heatmap') renderDetail(); });
   }
   return null;
+}
+
+// Heat tuples store weaponName labels; damage can only identify a base weapon pair.
+function heatWeaponCodes(p) {
+  const name = String(p[2] || '').toLowerCase().replace(/^weapon_/, '');
+  let code = HEAT_WEAPON_NAMES.get(name);
+  if (/^(molotov|incgrenade|inferno)$/i.test(name)) code = 'inferno';
+  if (/^(knife|bayonet)/i.test(name)) code = 'knife';
+  if (!code) return [];
+  const alias = { m4a1: 'm4a1_silencer', hkp2000: 'usp_silencer', mp7: 'mp5sd', deagle: 'revolver' };
+  return p[0] === 3 && alias[code] ? [code, alias[code]] : [code];
+}
+function heatWeaponCounts(points, hs) {
+  const counts = new Map();
+  for (const p of points) if (WEAPON_KINDS.has(p[0])) for (const code of heatWeaponCodes(p)) counts.set(code, (counts.get(code) || 0) + 1);
+  for (const code of hs.weapon) if (!counts.has(code)) hs.weapon.delete(code);
+  return counts;
+}
+function heatWeaponButton(hs, counts, rerender) {
+  return counts.size > 1 ? weaponBuyButton(hs.weapon, () => weaponBuyMenu({ picked: hs.weapon, counts, unit: 'point',
+    subtitle: 'Kills, shots and damage dealt; base-name damage matches either weapon in its pair', onDone: rerender })) : null;
 }
 
 // Display controls shared by the match heatmap and the Maps page: blobs or dots, grenade throw lines.
@@ -1079,11 +1098,10 @@ function heatmapView() {
   if (data.error) return h('div', { class: 'empty' }, h('h2', {}, 'No heatmap for this demo'), h('div', { class: 'err-box' }, data.error));
 
   const hs = state.heat;
-  const weapons = [...new Set(data.points.filter(p => WEAPON_KINDS.has(p[0]) && p[2]).map(p => p[2]))].sort();
-  if (hs.weapon !== 'all' && !weapons.includes(hs.weapon)) hs.weapon = 'all';
+  const weaponCounts = heatWeaponCounts(data.points, hs);
   const floors = info.lowerBelow !== undefined;
   const pts = data.points.filter(p =>
-    (hs.weapon === 'all' || !WEAPON_KINDS.has(p[0]) || p[2] === hs.weapon) &&
+    (!hs.weapon.size || !WEAPON_KINDS.has(p[0]) || heatWeaponCodes(p).some(code => hs.weapon.has(code))) &&
     (!floors || onLower(info, p[5]) === (hs.floor === 'lower')));
   // Rush: show the room with the most points (or the one picked), points per room in the picker.
   let room = null, roomCounts = null;
@@ -1099,7 +1117,7 @@ function heatmapView() {
   const controls = h('div', { class: 'heat-controls' },
     h('div', { class: 'tabs' }, ...[['match', 'This match'], ['map', `All my ${mapName(a.map)} matches`]].map(([k, l]) =>
       h('button', { class: hs.scope === k ? 'on' : '', onclick: () => { hs.scope = k; renderDetail(); } }, l))),
-    weapons.length > 1 ? select(hs.weapon, [['all', 'All weapons'], ...weapons.map(w => [w, wpName(w)])], v => { hs.weapon = v; renderDetail(); }, { seg: false, icon: pickWeapon, noun: 'weapons' }) : null,
+    heatWeaponButton(hs, weaponCounts, renderDetail),
     floors ? h('div', { class: 'tabs' }, ...[['upper', 'Upper floor'], ['lower', 'Lower floor']].map(([k, l]) =>
       h('button', { class: hs.floor === k ? 'on' : '', onclick: () => { hs.floor = k; renderDetail(); } }, l))) : null,
     roomSelect(info, hs.room, v => { hs.room = v; renderDetail(); }, roomCounts),
@@ -1117,7 +1135,7 @@ function heatmapView() {
     const canvas = h('canvas', { width: 1280, height: 1280 });
     const prepared = prepareHeat(frame, pts.filter(p => p[1] === si), hs.layers);
     radarImage(frame.src).then(img => { painted[si] = { canvas, img, layers: prepared }; drawHeat(canvas, img, v, prepared, opts); });
-    return h('div', { class: 'heat-map' }, h('div', { class: `heat-side side-${side}` }, `${side} side`, h('span', {}, ` · ${a.player.name}`)), zoomable(canvas, v, redraw));
+    return h('div', { class: 'heat-map' }, h('div', { class: `heat-side side-${side}`, title: `${side} side` }, sideIcon(side), h('span', {}, a.player.name)), zoomable(canvas, v, redraw));
   }));
   return [h('div', { class: 'section-head' }, h('h3', {}, 'Heatmap'), h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Scroll to zoom · drag to move · double-click for the whole map')), controls, layers, maps];
 }
@@ -2662,7 +2680,7 @@ document.addEventListener('keydown', e => {
 // ---------- Maps ----------
 // Every map with parsed demos; per map one big zoomable radar with kills, deaths, damage and grenades
 // from all its matches, for you or for everyone.
-state.mp = { map: null, who: 'me', side: 'both', layers: new Set(['kill', 'death']), display: 'heat', lines: true, weapon: 'all', floor: 'upper', room: 'auto', data: null, loading: null, view: newView() };
+state.mp = { map: null, who: 'me', side: 'both', layers: new Set(['kill', 'death']), display: 'heat', lines: true, weapon: new Set(), floor: 'upper', room: 'auto', data: null, loading: null, view: newView() };
 
 function mapsIndex() {
   const by = new Map();
@@ -2743,12 +2761,11 @@ function mapDetail() {
   if (!data) return wrap(h('div', { class: 'empty' }, spinner(28), h('h2', {}, 'Collecting every match on this map…')));
   if (data.error) return wrap(h('div', { class: 'err-box' }, data.error));
 
-  const weapons = [...new Set(data.points.filter(p => WEAPON_KINDS.has(p[0]) && p[2]).map(p => p[2]))].sort();
-  if (mp.weapon !== 'all' && !weapons.includes(mp.weapon)) mp.weapon = 'all';
+  const weaponCounts = heatWeaponCounts(data.points, mp);
   const floors = info.lowerBelow !== undefined;
   const pts = data.points.filter(p =>
     (mp.side === 'both' || p[1] === (mp.side === 'T' ? 0 : 1)) &&
-    (mp.weapon === 'all' || !WEAPON_KINDS.has(p[0]) || p[2] === mp.weapon) &&
+    (!mp.weapon.size || !WEAPON_KINDS.has(p[0]) || heatWeaponCodes(p).some(code => mp.weapon.has(code))) &&
     (!floors || onLower(info, p[5]) === (mp.floor === 'lower')));
   let room = null, roomCounts = null;
   if (info.rooms) {
@@ -2768,9 +2785,9 @@ function mapDetail() {
 
   const controls = card('Show', [
     h('div', { class: 'ctl-row' }, h('label', {}, 'Side'), h('div', { class: 'tabs' }, ...[['both', 'Both'], ['T', 'T'], ['CT', 'CT']].map(([k, l]) =>
-      h('button', { class: `${mp.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, onclick: () => { mp.side = k; rerender(); } }, sideIcon(k), l)))),
+      h('button', { class: `${mp.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, 'aria-pressed': String(mp.side === k), title: k === 'both' ? 'Both sides' : `${k} side`, 'aria-label': k === 'both' ? 'Both sides' : `${k} side`, onclick: () => { mp.side = k; rerender(); } }, sideIcon(k))))),
     h('div', { class: 'ctl-row' }, h('label', {}, 'Display'), ...heatDisplayControls(mp, rerender)),
-    weapons.length > 1 ? h('div', { class: 'ctl-row' }, h('label', {}, 'Weapon'), select(mp.weapon, [['all', 'All weapons'], ...weapons.map(w => [w, wpName(w)])], v => { mp.weapon = v; rerender(); }, { seg: false, icon: pickWeapon, noun: 'weapons' })) : null,
+    weaponCounts.size > 1 ? h('div', { class: 'ctl-row' }, h('label', {}, 'Weapon'), heatWeaponButton(mp, weaponCounts, rerender)) : null,
     floors ? h('div', { class: 'ctl-row' }, h('label', {}, 'Floor'), h('div', { class: 'tabs' }, ...[['upper', 'Upper'], ['lower', 'Lower']].map(([k, l]) =>
       h('button', { class: mp.floor === k ? 'on' : '', onclick: () => { mp.floor = k; rerender(); } }, l)))) : null,
     info.rooms ? h('div', { class: 'ctl-row' }, h('label', {}, 'Room'), roomSelect(info, mp.room, v => { mp.room = v; rerender(); }, roomCounts)) : null,
@@ -2891,7 +2908,7 @@ function renderUtility() {
     h('div', { class: 'tabs' }, ...[['all', 'All'], ...UT_TYPES].map(([k, l]) =>
       h('button', { class: u.type === k ? 'on' : '', onclick: () => { u.type = k; renderUtility(); } }, k !== 'all' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, l))),
     h('div', { class: 'tabs' }, ...[['both', 'Both sides'], ['T', 'T'], ['CT', 'CT']].map(([k, l]) =>
-      h('button', { class: `${u.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, onclick: () => { u.side = k; renderUtility(); } }, sideIcon(k), l))),
+      h('button', { class: `${u.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, 'aria-pressed': String(u.side === k), title: k === 'both' ? 'Both sides' : `${k} side`, 'aria-label': k === 'both' ? 'Both sides' : `${k} side`, onclick: () => { u.side = k; renderUtility(); } }, sideIcon(k)))),
     search,
     select(u.sort, UT_SORTS, v => { u.sort = v; renderUtility(); }, { seg: false, label: 'Sort', icon: v => pickSvg(PICK_ICONS[v === 'new' ? 'calendar' : v === 'name' ? 'list' : 'repeat']) }));
 
@@ -3281,9 +3298,9 @@ function editLineup(seed = {}) {
 
   const seg = (list, key, onchange) => {
     const wrap = h('div', { class: 'tabs' });
-    const paint = () => wrap.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', list[i][0] === d[key]));
-    wrap.append(...list.map(([k, l]) => h('button', { class: key === 'side' && k !== 'both' ? `side-${k}` : '', onclick: () => { d[key] = k; paint(); onchange?.(); } },
-      key === 'side' ? sideIcon(k) : key === 'type' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, l)));
+    const paint = () => wrap.querySelectorAll('button').forEach((b, i) => { b.classList.toggle('on', list[i][0] === d[key]); b.setAttribute('aria-pressed', String(list[i][0] === d[key])); });
+    wrap.append(...list.map(([k, l]) => h('button', { class: key === 'side' && k !== 'both' ? `side-${k}` : '', title: key === 'side' ? (k === 'both' ? 'Both sides' : `${k} side`) : l, 'aria-label': key === 'side' ? (k === 'both' ? 'Both sides' : `${k} side`) : l, onclick: () => { d[key] = k; paint(); onchange?.(); } },
+      key === 'side' ? sideIcon(k) : key === 'type' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, key === 'side' ? null : l)));
     paint();
     return wrap;
   };
@@ -3685,6 +3702,8 @@ const CLIP_WEAPON_NAMES = {
   mag7: ['MAG-7'], sawedoff: ['Sawed-Off'], m249: ['M249'], negev: ['Negev'], g3sg1: ['G3SG1'], scar20: ['SCAR-20'],
   hegrenade: ['HE'], knife: ['Knife'], inferno: ['Molotov', 'Incendiary'],
 };
+
+const HEAT_WEAPON_NAMES = new Map(Object.entries(CLIP_WEAPON_NAMES).flatMap(([code, names]) => [code, ...names].map(name => [name.toLowerCase(), code])));
 
 // The weapon a clip is "about": the one with the most kills (older clips only know the weapon list).
 function mainWeapon(c) {
