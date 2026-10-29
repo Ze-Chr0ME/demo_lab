@@ -54,6 +54,7 @@ class HlaeSession {
     Object.assign(this, { dir, cs2Dir, port, width, height, ffmpegPath, log });
     this.sock = null;
     this.buf = '';
+    this.seen = 0; // characters received since the start (buf only keeps the end)
     this.launched = false;
   }
 
@@ -71,7 +72,7 @@ class HlaeSession {
       s.once('error', () => resolve(false));
       s.once('connect', () => {
         this.sock = s;
-        s.on('data', d => { this.buf = (this.buf + d).slice(-2_000_000); });
+        s.on('data', d => { this.buf = (this.buf + d).slice(-2_000_000); this.seen += d.length; });
         s.on('close', () => { if (this.sock === s) this.sock = null; });
         s.on('error', () => {});
         resolve(true);
@@ -105,6 +106,7 @@ class HlaeSession {
   async send(cmds) {
     if (!this.sock) throw new Error('Lost the connection to CS2 (did it close or crash?).');
     for (const c of [].concat(cmds)) {
+      if (!this.sock) throw new Error('Lost the connection to CS2 (did it close or crash?).');
       this.sock.write(c + '\r\n');
       await sleep(40);
     }
@@ -125,6 +127,12 @@ class HlaeSession {
   }
 
   mark() { this.buf = ''; }
+
+  // The console text received after this.seen was `from` (what is still in buf of it).
+  since(from) {
+    const n = this.seen - from;
+    return n <= 0 ? '' : this.buf.slice(-Math.min(n, this.buf.length));
+  }
 
   async waitFor(re, ms, isCancelled) {
     const until = Date.now() + ms;

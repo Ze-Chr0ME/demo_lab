@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net, nativeImage, Notification, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net, nativeImage, Notification, session, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Worker } = require('worker_threads');
@@ -28,12 +28,19 @@ const { decode } = require('./lib/proto');
 const { Community, signIn, signOut, watchCookies, loginCookieSummary, PARTITION } = require('./lib/community');
 const faceitLib = require('./lib/faceit');
 const hlae = require('./lib/hlae');
-const { UtilityStore, steamScreenshots, shareCode, shortCode, readCodes, sameLineup } = require('./lib/utility');
+const { matchesImage, imageBackup } = require('./lib/lineupImages');
+const { UtilityStore, steamScreenshots, shareCode, shortCode, readCodes, sameLineup, REMOTE_IMAGE } = require('./lib/utility');
 const { AvatarStore } = require('./lib/avatars');
 const { ThemeArt } = require('./lib/themeArt');
 const { Updater } = require('./lib/updater');
-const { Gallery, SHORT_URL: GALLERY_SHORT, isPageLink } = require('./lib/gallery');
+const { Gallery, quaxUpload, SHORT_URL: GALLERY_SHORT, isPageLink } = require('./lib/gallery');
 const { InventoryStore, localCurrency } = require('./lib/inventory');
+const { DRILLS, WARMUP, anglePairs, angles, buildReps } = require('./lib/drills');
+const { Gsi, runTraining, runRecorder, newToken } = require('./lib/training');
+const { scoreOf, SCORE_HOW } = require('./lib/drillStats');
+const scenarioCodes = require('./lib/scenarios');
+const { Scenarios, pickFloor, jigglePoints, aimPoint } = require('./lib/scenarios');
+const { loadGeometry } = require('./lib/geometry');
 
 let win;
 let settings;
@@ -328,6 +335,19 @@ async function viewerSession() {
   return session;
 }
 
+// Opens a map in the HLAE CS2 and waits until the player is in it: getpos answers with a setpos line.
+async function loadMap(session, map, cmd = `map ${map}`, cancelled = () => false) {
+  await session.send([cmd]);
+  for (const until = Date.now() + 150000; Date.now() < until;) {
+    await new Promise(r => setTimeout(r, 3000));
+    if (cancelled()) return false;
+    session.mark();
+    await session.send(['sv_cheats 1', 'getpos']);
+    if (await session.waitFor(/setpos(?:_exact)?\s+-?\d/, 2500, () => false)) return true;
+  }
+  throw new Error(`CS2 did not finish loading ${map} within 2.5 minutes.`);
+}
+
 // A private practice server: no bots, infinite grenades, grenade trajectory preview, buy anywhere.
 const PRACTICE = ['sv_cheats 1', 'bot_kick', 'mp_warmup_end', 'mp_freezetime 0', 'mp_roundtime_defuse 60', 'mp_buy_anywhere 1', 'mp_buytime 9999',
   'mp_maxmoney 60000', 'mp_startmoney 60000', 'sv_infinite_ammo 1', 'ammo_grenade_limit_total 5', 'sv_grenade_trajectory_prac_pipreview 1', 'mp_restartgame 1'];
@@ -365,7 +385,7 @@ function scanDemos() {
   const seen = new Set();
   for (const dir of demoFolders()) {
     for (const name of fs.readdirSync(dir)) {
-      if (!/\.dem$/i.test(name)) continue;
+      if (!/\.dem$/i.test(name) || TRAINING_DEMO.test(name)) continue;
       const file = path.join(dir, name);
       if (seen.has(file.toLowerCase())) continue;
       seen.add(file.toLowerCase());
@@ -596,7 +616,7 @@ function watchDemoFolders() {
   for (const dir of demoFolders()) {
     try {
       auto.watchers.push(fs.watch(dir, (_ev, name) => {
-        if (name && /\.dem$/i.test(name)) autoCandidate(path.join(dir, name));
+        if (name && /\.dem$/i.test(name) && !TRAINING_DEMO.test(name)) autoCandidate(path.join(dir, name));
       }));
     } catch (e) { log('auto: cannot watch', dir, e.message); }
   }
@@ -700,12 +720,301 @@ function analysis(file, data, steamid) {
   };
 }
 
+// ---------- Training ----------
+// A session runs in the HLAE CS2 (lib/training.js) while a demo records it; once it ends the demo is
+// moved to <userData>/training/demos and read (lib/drillStats.js), and the result joins history.json
+// (the full engagement and death lists go to sessions/<id>.json).
+let training = null; // the running session: { plan, cancelled, status }
+let gsi = null;
+const TRAINING_DEMOS_KEPT = 30;
+// CS2 writes the sessions' demos next to the user's own (csgo/): never list or auto-read them as matches.
+const TRAINING_DEMO = /^demolab_training_/i;
+const DRILL_PAIRS_VERSION = 1;
+
+function trainingDir(...parts) {
+  const dir = path.join(app.getPath('userData'), 'training');
+  for (const d of ['sessions', 'demos']) fs.mkdirSync(path.join(dir, d), { recursive: true });
+  return path.join(dir, ...parts);
+}
+let scenariosStore = null;
+const scenarios = () => scenariosStore || (scenariosStore = new Scenarios(trainingDir()));
+// Where players stand on a map in the user's demos ([x, y, z]): which floor a spot of the editor is on.
+function standPoints(map) {
+  const out = [];
+  for (const a of anglesOf(map).list) out.push(a.bot, a.me);
+  return out;
+}
+function trainingHistory() { try { return JSON.parse(fs.readFileSync(trainingDir('history.json'), 'utf8')); } catch { return []; } }
+function saveHistory(list) { fs.writeFileSync(trainingDir('history.json'), JSON.stringify(list)); }
+function workshopDir(id) {
+  const dir = env.cs2Dir && path.join(env.cs2Dir, '..', '..', 'workshop', 'content', '730', id);
+  return dir && fs.existsSync(dir) && fs.readdirSync(dir).some(f => /\.vpk$/i.test(f)) ? dir : null;
+}
+function gsiServer() {
+  if (!gsi) {
+    let t = s().training;
+    if (!t.gsiToken) t = settings.update({ training: { gsiToken: newToken() } }).training;
+    gsi = new Gsi({ port: t.gsiPort, token: t.gsiToken, log });
+  }
+  return gsi;
+}
+
+// The kills of every demo usable as training angles (drills.js), per map. Read once per demo and
+// kept in derived.json; the grouped angles stay in memory until a new demo appears.
+let anglesCache = null;
+function anglePairsAll() {
+  const me = mySteamId();
+  const demos = scanDemos();
+  const key = `${me}|${demos.length}|${demos[0]?.id || ''}`;
+  if (anglesCache?.key === key) return anglesCache;
+  const byMap = new Map();
+  const seen = new Set();
+  for (const d of demos) {
+    if (seen.has(d.id)) continue;
+    seen.add(d.id);
+    const k = `drill|${d.id}|${me}`;
+    let v = store.derived(k, DRILL_PAIRS_VERSION);
+    if (v === undefined) {
+      const core = store.readCore(d.id);
+      if (!core) continue;
+      v = { map: core.map, pairs: anglePairs(core, me) };
+      store.setDerived(k, DRILL_PAIRS_VERSION, v);
+    }
+    const e = byMap.get(v.map) || byMap.set(v.map, { demos: 0, pairs: [] }).get(v.map);
+    e.demos++;
+    for (const p of v.pairs) e.pairs.push(p);
+  }
+  anglesCache = { key, byMap, grouped: new Map() };
+  return anglesCache;
+}
+function anglesOf(map) {
+  const all = anglePairsAll();
+  const e = all.byMap.get(map);
+  if (!e) return { demos: 0, list: [] };
+  if (!all.grouped.has(map)) all.grouped.set(map, angles(e.pairs));
+  return { demos: e.demos, list: all.grouped.get(map) };
+}
+function trainingMaps() {
+  const out = [];
+  for (const [map, e] of anglePairsAll().byMap) {
+    if (!/^(de|cs)_/.test(map)) continue;
+    out.push({ map, demos: e.demos, kills: e.pairs.length, mine: e.pairs.reduce((n, p) => n + p[6], 0) });
+  }
+  return out.sort((a, b) => b.demos - a.demos);
+}
+// The map's collision mesh when it's already on disk (Integrity downloads them): hides the start spots.
+let meshCache = null;
+function meshOf(map) {
+  if (meshCache?.map !== map || !meshCache.geo) {
+    let geo = null;
+    try { geo = loadGeometry(path.join(app.getPath('userData'), 'geometry'), map); } catch (e) { log('training: mesh', e.message); }
+    meshCache = { map, geo };
+  }
+  return meshCache.geo;
+}
+
+async function startTraining(req) {
+  if (training) throw new Error('A training session is already running.');
+  if (recorder) throw new Error('A recording is running. Wait until it has finished.');
+  if (watching) throw new Error('CS2 is still busy with the previous request. Wait a moment.');
+  if (!env.csgoDir) throw new Error('CS2 installation not found. Set it in Settings.');
+  const missing = hlae.missingFiles(hlaeDir());
+  if (missing.length) throw new Error(`HLAE_MISSING: Training in CS2 needs HLAE, which is not installed or incomplete in ${hlaeDir()} (missing: ${missing.join(', ')}). Install it from Settings → Recording.`);
+  const drill = req.drill;
+  const def = DRILLS[drill];
+  if (!def) throw new Error('Unknown drill.');
+  const cfg = s().training;
+  const options = { weapon: req.weapon || cfg.weapon, botWeapon: req.botWeapon || cfg.botWeapon, difficulty: req.difficulty ?? cfg.difficulty, hsOnly: !!req.hsOnly,
+    pistol: req.pistol || cfg.pistol, nades: Array.isArray(req.nades) ? req.nades : cfg.nades || [], armor: req.armor ?? cfg.armor };
+  settings.update({ training: { weapon: options.weapon, botWeapon: options.botWeapon, difficulty: options.difficulty, pistol: options.pistol, nades: options.nades, armor: options.armor, source: req.source || cfg.source } });
+  let map = req.map, parts = [], scenario = null, list = null, mix = null;
+  if (drill === 'scenario' && req.mixMap) {
+    // a map's mix: every scenario of the map, a random one each rep
+    map = req.mixMap;
+    list = scenarios().list().filter(x => x.map === map);
+    if (!list.length) throw new Error(`No scenario on ${map} yet.`);
+    mix = { reps: Math.max(1, Math.min(50, Math.round(req.reps || 10))), firstTo: Math.max(0, Math.min(16, Math.round(req.firstTo || 0))) };
+    scenario = { id: `mix_${map}`, name: `${map.replace(/^de_/, '').replace(/^./, c => c.toUpperCase())} mix` };
+  } else if (drill === 'scenario') {
+    scenario = scenarios().get(req.scenarioId);
+    if (!scenario) throw new Error('This scenario is gone.');
+    map = scenario.map;
+    if (req.reps) scenario.options.reps = Math.max(1, Math.min(50, Math.round(req.reps)));
+  }
+  if (drill === 'scenario') {
+    const geo = meshOf(map);
+    for (const x of list || [scenario]) for (const b of x.bots) b.jiggleAt = jigglePoints(geo, b);
+    // one rep per scenario for the demo's reading (a rep is found by the start spot I land on)
+    parts = [{ drill, reps: (list || [scenario]).map(x => ({ me: x.me.pos, bots: x.bots.map(b => b.pos), smokes: x.smokes })) }];
+  } else if (def.free) {
+    map = def.map;
+    if (!workshopDir(def.workshop)) throw new Error(`WORKSHOP_MISSING: Subscribe to ${def.mapTitle} on the Steam Workshop first (Steam downloads it), then try again.`);
+  } else {
+    if (!/^[a-z0-9_]+$/i.test(map || '')) throw new Error('Pick a map.');
+    const { list } = anglesOf(map);
+    const geo = meshOf(map);
+    const source = req.source || 'both';
+    parts = [{ drill, reps: buildReps(drill, list, { source, geo, max: Math.max(3, Math.min(30, req.count || 12)) }) }];
+    if (!parts.length || !parts.some(p => p.reps.length)) throw new Error(`Not enough kills on ${map} in your demos yet for this drill. Play or download a few matches on it.`);
+  }
+  const plan = { drill, map, source: req.source || 'both', options, parts, scenario, ...(list ? { scenarios: list, mix } : {}) };
+  const g = gsiServer();
+  try { await g.start(); } catch (e) { log('training: game state server', e.message); }
+  let gsiNew = false;
+  try { gsiNew = g.install(env.csgoDir); } catch (e) { log('training: could not install the game state config', e.message); }
+  const run = { plan, cancelled: false, status: { drill, map, phase: 'starting', gsiNew } };
+  training = run;
+  const status = st => { run.status = { ...run.status, ...st, drill, map }; send('training:update', run.status); };
+  status({});
+  (async () => {
+    try {
+      const session = await viewerSession();
+      const res = await runTraining(plan, {
+        session, gsi: g, csgoDir: env.csgoDir, log, status, cancelled: () => run.cancelled,
+        loadMap: (m, cmd) => loadMap(session, m, cmd, () => run.cancelled),
+      });
+      // the practice server setup (lineups) has to be applied again after this
+      viewer.map = null;
+      viewer.demo = null;
+      if (!res) return status({ phase: 'cancelled' });
+      status({ phase: 'analyzing', message: 'Reading the training demo…' });
+      status({ phase: 'done', result: await finishTraining(plan, res) });
+    } catch (e) {
+      log('training: failed', e.message);
+      status({ phase: 'error', error: e.message });
+    } finally {
+      training = null;
+      send('training:update', run.status);
+    }
+  })();
+  return true;
+}
+
+// Recording a scenario in CS2 (runRecorder): keys mark the bots and my start, the result is saved as a
+// scenario (or handed to the editor unsaved when it misses something) to fine-tune on the 2D map.
+async function startRecorder(map) {
+  if (training) throw new Error('A training session is already running.');
+  if (recorder) throw new Error('A recording is running. Wait until it has finished.');
+  if (watching) throw new Error('CS2 is still busy with the previous request. Wait a moment.');
+  if (!env.csgoDir) throw new Error('CS2 installation not found. Set it in Settings.');
+  if (!/^[a-z0-9_]+$/i.test(map || '')) throw new Error('Pick a map.');
+  const missing = hlae.missingFiles(hlaeDir());
+  if (missing.length) throw new Error(`HLAE_MISSING: Recording in CS2 needs HLAE, which is not installed or incomplete in ${hlaeDir()} (missing: ${missing.join(', ')}). Install it from Settings → Recording.`);
+  const g = gsiServer();
+  try { await g.start(); } catch (e) { log('recorder: game state server', e.message); }
+  let gsiNew = false;
+  try { gsiNew = g.install(env.csgoDir); } catch (e) { log('recorder: could not install the game state config', e.message); }
+  const drill = 'record';
+  const run = { plan: { drill, map }, cancelled: false, discard: false, rec: { bots: [], me: null }, status: { drill, map, phase: 'starting', gsiNew } };
+  training = run;
+  run.update = st => { run.status = { ...run.status, ...st, drill, map, list: run.rec.bots.map(b => ({ crouch: b.crouch, weapon: b.weapon })) }; send('training:update', run.status); };
+  run.update({});
+  const bindsFile = trainingDir('binds.json');
+  (async () => {
+    try {
+      const session = await viewerSession();
+      const res = await runRecorder(run.plan, {
+        session, gsi: g, log, status: run.update, cancelled: () => run.cancelled, rec: run.rec,
+        loadMap: (m, cmd) => loadMap(session, m, cmd, () => run.cancelled),
+        aim: (eye, pitch, yaw) => aimPoint(meshOf(map), eye, pitch, yaw),
+        binds: {
+          pending: () => { try { return JSON.parse(fs.readFileSync(bindsFile, 'utf8')); } catch { return null; } },
+          save: b => (b ? fs.writeFileSync(bindsFile, JSON.stringify(b)) : fs.rm(bindsFile, { force: true }, () => {})),
+        },
+      });
+      viewer.map = null;
+      viewer.demo = null;
+      if (!res || run.discard) return run.update({ phase: 'cancelled' });
+      if (!res.bots.length) return run.update({ phase: 'recorded', scenario: null });
+      const draft = { map, name: `Recorded ${new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, me: res.me, bots: res.bots, smokes: [], options: { reps: 10, seconds: 25 } };
+      let scenario = draft, saved = false;
+      if (res.me) { try { scenario = scenarios().save(draft); saved = true; } catch (e) { log('recorder: not saved', e.message); } }
+      log(`recorder: ${res.bots.length} bots on ${map}${res.me ? '' : ', no start spot'}${saved ? ', saved' : ''}`);
+      run.update({ phase: 'recorded', scenario, saved });
+    } catch (e) {
+      log('recorder: failed', e.message);
+      run.update({ phase: 'error', error: e.message });
+    } finally {
+      training = null;
+      send('training:update', run.status);
+    }
+  })();
+  return true;
+}
+
+// Moves the session's demo out of csgo/, reads it and adds the result to the history.
+async function finishTraining(plan, res) {
+  // GOTV's demo, else the client one; CS2 writes the end of a demo after it stops recording
+  const files = [res.demo, res.demoPov].filter(Boolean).map(f => path.join(env.csgoDir, f));
+  let size = -1;
+  for (let i = 0; i < 40; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    const now = files.map(f => (fs.existsSync(f) ? fs.statSync(f).size : -1)).join('|');
+    if (now !== files.map(() => -1).join('|') && now === size) break;
+    size = now;
+  }
+  const src = files.find(f => fs.existsSync(f) && fs.statSync(f).size > 0);
+  if (!src) throw new Error(`CS2 did not save the training demo (${res.demo}). Nothing to read.`);
+  log(`training: reading ${path.basename(src)}`);
+  const id = Date.now().toString(36);
+  const file = trainingDir('demos', `${id}.dem`);
+  await fs.promises.copyFile(src, file);
+  for (const f of files) fs.rm(f, { force: true }, () => {});
+  const geoDir = path.join(app.getPath('userData'), 'geometry');
+  const data = await new Promise((resolve, reject) => {
+    const w = new Worker(path.join(__dirname, 'lib', 'parseWorker.js'), {
+      workerData: { mode: 'drill', file, me: mySteamId(), geometryDir: fs.existsSync(geoDir) ? geoDir : null, parts: plan.parts.length ? res.parts.map((p, i) => ({ drill: p.drill, from: p.from, to: p.to, reps: plan.parts[i].reps.map(r => ({ me: r.me, bots: r.bots })) })) : null },
+    });
+    w.once('message', msg => { w.terminate(); msg.ok ? resolve(msg.data) : reject(new Error(`Could not read the training demo: ${msg.error}`)); });
+    w.once('error', reject);
+  });
+  const strip = ({ engagements, deathList, ...m }) => m;
+  const parts = (data.segments || []).map((m, i) => ({ ...res.parts[i], score: scoreOf(m.drill, m), metrics: strip(m) }));
+  log(`training: ${data.repsFound} reps found in the demo`);
+  const mapScore = res.runs.at(-1)?.score ?? (res.highscore ? Number(res.highscore.last_score) || null : null);
+  const entry = {
+    id, drill: plan.drill, map: plan.map, date: res.started,
+    scenario: plan.scenario ? { id: plan.scenario.id, name: plan.scenario.name } : undefined, reps: res.reps?.length ? res.reps : undefined, seconds: data.seconds, source: plan.source, options: plan.options,
+    score: scoreOf(plan.drill, data.total),
+    metrics: strip(data.total), parts, runs: res.runs, mapScore, highscore: res.highscore?.scores?.slice(0, 10) || null, measured: data.measured,
+  };
+  fs.writeFileSync(trainingDir('sessions', `${id}.json`), JSON.stringify({ ...entry, engagements: data.total.engagements, deaths: data.total.deathList }));
+  const list = [...trainingHistory(), entry];
+  saveHistory(list);
+  // old demos go, their results stay
+  const demos = fs.readdirSync(trainingDir('demos')).filter(f => f.endsWith('.dem')).sort();
+  for (const f of demos.slice(0, Math.max(0, demos.length - TRAINING_DEMOS_KEPT))) fs.rm(trainingDir('demos', f), { force: true }, () => {});
+  log(`training: ${plan.drill} on ${plan.map} done, score ${entry.score}`);
+  return entry;
+}
+
 // ---------- IPC ----------
 
 function handle(name, fn) {
   ipcMain.handle(name, async (_e, ...args) => {
     try { return { ok: true, value: await fn(...args) }; } catch (err) { return { ok: false, error: err.message || String(err) }; }
   });
+}
+
+// F3, from CS2 (no switching to DemoLab): finishes what runs there. A training session ends like its
+// Finish / Stop button, a scenario recording like "Finish and edit", the lineup practice closes its CS2.
+// A Windows hotkey, held only while one of them runs (F3 stays free for everything else meanwhile).
+const FINISH_KEY = 'F3';
+function finishNow() {
+  if (training?.rec) { training.discard = false; training.cancelled = true; log('F3: recording finished'); }
+  else if (training) { training.cancelled = true; log('F3: training finished'); }
+  else if (viewer?.map && viewer.session?.sock && !watching) {
+    const { session } = viewer;
+    viewer = null;
+    log('F3: practice closed');
+    session.quit().catch(e => log('F3: closing CS2 failed', e.message));
+  }
+}
+function syncFinishKey() {
+  const want = !!training || !!(viewer?.map && viewer.session?.sock);
+  const has = globalShortcut.isRegistered(FINISH_KEY);
+  if (want && !has && !globalShortcut.register(FINISH_KEY, finishNow)) log(`F3: could not take ${FINISH_KEY} (another app holds it)`);
+  else if (!want && has) globalShortcut.unregister(FINISH_KEY);
 }
 
 function registerIpc() {
@@ -748,6 +1057,27 @@ function registerIpc() {
     const failure = store.failure(d.id);
     return { ...d, summary, failure: failure && { map: failure.map } };
   }));
+
+  // Every highlight for a player across parsed demos, counting copied demos once.
+  handle('highlights:all', steamid => {
+    const items = [], seen = new Set();
+    const me = steamid || mySteamId();
+    let parsed = 0;
+    for (const d of scanDemos()) {
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
+      const data = store.readCore(d.id);
+      if (!data) continue;
+      parsed++;
+      const a = analysis(d.path, data, me);
+      if (!a.playerFound) continue;
+      const demo = { id: d.id, path: d.path, name: d.name, customName: d.customName, date: d.date };
+      for (const { segments, ...highlight } of a.highlights) {
+        items.push({ demo, map: data.map, score: a.score, player: a.player, highlight: { ...highlight, segmentCount: segments.length } });
+      }
+    }
+    return { items, parsed, total: seen.size };
+  });
 
   // The overview dashboard: a player's summary (me unless another SteamID is given) for every parsed demo
   // they played in (each demo once, even if copied). Demos that aren't parsed yet are skipped; the renderer
@@ -954,6 +1284,7 @@ function registerIpc() {
   handle('art:teamSvg', code => themeArt.teamSvg(code));
   handle('art:weapon', code => themeArt.weapon(code));
   handle('art:mapIcon', map => themeArt.mapIcon(map));
+  handle('art:killIcon', name => themeArt.killIcon(name));
   handle('radar:maps', () => JSON.parse(fs.readFileSync(path.join(__dirname, 'renderer', 'radar', 'maps.json'), 'utf8')));
   handle('demo:rename', (file, name) => { const id = store.idOf(file); store.setName(id, name); return store.name(id); });
 
@@ -1036,9 +1367,9 @@ function registerIpc() {
     const jobs = [];
     for (const it of items) {
       const data = await parseDemo(it.demoPath);
-      const a = analysis(it.demoPath, data, steamid || mySteamId());
+      const a = analysis(it.demoPath, data, it.steamid || steamid || mySteamId());
       const h = a.highlights?.find(x => x.id === it.highlightId);
-      if (!h) continue;
+      if (!h) throw new Error('A queued highlight changed or is no longer available. Refresh Highlights and select it again.');
       jobs.push({ demoPath: it.demoPath, demoId: store.idOf(it.demoPath), demoDate: matchDate(it.demoPath, fs.statSync(it.demoPath)), map: data.map, player: a.player, highlight: h });
     }
     if (!jobs.length) throw new Error('Nothing to record.');
@@ -1102,25 +1433,18 @@ function registerIpc() {
   // map only teleport.
   handle('practice:goto', async ({ map, from, angle, type, side }) => {
     if (recorder) throw new Error('A recording is running. Wait until it has finished.');
-    if (watching) throw new Error('CS2 is still busy with the previous request. Wait a moment.');
+    if (watching || training) throw new Error('CS2 is still busy with the previous request. Wait a moment.');
     if (!env.csgoDir) throw new Error('CS2 installation not found. Set it in Settings.');
-    if (!/^[a-z0-9_]+$/i.test(map || '') || !Array.isArray(from) || from.length < 3 || from.some(v => !Number.isFinite(v))) throw new Error('This lineup has no exact throw spot (paste the getpos line in Edit).');
+    if (!/^[a-z0-9_]+$/i.test(map || '') || !Array.isArray(from) || from.length < 3 || from.some(v => !Number.isFinite(v))) throw new Error('This lineup has no exact throw spot (paste the getpos_exact line in Edit).');
     const missing = hlae.missingFiles(hlaeDir());
     if (missing.length) throw new Error(`HLAE_MISSING: Practicing in CS2 needs HLAE, which is not installed or incomplete in ${hlaeDir()} (missing: ${missing.join(', ')}). Install it from Settings → Recording.`);
     const ang = Array.isArray(angle) && angle.every(Number.isFinite) ? angle : [0, 0];
     watching = (async () => {
       const session = await viewerSession();
       if (viewer.map !== map) {
-        await session.send([`map ${map}`]);
-        // Loaded once the player exists: getpos answers with a setpos line.
-        let ready = false;
-        for (const until = Date.now() + 150000; !ready && Date.now() < until;) {
-          await new Promise(r => setTimeout(r, 3000));
-          session.mark();
-          await session.send(['sv_cheats 1', 'getpos']);
-          ready = !!(await session.waitFor(/setpos(?:_exact)?\s+-?\d/, 2500, () => false));
-        }
-        if (!ready) throw new Error(`CS2 did not finish loading ${map} within 2.5 minutes.`);
+        // Casual again: the procedural training map leaves CS2 in Custom
+        await session.send(['game_type 0', 'game_mode 0']);
+        await loadMap(session, map);
         await session.send([...PRACTICE, `jointeam ${side === 'CT' ? 3 : 2} 1`]);
         await new Promise(r => setTimeout(r, 2500));
         viewer.map = map;
@@ -1129,27 +1453,149 @@ function registerIpc() {
       const give = type === 'molotov' && side === 'CT' ? 'weapon_incgrenade' : GIVE[type];
       await session.send([
         ...(give ? [`give ${give}`, `use ${give}`] : []),
-        `setpos ${from.map(v => v.toFixed(2)).join(' ')}`, `setang ${ang[0]} ${ang[1]} 0`,
+        `setpos_exact ${from.map(v => v.toFixed(2)).join(' ')}`, 'noclip 0', `setang_exact ${ang[0]} ${ang[1]} 0`,
       ]);
     })();
     try { await watching; } finally { watching = null; }
     return true;
   });
 
-  handle('utility:list', () => ({ items: utility.list(), imageDir: utility.imageDir }));
-  handle('utility:save', item => utility.save(item));
+  // ---- Training (lib/drills.js, lib/training.js, lib/drillStats.js)
+  handle('training:info', () => ({
+    drills: DRILLS, warmup: WARMUP, how: SCORE_HOW, maps: trainingMaps(), history: trainingHistory(),
+    workshop: Object.fromEntries(Object.entries(DRILLS).filter(([, d]) => d.workshop).map(([id, d]) => [id, !!workshopDir(d.workshop)])), status: training?.status || null,
+  }));
+  handle('training:preview', ({ drill, map, source }) => {
+    const { list, demos } = anglesOf(map);
+    const reps = buildReps(drill, list, { source });
+    return { demos, reps: reps.length, mine: reps.filter(r => r.tag === 'mine').length, bots: reps.reduce((n, r) => n + r.bots.length, 0) };
+  });
+  handle('training:start', plan => startTraining(plan));
+  handle('training:stop', () => { if (training) training.cancelled = true; return !!training; });
+  handle('training:session', id => {
+    if (!/^[a-z0-9]+$/.test(id)) throw new Error('Unknown training session.');
+    try { return JSON.parse(fs.readFileSync(trainingDir('sessions', `${id}.json`), 'utf8')); } catch { throw new Error('This training session\'s details are gone.'); }
+  });
+  handle('training:delete', id => {
+    saveHistory(trainingHistory().filter(e => e.id !== id));
+    for (const f of [trainingDir('sessions', `${id}.json`), trainingDir('demos', `${id}.dem`)]) fs.rm(f, { force: true }, () => {});
+    return true;
+  });
+  // Scenarios made on the 2D map (lib/scenarios.js)
+  handle('scenario:list', () => ({ items: scenarios().list(), meshes: fs.existsSync(path.join(app.getPath('userData'), 'geometry')) ? fs.readdirSync(path.join(app.getPath('userData'), 'geometry')).filter(f => f.endsWith('.mesh')).map(f => f.slice(0, -5)) : [] }));
+  const scenarioKey = s => JSON.stringify(scenarioCodes.pack([s])[0]);
+  handle('scenario:code', async ids => {
+    const list = scenarios().list().filter(s => ids.includes(s.id)).slice(0, 100);
+    if (!list.length) throw new Error('No scenario to share.');
+    try { return await scenarioCodes.shortCode(list, { upload: file => gallery.upload(file, {}), cacheFile: path.join(utility.dir, 'scenario-codes.json') }); }
+    catch (e) { log('scenario: short code failed', e.message); return scenarioCodes.shareCode(list); }
+  });
+  handle('scenario:readCode', async text => {
+    const keys = new Set(scenarios().list().map(scenarioKey));
+    return (await scenarioCodes.readCodes(text, { fetchShort: async id => {
+      const res = await net.fetch(`https://files.catbox.moe/${id}.json`, { signal: AbortSignal.timeout(20000) });
+      if (!res.ok) throw new Error(`catbox.moe returned HTTP ${res.status}.`);
+      const text = await res.text();
+      if (text.length > 4 * 1048576) throw new Error('Scenario code is too big.');
+      return JSON.parse(text);
+    } })).map(s => ({ ...s, dupe: keys.has(scenarioKey(s)) }));
+  });
+  handle('scenario:import', list => {
+    const store = scenarios(), keys = new Set(store.list().map(scenarioKey));
+    let n = 0;
+    for (const input of (Array.isArray(list) ? list : []).slice(0, 100)) {
+      const s = scenarioCodes.clean({ ...input, id: require('crypto').randomBytes(16).toString('hex'), created: Date.now() });
+      const key = scenarioKey(s);
+      if (keys.has(key)) continue;
+      store.save(s); keys.add(key); n++;
+    }
+    return n;
+  });
+  handle('scenario:save', sc => scenarios().save(sc));
+  handle('scenario:delete', id => scenarios().remove(id));
+  handle('scenario:record', map => startRecorder(map));
+  handle('scenario:recordStop', save => { if (training?.rec) { training.discard = !save; training.cancelled = true; } return !!training; });
+  handle('scenario:recordRemove', i => { if (training?.rec) { training.rec.bots.splice(i, 1); training.update({}); } return !!training; });  // The floor height at a point of the radar: { z, floors } (z null when neither the mesh nor the demos know).
+  handle('scenario:floor', ({ map, x, y, near = null, lower = false, lowerBelow }) => {
+    if (!/^[a-z0-9_]+$/i.test(map || '')) throw new Error('Unknown map.');
+    return pickFloor(meshOf(map), x, y, { near, lower, lowerBelow, points: near == null ? standPoints(map) : [] });
+  });
+  handle('training:workshop', id => shell.openExternal(`steam://url/CommunityFilePage/${(DRILLS[id] || DRILLS.procedural).workshop}`));
+
+  const backupImage = imageBackup(() => utility.list(), async f => {
+    let file = path.join(utility.imageDir, path.basename(f)), temporary = null;
+    try {
+      if (!fs.existsSync(file)) throw new Error(`Screenshot ${f} is missing and has no backup.`);
+      if (path.extname(f).toLowerCase() === '.gif') {
+        temporary = path.join(require('os').tmpdir(), `demolab-picture-${require('crypto').randomUUID()}.png`);
+        fs.writeFileSync(temporary, nativeImage.createFromPath(file).toPNG()); file = temporary;
+      }
+      let remote;
+      const fakeDir = process.env.DEMOLAB_FAKE_UPLOAD;
+      if (fakeDir) {
+        fs.mkdirSync(fakeDir, { recursive: true });
+        const name = require('crypto').createHash('sha1').update(fs.readFileSync(file)).digest('hex') + path.extname(file);
+        fs.copyFileSync(file, path.join(fakeDir, name)); remote = `q/${name}`;
+      } else remote = await quaxUpload(file);
+      if (!REMOTE_IMAGE.test(remote)) throw new Error('Screenshot backup needs JPG, PNG or WebP.');
+      return remote;
+    } finally { if (temporary) try { fs.unlinkSync(temporary); } catch {} }
+  });
+  const backupImages = async ids => {
+    for (const id of ids) {
+      const item = utility.list().find(x => x.id === id);
+      if (!item) continue;
+      for (const f of item.images || []) {
+        if (REMOTE_IMAGE.test(item.remote?.[f] || '')) continue;
+        try {
+          const remote = await backupImage(f);
+          const current = utility.list().find(x => x.id === id);
+          if (current?.images?.includes(f)) utility.patch(id, { remote: { [f]: remote } });
+        } catch (e) { log('utility: screenshot backup failed', f, e.message); }
+      }
+    }
+  };
+  const backgroundBackup = () => { void backupImages(utility.list().map(x => x.id)).catch(e => log('utility: screenshot backup failed', e.message)); };
+  const downloadImage = async id => {
+    if (typeof id !== 'string' || !REMOTE_IMAGE.test(id)) return null;
+    let reader;
+    try {
+      const res = await net.fetch(`https://qu.ax/x/${id.slice(2)}`, { signal: AbortSignal.timeout(20000) });
+      if (!res.ok || Number(res.headers.get('content-length')) > 15 * 1048576) return null;
+      reader = res.body.getReader();
+      const chunks = []; let size = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.length;
+        if (size > 15 * 1048576) return null;
+        chunks.push(Buffer.from(value));
+      }
+      if (!size) return null;
+      const bytes = Buffer.concat(chunks), ext = path.extname(id);
+      if (!matchesImage(bytes, ext)) { log('utility: picture content mismatch', id); return null; }
+      return utility.addImage({ bytes, ext });
+    } catch (e) { log('utility: picture download failed', e.message); return null; }
+    finally { if (reader) await reader.cancel().catch(() => {}); }
+  };
+  handle('utility:list', () => ({ items: utility.list().map(x => ({ ...x, missingImages: (x.images || []).filter(f => !fs.existsSync(path.join(utility.imageDir, path.basename(f)))) })), imageDir: utility.imageDir }));
+  handle('utility:save', item => { const saved = utility.save(item); backgroundBackup(); return saved; });
   handle('utility:patch', (id, fields) => utility.patch(id, fields));
   handle('utility:delete', id => utility.remove(id));
-  handle('utility:addImage', img => utility.addImage(img));
+  handle('utility:addImage', img => { const name = utility.addImage(img); backgroundBackup(); return name; });
   handle('utility:screenshots', () => steamScreenshots(env.steamPath, mySteamId()));
   // Share codes (lib/utility.js): the code of some lineups, and the lineups in a pasted code (not saved yet;
   // dupe = already in the library).
   handle('utility:code', async ids => {
+    await backupImages(ids);
     const items = utility.list();
     const list = ids.map(id => items.find(x => x.id === id)).filter(Boolean);
     if (!list.length) throw new Error('No lineup to share.');
-    try { return await shortCode(list, { upload: file => gallery.upload(file, {}), cacheFile: path.join(utility.dir, 'codes.json') }); }
-    catch (e) { log('utility: short code failed', e.message); return shareCode(list); }
+    const missingImages = list.reduce((n, x) => n + (x.images || []).filter(f => !REMOTE_IMAGE.test(x.remote?.[f] || '')).length, 0);
+    let code;
+    try { code = await shortCode(list, { upload: file => gallery.upload(file, {}), cacheFile: path.join(utility.dir, 'codes.json') }); }
+    catch (e) { log('utility: short code failed', e.message); code = shareCode(list); }
+    return { code, missingImages };
   });
   const fetchLineupFile = async id => {
     let res;
@@ -1165,12 +1611,18 @@ function registerIpc() {
     const items = utility.list();
     return (await readCodes(text, { fetchShort: fetchLineupFile })).map(x => ({ ...x, dupe: items.some(y => sameLineup(x, y)) }));
   });
-  handle('utility:import', list => {
+  handle('utility:import', async list => {
     let n = 0;
     for (const x of (Array.isArray(list) ? list : []).slice(0, 500)) {
       if (utility.list().some(y => sameLineup(x, y))) continue;
       const { id, dupe, ...fields } = x;
-      utility.save({ ...fields, source: null, fav: false });
+      const images = [], remote = {};
+      for (const picture of (Array.isArray(x.pictures) ? x.pictures : []).slice(0, 24)) {
+        const f = await downloadImage(picture);
+        if (f) { images.push(f); remote[f] = picture; }
+      }
+      if (utility.list().some(y => sameLineup(x, y))) continue;
+      utility.save({ ...fields, images, remote, source: null, fav: false });
       n++;
     }
     return n;
@@ -1522,7 +1974,7 @@ function findExisting(m) {
   let found = null;
   outer: for (const dir of demoFolders()) {
     for (const name of fs.readdirSync(dir)) {
-      if (!/\.dem$/i.test(name)) continue;
+      if (!/\.dem$/i.test(name) || TRAINING_DEMO.test(name)) continue;
       const file = path.join(dir, name);
       let data = null;
       try { data = readCache(file); } catch {}
@@ -1536,6 +1988,7 @@ function findExisting(m) {
 }
 
 app.whenReady().then(() => {
+  setInterval(syncFinishKey, 1000);
   // Installed builds: the Start menu shortcut carries this ID, which Windows needs to show notifications.
   if (app.isPackaged) app.setAppUserModelId('com.demolab.cs2');
   settings = new Settings(app.getPath('userData'));
@@ -1588,6 +2041,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => { recorder?.cancel(); store?.flush(); app.quit(); });
 // An update downloaded in the background installs when DemoLab closes (silently, without starting it again).
 app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
   if (updating || updater?.state().status !== 'ready' || !s().updates.auto) return;
   try { updater.install({ relaunch: false }); } catch (e) { log('update on quit failed:', e.message); }
 });

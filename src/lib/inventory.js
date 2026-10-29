@@ -26,12 +26,13 @@ const FX_URL = 'https://prices.csgotrader.app/latest/exchange_rates.json';
 const MARKET_TTL = 3 * 3600e3;
 // The most valuable items are priced from their own Steam Market sales (the price list is only an
 // estimate, often well above what things actually sell for). A sales history is used for 2 days and
-// read again in the background after 6 h, at most STEAM_ITEMS of them per inventory, one every 4 s.
+// read again in the background after 6 h, at most STEAM_ITEMS of them per inventory. Steam takes ~10 s to
+// answer each market page, so the requests overlap: one starts every STEAM_GAP (3-4 in flight, 20 a minute).
 const SALES_USE = 48 * 3600e3;
 const SALES_REFRESH = 6 * 3600e3;
 const STEAM_ITEMS = 40;
 const STEAM_MIN_USD = 0.5;
-const STEAM_GAP = 4000;
+const STEAM_GAP = 3000;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Price from a sales history: the average sale over the last day with sales (the last week when that day
@@ -284,28 +285,39 @@ class InventoryStore {
     return this.jobs.get(key);
   }
 
+  // Context 2 is the inventory; context 16 holds the items under trade protection (7 days after a trade or a
+  // market purchase), which Steam only shows to the owner, so it needs the Steam Community sign-in and is
+  // skipped quietly when it can't be read.
   async download(steamid) {
     const assets = [], descriptions = [], props = [];
     const seen = new Set();
-    let start = null, total = null;
-    for (let page = 0; page < 30; page++) {
-      const url = `https://steamcommunity.com/inventory/${steamid}/730/2?l=english&count=1000${start ? `&start_assetid=${start}` : ''}`;
-      const res = await this.steamFetch(url);
-      if (res.status === 403 || res.status === 401) throw new Error('This inventory is private. Make it public in Steam (Profile → Edit Profile → Privacy Settings), or sign in to Steam Community in the Downloads tab to see your own.');
-      if (res.status === 404) throw new Error('Steam has no CS2 inventory for this player (or it is private).');
-      if (res.status === 429) throw new Error('Steam is limiting inventory requests right now. Try again in a minute.');
-      if (!res.ok) throw httpError('Steam inventory', res);
-      const j = await res.json().catch(() => null);
-      if (!j || j.success === false || j.success === 0) throw new Error(j?.error || 'Steam did not return the inventory.');
-      total = j.total_inventory_count ?? total;
-      assets.push(...(j.assets || []));
-      props.push(...(j.asset_properties || []));
-      for (const d of j.descriptions || []) {
-        const k = `${d.classid}_${d.instanceid}`;
-        if (!seen.has(k)) { seen.add(k); descriptions.push(d); }
+    let total = null;
+    for (const context of [2, 16]) {
+      const main = context === 2;
+      let start = null;
+      for (let page = 0; page < 30; page++) {
+        const url = `https://steamcommunity.com/inventory/${steamid}/730/${context}?l=english&count=1000${start ? `&start_assetid=${start}` : ''}`;
+        const res = await this.steamFetch(url);
+        if (!main && !res.ok) break;
+        if (res.status === 403 || res.status === 401) throw new Error('This inventory is private. Make it public in Steam (Profile → Edit Profile → Privacy Settings), or sign in to Steam Community in the Downloads tab to see your own.');
+        if (res.status === 404) throw new Error('Steam has no CS2 inventory for this player (or it is private).');
+        if (res.status === 429) throw new Error('Steam is limiting inventory requests right now. Try again in a minute.');
+        if (!res.ok) throw httpError('Steam inventory', res);
+        const j = await res.json().catch(() => null);
+        if (!j || j.success === false || j.success === 0) {
+          if (!main) break;
+          throw new Error(j?.error || 'Steam did not return the inventory.');
+        }
+        if (!page && j.total_inventory_count != null) total = (total || 0) + j.total_inventory_count;
+        assets.push(...(j.assets || []));
+        props.push(...(j.asset_properties || []));
+        for (const d of j.descriptions || []) {
+          const k = `${d.classid}_${d.instanceid}`;
+          if (!seen.has(k)) { seen.add(k); descriptions.push(d); }
+        }
+        if (!j.more_items || !j.last_assetid) break;
+        start = j.last_assetid;
       }
-      if (!j.more_items || !j.last_assetid) break;
-      start = j.last_assetid;
     }
     const inv = { t: Date.now(), total, assets, descriptions, props };
     writeJson(this.file(`inv-${steamid}.json`), inv);
@@ -362,7 +374,7 @@ class InventoryStore {
   }
 
   // Reads the Steam sales of the most valuable items (by their current price) whose history is missing or
-  // older than 6 h, one after the other in the background. Returns the job's progress (null when there's nothing to do).
+  // older than 6 h, a few at a time in the background. Returns the job's progress (null when there's nothing to do).
   checkSales(steamid, items) {
     if (this.salesJob) return this.salesStatus();
     const worth = new Map();
@@ -379,24 +391,36 @@ class InventoryStore {
     });
     if (!todo.length) return null;
     const job = this.salesJob = { steamid, total: todo.length, done: 0 };
-    (async () => {
-      for (const name of todo) {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try { await this.market(name, { force: true }); break; } catch (err) {
-            // Steam answers too many requests with 429, and sometimes with a 500 that works a bit later.
-            const busy = err.status === 429 || err.status >= 500;
-            if (busy && !attempt) { await sleep(err.status === 429 ? 60e3 : 20e3); continue; }
-            this.marketFailed.set(name, Date.now());
-            this.log(`Steam sales of ${name}: ${err.message}`);
-            if (err.status === 429) job.stopped = 'Steam is limiting market requests';
-            break;
+    let pauseUntil = 0;
+    const one = async name => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try { await this.market(name, { force: true }); break; } catch (err) {
+          // Steam answers too many requests with 429, and sometimes with a 500 that works a bit later.
+          const busy = err.status === 429 || err.status >= 500;
+          if (busy && !attempt) {
+            // A 429 holds back the next requests too, not just this one.
+            if (err.status === 429) pauseUntil = Math.max(pauseUntil, Date.now() + 60e3);
+            await sleep(err.status === 429 ? 60e3 : 20e3);
+            continue;
           }
+          this.marketFailed.set(name, Date.now());
+          this.log(`Steam sales of ${name}: ${err.message}`);
+          if (err.status === 429) job.stopped = 'Steam is limiting market requests';
+          break;
         }
-        job.done++;
-        this.onSales?.(this.salesStatus());
+      }
+      job.done++;
+      this.onSales?.(this.salesStatus());
+    };
+    (async () => {
+      const running = [];
+      for (const name of todo) {
+        while (Date.now() < pauseUntil && !job.stopped) await sleep(1000);
         if (job.stopped) break;
+        running.push(one(name).catch(err => this.log(`Steam sales of ${name}: ${err.message}`)));
         await sleep(STEAM_GAP);
       }
+      await Promise.all(running);
     })().catch(err => this.log('Steam sales check:', err.message)).finally(() => {
       this.salesJob = null;
       this.onSales?.({ ...job, running: false });

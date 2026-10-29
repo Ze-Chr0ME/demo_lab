@@ -203,24 +203,41 @@ async function deathsModal(tag, list) {
 state.cmp = { a: null, b: 'lobby', mode: 'all', map: 'all', period: 'all', together: false, profiles: new Map(), lobby: null, lobbyAsked: false, players: null };
 
 const sumMulti = m => Object.values(m || {}).reduce((a, b) => a + b, 0);
+const CMP_ICONS = {
+  chart: '<path d="M5 20V12M12 20V4M19 20v-9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  crosshair: '<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  burst: '<path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M5 19l3-3M16 8l3-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  skull: '<path d="M8 20v-4a8 8 0 1 1 8 0v4zM10 17v3M14 17v3M8 10h1M15 10h1M11 14h2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  target: '<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 12h6M12 9v6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  trophy: '<path d="M8 3h8v6a4 4 0 0 1-8 0zM8 5H4v2a4 4 0 0 0 4 4M16 5h4v2a4 4 0 0 1-4 4M12 13v7M8 21h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  matches: '<path d="M5 4h14v17H5zM8 2v4M16 2v4M5 9h14M8 13h3M8 17h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  clock: '<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  swap: '<path d="M4 7h16M16 3l4 4-4 4M20 17H4M8 13l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  up: '<path d="M12 20V4M6 10l6-6 6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  down: '<path d="M12 4v16M6 14l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  flame: '<path d="M13 3c1 5-4 5-3 9-2 0-3-2-3-3-4 5-1 12 5 12 7 0 10-8 1-18z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  shield: '<path d="M12 3l8 3v6c0 4-5 8-8 9-3-1-8-5-8-9V6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+};
+const CMP_GROUP_ICONS = { Overall: CMP_ICONS.chart, Duels: CMP_ICONS.crosshair, Utility: CMP_ICONS.burst, Deaths: CMP_ICONS.skull, Aim: CMP_ICONS.target };
+
 const CMP_STATS = [
-  { g: 'Overall', label: 'Rating ≈ HLTV 2.0', d: 2, t: t => t.rating, r: r => r[2] },
-  { g: 'Overall', label: 'Win rate', u: '%', d: 0, t: t => per(100 * t.won, t.played), r: null },
-  { g: 'Overall', label: 'K/D', d: 2, t: t => t.kd, r: r => (r[4] ? r[3] / r[4] : r[3]) },
-  { g: 'Overall', label: 'ADR', d: 1, t: t => t.adr, r: r => r[6] / r[1] },
-  { g: 'Overall', label: 'KAST', u: '%', d: 1, t: t => per(100 * t.kastRounds, t.rounds), r: r => 100 * r[7] / r[1] },
-  { g: 'Overall', label: 'Headshot %', u: '%', d: 1, t: t => per(100 * t.hs, t.kills), r: r => (r[3] ? 100 * r[8] / r[3] : null) },
-  { g: 'Duels', label: 'Kills / round', d: 2, t: t => per(t.kills, t.rounds), r: r => r[3] / r[1] },
-  { g: 'Duels', label: 'Deaths / round', d: 2, low: true, t: t => per(t.deaths, t.rounds), r: r => r[4] / r[1] },
-  { g: 'Duels', label: 'Opening duels won', u: '%', d: 0, t: t => per(100 * t.fk, t.fk + t.fd), r: r => (r[9] + r[10] ? 100 * r[9] / (r[9] + r[10]) : null) },
-  { g: 'Duels', label: 'Opening duels taken', u: '%', d: 0, neutral: true, tip: 'Rounds where they were in the first duel: a role, not better or worse.', t: t => per(100 * (t.fk + t.fd), t.rounds), r: r => 100 * (r[9] + r[10]) / r[1] },
-  { g: 'Duels', label: 'Trade kills / round', d: 2, t: t => per(t.trades, t.rounds), r: r => r[11] / r[1] },
-  { g: 'Duels', label: 'Multi-kill rounds', u: '%', d: 1, t: t => per(100 * sumMulti(t.multi), t.rounds), r: r => 100 * r[14] / r[1] },
-  { g: 'Duels', label: 'Clutches won', u: '%', d: 0, t: t => per(100 * t.clutchWon, t.clutchPlayed), r: r => (r[16] ? 100 * r[15] / r[16] : null) },
-  { g: 'Utility', label: 'Utility damage / round', d: 1, t: t => per(t.utility, t.rounds), r: r => r[12] / r[1] },
-  { g: 'Utility', label: 'Enemies flashed / round', d: 2, t: t => per(t.flashed, t.rounds), r: r => r[13] / r[1] },
+  { g: 'Overall', icon: CMP_ICONS.chart, label: 'Rating ≈ HLTV 2.0', d: 2, t: t => t.rating, r: r => r[2] },
+  { g: 'Overall', icon: CMP_ICONS.trophy, label: 'Win rate', u: '%', d: 0, t: t => per(100 * t.won, t.played), r: null },
+  { g: 'Overall', icon: CMP_ICONS.crosshair, label: 'K/D', d: 2, t: t => t.kd, r: r => (r[4] ? r[3] / r[4] : r[3]) },
+  { g: 'Overall', icon: CMP_ICONS.burst, label: 'ADR', d: 1, t: t => t.adr, r: r => r[6] / r[1] },
+  { g: 'Overall', icon: CMP_ICONS.shield, label: 'KAST', u: '%', d: 1, t: t => per(100 * t.kastRounds, t.rounds), r: r => 100 * r[7] / r[1] },
+  { g: 'Overall', icon: CMP_ICONS.target, label: 'Headshot %', u: '%', d: 1, t: t => per(100 * t.hs, t.kills), r: r => (r[3] ? 100 * r[8] / r[3] : null) },
+  { g: 'Duels', icon: CMP_ICONS.crosshair, label: 'Kills / round', d: 2, t: t => per(t.kills, t.rounds), r: r => r[3] / r[1] },
+  { g: 'Duels', icon: CMP_ICONS.skull, label: 'Deaths / round', d: 2, low: true, t: t => per(t.deaths, t.rounds), r: r => r[4] / r[1] },
+  { g: 'Duels', icon: CMP_ICONS.trophy, label: 'Opening duels won', u: '%', d: 0, t: t => per(100 * t.fk, t.fk + t.fd), r: r => (r[9] + r[10] ? 100 * r[9] / (r[9] + r[10]) : null) },
+  { g: 'Duels', icon: CMP_ICONS.crosshair, label: 'Opening duels taken', u: '%', d: 0, neutral: true, tip: 'Rounds where they were in the first duel: a role, not better or worse.', t: t => per(100 * (t.fk + t.fd), t.rounds), r: r => 100 * (r[9] + r[10]) / r[1] },
+  { g: 'Duels', icon: CMP_ICONS.swap, label: 'Trade kills / round', d: 2, t: t => per(t.trades, t.rounds), r: r => r[11] / r[1] },
+  { g: 'Duels', icon: CMP_ICONS.burst, label: 'Multi-kill rounds', u: '%', d: 1, t: t => per(100 * sumMulti(t.multi), t.rounds), r: r => 100 * r[14] / r[1] },
+  { g: 'Duels', icon: CMP_ICONS.shield, label: 'Clutches won', u: '%', d: 0, t: t => per(100 * t.clutchWon, t.clutchPlayed), r: r => (r[16] ? 100 * r[15] / r[16] : null) },
+  { g: 'Utility', icon: CMP_ICONS.burst, label: 'Utility damage / round', d: 1, t: t => per(t.utility, t.rounds), r: r => r[12] / r[1] },
+  { g: 'Utility', icon: CMP_ICONS.burst, label: 'Enemies flashed / round', d: 2, t: t => per(t.flashed, t.rounds), r: r => r[13] / r[1] },
   ...['alone', 'untraded', 'nades', 'dry', 'lowhp', 'caught'].map(k => ({
-    g: 'Deaths', label: DEATH_TAGS[k].label, u: '%', d: 0, low: true, tip: `${DEATH_TAGS[k].tip}\nShare of their deaths.`,
+    g: 'Deaths', icon: CMP_ICONS.skull, label: DEATH_TAGS[k].label, u: '%', d: 0, low: true, tip: `${DEATH_TAGS[k].tip}\nShare of their deaths.`,
     t: (t, dt) => { const s = deathShare(dt, k); return s == null ? null : 100 * s; },
     r: MEASURED_ONLY.has(k) ? null : r => (r[18] && r[4] ? 100 * (r[18][k] || 0) / r[4] : null),
   })),
@@ -294,7 +311,7 @@ function renderCompare() {
   };
   const pickA = select(aId, opts(aId, [[me, `${env?.steamUser?.name || 'You'} (you)`]]), v => { c.a = v === me ? null : v; renderCompare(); });
   const pickB = select(c.b, opts(c.b, [['lobby', 'Your lobbies (the median player)'], ...(aId !== me ? [[me, `${env?.steamUser?.name || 'You'} (you)`]] : [])]), v => { c.b = v; renderCompare(); });
-  const swap = c.b !== 'lobby' ? h('button', { class: 'icon-btn', title: 'Swap sides', onclick: () => { const a = aId; c.a = c.b === me ? null : c.b; c.b = a; renderCompare(); } }, '⇄') : null;
+  const swap = c.b !== 'lobby' ? h('button', { class: 'icon-btn cmp-swap', title: 'Swap sides', 'aria-label': 'Swap sides', onclick: () => { const a = aId; c.a = c.b === me ? null : c.b; c.b = a; renderCompare(); } }, icon(CMP_ICONS.swap, 'aria-hidden="true"')) : null;
 
   const head = h('div', { class: 'page-head' }, h('h2', {}, 'Compare'),
     h('span', { class: 'dl-head-info' }, 'Two players side by side, or one against everyone in your demos. Only matches from your own demos count.'));
@@ -330,21 +347,38 @@ function renderCompare() {
 
   const nameA = A.name || 'You', nameB = B ? B.name || 'Player' : 'Your lobbies';
   let winsA = 0, winsB = 0, counted = 0;
+  const tallies = new Map();
+  const glyph = paths => icon(paths, 'aria-hidden="true"');
   const line = (s, va, vb, ra, rb, tip) => {
     const fmt = v => (v == null || !Number.isFinite(v) ? '—' : `${v.toFixed(s.d)}${s.u || ''}`);
     let win = null;
-    if (!s.neutral && va != null && vb != null && Math.abs(va - vb) >= 10 ** -s.d / 2) { win = (va > vb) !== !!s.low ? 'a' : 'b'; counted++; win === 'a' ? winsA++ : winsB++; }
+    if (!s.neutral && va != null && vb != null && Math.abs(va - vb) >= 10 ** -s.d / 2) { win = (va > vb) !== !!s.low ? 'a' : 'b'; counted++; win === 'a' ? winsA++ : winsB++;
+      const tally = tallies.get(s.g) || [0, 0]; tally[win === 'a' ? 0 : 1]++; tallies.set(s.g, tally);
+    }
     // Bars: rank among the lobby when known, else the two values against each other (the better one full).
     const best = s.low ? Math.min(va ?? Infinity, vb ?? Infinity) : Math.max(va ?? 0, vb ?? 0);
     const rel = v => (v == null || !best ? 0 : s.low ? best / Math.max(v, 1e-9) : v / best);
     const wa = ra != null ? ra : rel(va), wb = rb != null ? rb : rel(vb);
-    const rankTxt = r => (r == null ? '' : `better than ${Math.round(r * 100)}%`);
+    const tier = r => {
+      if (r == null || !Number.isFinite(r)) return null;
+      const n = Math.round(r * 100), hot = r >= 0.9, good = r >= 0.6, bad = r <= 0.25;
+      return h('span', { class: `cmp-tier ${hot || good ? 'high' : bad ? 'low' : ''}`, title: `Better than ${r * 100}% of your lobbies${s.g === 'Aim' ? ' (estimated from quartiles)' : ''}` },
+        hot || good || bad ? glyph(hot ? CMP_ICONS.flame : good ? CMP_ICONS.up : CMP_ICONS.down) : null,
+        hot ? 'Top 10%' : good ? `Top ${100 - n}%` : `~${n}%`);
+    };
+    const value = (side, v, r) => h('div', { class: `cmp-v ${side} ${win === side ? 'win' : ''}` },
+      h('b', {}, win === side ? glyph(ICONS.check) : null, fmt(v)),
+      h('div', { class: 'cmp-sub' },
+        win === side ? h('span', { class: 'cmp-delta', title: `${fmt(Math.abs(va - vb))} better than the other side${s.low ? ' (lower is better)' : ''}` }, `+${fmt(Math.abs(va - vb))}`) : null,
+        tier(r)));
+    const track = (side, w, r) => h('div', { class: `cmp-bar ${side}` },
+      h('i', { class: win === side ? 'win' : '', style: { width: `${clamp(w || 0, 0, 1) * 100}%` } }),
+      r != null ? h('span', { class: 'cmp-median', title: 'Lobby median (50%)' }) : null);
     return h('div', { class: `cmp-row ${s.neutral ? 'neutral' : ''}`, title: tip || s.tip || '' },
-      h('div', { class: `cmp-v a ${win === 'a' ? 'win' : ''}` }, h('b', {}, fmt(va)), h('small', {}, rankTxt(ra))),
-      h('div', { class: 'cmp-bar a' }, h('i', { class: win === 'a' ? 'win' : '', style: { width: `${clamp(wa || 0, 0, 1) * 100}%` } })),
-      h('div', { class: 'cmp-label' }, s.label, s.low ? h('small', {}, 'lower is better') : null),
-      h('div', { class: 'cmp-bar b' }, h('i', { class: win === 'b' ? 'win' : '', style: { width: `${clamp(wb || 0, 0, 1) * 100}%` } })),
-      h('div', { class: `cmp-v b ${win === 'b' ? 'win' : ''}` }, h('b', {}, fmt(vb)), h('small', {}, rankTxt(rb))));
+      value('a', va, ra), track('a', wa, ra),
+      h('div', { class: 'cmp-label' }, h('span', { class: 'cmp-stat-icon' }, glyph(s.icon || CMP_GROUP_ICONS[s.g])), h('span', {}, s.label),
+        s.low ? h('span', { class: 'cmp-lower', title: 'Lower is better', 'aria-label': 'Lower is better' }, glyph(CMP_ICONS.down)) : null),
+      track('b', wb, rb), value('b', vb, rb));
   };
 
   const groups = new Map();
@@ -362,28 +396,39 @@ function renderCompare() {
     const [va, na] = aa[s.k], [vb, nb] = ab ? ab[s.k] : [s.low ? (s.good + s.bad) / 2 : (s.good + s.bad) / 2, s.min];
     const okA = va != null && na >= s.min, okB = vb != null && nb >= s.min;
     if (!okA && !okB) continue;
-    const def = { label: s.label, d: /timeToDamage/.test(s.k) ? 0 : /crosshair/.test(s.k) ? 1 : 0, u: /timeToDamage/.test(s.k) ? ' ms' : /crosshair/.test(s.k) ? '°' : '%', low: !!s.low };
+    const def = { g: 'Aim', icon: CMP_ICONS.target, label: s.label, d: /timeToDamage/.test(s.k) ? 0 : /crosshair/.test(s.k) ? 1 : 0, u: /timeToDamage/.test(s.k) ? ' ms' : /crosshair/.test(s.k) ? '°' : '%', low: !!s.low };
     const scale = v => (v == null ? null : def.u === '%' ? v * 100 : v);
     add('Aim', line(def, okA ? scale(va) : null, okB ? scale(vb) : null, okA ? aimRank(s, va) : null, okB ? (B ? aimRank(s, vb) : 0.5) : null,
       `${s.tip}\nBars: rough rank among your lobbies, from their quartiles (measured matches only).`));
   }
 
-  const who = (p, list, id) => h('div', { class: 'cmp-who' },
-    p ? avatar(p.name, id, 'large') : h('span', { class: 'avatar large lobby-avatar' }, '∑'),
-    h('div', {}, h('div', { class: 'cmp-name' }, p ? p.name || id : 'Your lobbies'),
-      h('div', { class: 'hint' }, p ? `${list.length} match${list.length === 1 ? '' : 'es'} · ${fmtNum(aggregate(list).rounds)} rounds` : `median of ${fmtNum(lobbyRows.length)} player-matches`),
-      p && id !== me ? h('button', { class: 'link-btn', onclick: () => openPlayer(id) }, 'Their overview →') : null));
+  const who = (p, list, id, lead) => h('div', { class: `cmp-who ${lead ? 'leading' : ''}` },
+    h('span', { class: 'cmp-avatar' }, p ? avatar(p.name, id, 'large') : h('span', { class: 'avatar large lobby-avatar' }, glyph(CMP_ICONS.chart)),
+      lead ? h('span', { class: 'cmp-crown', title: 'Ahead in more stats' }, glyph(CMP_ICONS.trophy)) : null),
+    h('div', { class: 'cmp-identity' }, h('div', { class: 'cmp-name', title: p ? p.name || id : 'Your lobbies' }, p ? p.name || id : 'Your lobbies'),
+      h('div', { class: 'cmp-meta' }, p ? [
+        h('span', {}, glyph(CMP_ICONS.matches), `${list.length} match${list.length === 1 ? '' : 'es'}`),
+        h('span', {}, glyph(CMP_ICONS.clock), `${fmtNum(aggregate(list).rounds)} rounds`),
+      ] : h('span', {}, glyph(CMP_ICONS.matches), `median of ${fmtNum(lobbyRows.length)} player-matches`)),
+      p && id !== me ? h('button', { class: 'link-btn', onclick: () => openPlayer(id) }, 'Their overview \u2192') : null));
 
   const empty = !la.length || (B && !lb.length);
   page(head,
     h('div', { class: 'cmp-pickers' }, pickA, swap, h('span', { class: 'cmp-vs' }, 'vs'), pickB, h('span', { class: 'spacer' }), filters),
-    h('div', { class: 'cmp-heads' }, who(A, la, aId), h('div', { class: 'cmp-score', title: 'Stats where each side is better (roles like “Opening duels taken” don’t count)' },
-      h('div', { class: 'cmp-nums' }, counted ? [h('b', { class: winsA >= winsB ? 'good' : '' }, winsA), h('span', {}, '–'), h('b', { class: winsB > winsA ? 'good' : '' }, winsB)] : '—'),
-      h('small', {}, counted ? 'stats ahead' : '')), who(B, lb, c.b)),
+    h('div', { class: 'cmp-heads' }, who(A, la, aId, winsA > winsB), h('div', { class: 'cmp-score', title: 'Stats where each side is better (roles like “Opening duels taken” don’t count)' },
+      glyph(CMP_ICONS.trophy),
+      h('div', { class: 'cmp-nums' }, counted ? [h('b', { class: winsA > winsB ? 'cmp-ahead' : '' }, winsA), h('span', {}, '–'), h('b', { class: winsB > winsA ? 'cmp-ahead' : '' }, winsB)] : '—'),
+      h('small', {}, counted ? 'stats ahead' : ''),
+      h('div', { class: 'cmp-split', 'aria-hidden': 'true' }, h('i', { style: { width: `${counted ? winsA / counted * 100 : 50}%` } }), h('i', { style: { width: `${counted ? winsB / counted * 100 : 50}%` } }))), who(B, lb, c.b, winsB > winsA)),
     !lobby ? h('div', { class: 'hint' }, spinner(10), ' Reading everyone’s numbers in your demos (only the first time takes a few seconds)…') : null,
     lobby?.pending ? h('div', { class: 'hint' }, `${lobby.pending} demo${lobby.pending > 1 ? 's are' : ' is'} not read yet and not in the lobby numbers.`) : null,
     empty ? h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.'))
-      : h('div', { class: 'cmp-groups' }, ...[...groups].map(([g, rows]) => h('section', { class: 'dcard cmp-group' }, h('div', { class: 'dcard-head' }, h('h4', {}, g)), ...rows))),
+      : h('div', { class: 'cmp-groups' }, ...[...groups].map(([g, rows]) => {
+        const [a, b] = tallies.get(g) || [0, 0];
+        return h('section', { class: 'dcard cmp-group' }, h('div', { class: 'dcard-head' },
+          h('span', { class: 'cmp-group-icon' }, glyph(CMP_GROUP_ICONS[g])), h('h4', {}, g),
+          h('span', { class: `cmp-tally ${a > b ? 'a' : b > a ? 'b' : ''}`, title: `${nameA}: ${a} \u00b7 ${nameB}: ${b} stats ahead` }, glyph(CMP_ICONS.trophy), `${a}\u2013${b}`)), ...rows);
+      })),
   );
 }
 
@@ -392,6 +437,7 @@ function compareWith(steamid) {
   state.cmp.b = steamid || 'lobby';
   showView('compare');
 }
+
 
 // ---------- New matches processed in the background ----------
 const autoChip = h('div', { class: 'auto-chip hidden', title: 'A new match is being read and measured in the background' });
@@ -441,15 +487,48 @@ function autoProcessCard() {
 }
 
 // ---------- Utility share codes ----------
+function lineupShareDialog(list) {
+  const picked = new Set(list.map(x => x.id));
+  let type = 'all', side = 'all';
+  const rows = h('div', { class: 'import-list' }), count = h('span', { class: 'hint' });
+  const copy = h('button', { class: 'btn primary', onclick: async () => {
+    copy.disabled = true;
+    try { if (await shareLineups(list.filter(x => picked.has(x.id)))) closeModal(); }
+    finally { paint(); }
+  } }, 'Copy code');
+  const visible = () => list.filter(x => (type === 'all' || x.type === type) && (side === 'all' || x.side === side));
+  const paint = () => {
+    count.textContent = `${picked.size} of ${list.length} selected`;
+    copy.disabled = !picked.size;
+    rows.replaceChildren(...visible().map(x => h('label', { class: 'import-item' },
+      h('input', { type: 'checkbox', checked: picked.has(x.id), onchange: e => { if (e.target.checked) picked.add(x.id); else picked.delete(x.id); paint(); } }),
+      h('span', { class: 'import-t' }, h('b', {}, x.name), h('span', { class: 'ut-sub' }, `${utLabel(UT_TYPES, x.type)} / ${x.side}`)))));
+  };
+  modal([
+    h('h2', {}, 'Share lineups'),
+    h('div', { class: 'actions' },
+      select(type, [['all', 'All grenades'], ...UT_TYPES.filter(([v]) => v !== 'all')], v => { type = v; paint(); }),
+      select(side, [['all', 'All sides'], ['T', 'T'], ['CT', 'CT'], ['both', 'Both sides']], v => { side = v; paint(); }),
+      h('button', { class: 'btn', onclick: () => { visible().forEach(x => picked.add(x.id)); paint(); } }, 'Select all'),
+      h('button', { class: 'btn', onclick: () => { visible().forEach(x => picked.delete(x.id)); paint(); } }, 'Select none')),
+    count, rows,
+    h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => closeModal() }, 'Cancel'), copy),
+  ]);
+  paint();
+}
+
 async function shareLineups(list) {
   if (!list.length) return;
-  const code = await guard(() => api.utilityCode(list.map(x => x.id)));
-  if (!code) return;
-  await copyText(code);
+  const result = await guard(() => api.utilityCode(list.map(x => x.id)));
+  if (!result) return;
+  const { code, missingImages } = result;
+  const warning = missingImages ? ` ${missingImages} pictures could not be uploaded.` : '';
+  if (!await guard(async () => { await copyText(code); return true; })) return;
   const what = list.length === 1 ? `“${list[0].name}”` : `${list.length} lineups`;
-  toast(code.startsWith('DLU2-')
+  toast((code.startsWith('DLU2-')
     ? `${what} copied as the code ${code}. Your friend pastes it in Utility → Import code.`
-    : `${what} copied as a long code (${fmtNum(code.length)} characters: catbox.moe did not answer, so no short one). Your friend pastes it in Utility → Import code.`, 'ok');
+    : `${what} copied as a long code (${fmtNum(code.length)} characters: catbox.moe did not answer, so no short one). Your friend pastes it in Utility → Import code.`) + warning, 'ok');
+  return true;
 }
 
 async function importDialog(prefill = '') {
@@ -464,7 +543,7 @@ async function importDialog(prefill = '') {
   };
   modal([
     h('h2', {}, 'Import lineups'),
-    h('p', { class: 'hint' }, 'Lineup codes hold the spot, aim, technique, flight and notes (no pictures). Get one with the Share button on a lineup.'),
+    h('p', { class: 'hint' }, 'Lineup codes hold the spot, aim, technique, flight, notes and backed-up pictures. Get one with the Share button on a lineup.'),
     area, err,
     h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => closeModal() }, 'Cancel'), h('button', { class: 'btn primary', onclick: read }, 'Read code')),
   ]);
@@ -490,7 +569,7 @@ async function importDialog(prefill = '') {
       h('h2', {}, `${list.length} lineup${list.length > 1 ? 's' : ''} in this code`),
       h('div', { class: 'import-list' }, ...list.map((x, i) => h('label', { class: `import-item ${x.dupe ? 'dupe' : ''}`, style: { '--c': NADE_COLOR[x.type] } },
         h('input', { type: 'checkbox', checked: pick[i], onchange: e => { pick[i] = e.target.checked; label(); } }),
-        h('span', { class: 'ut-dot' }),
+        x.pictures?.[0] ? h('img', { src: `https://qu.ax/x/${x.pictures[0].slice(2)}`, style: { width: '72px', height: '44px', objectFit: 'cover' } }) : h('span', { class: 'ut-dot' }),
         h('span', { class: 'import-t' }, h('b', {}, x.name), h('span', { class: 'ut-sub' }, [mapName(x.map), utLabel(UT_TYPES, x.type), x.side !== 'both' ? x.side : 'both sides', x.from ? null : 'no throw spot'].filter(Boolean).join(' · '))),
         x.dupe ? h('span', { class: 'pill' }, 'Already saved') : null))),
       h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => importDialog(area.value) }, 'Back'), go),

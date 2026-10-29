@@ -122,19 +122,20 @@ function renderInventory() {
   const unpriced = d.count - d.priced;
   const tradable = d.items.reduce((n, r) => n + r.tradable, 0);
   const tradableValue = d.items.reduce((n, r) => n + (r.value || 0) * r.tradable, 0);
-  const valueCard = card('Inventory value', [
-    h('div', { class: 'big-line' }, h('span', { class: 'big inv-total' }, invMoney(d.total)),
-      d.trend30 ? invChangeEl(invChange(d.trend30.now, d.trend30.then), `Against the same items at their 30-day average price (${invMoney(d.trend30.then)})`) : null),
-    h('div', { class: 'kv' },
-      h('div', { class: 'kv-row' }, h('span', {}, 'Priced items'), h('b', {}, `${fmtNum(d.priced)} of ${fmtNum(d.count)}`)),
-      h('div', { class: 'kv-row', title: 'Items you can trade or sell right now (new items have a 7-day trade hold)' }, h('span', {}, 'Tradable now'), h('b', {}, `${fmtNum(tradable)} · ${invMoney(tradableValue)}`)),
-      d.sales?.items ? h('div', { class: 'kv-row', title: 'These items are priced from their own Steam Market sales over the last day (the last week for rarely sold items). The rest use the price list.' },
-        h('span', {}, 'Priced from Steam sales'), h('b', {}, `${fmtNum(d.sales.items)} · ${invMoney(d.sales.value)}`)) : null,
-      d.applied > 0.005 ? h('div', { class: 'kv-row', title: `Included in the value: charms at their full price (they come off), applied stickers at ${Math.round(d.stickerShare * 100)}% of theirs, less when scraped` }, h('span', {}, 'Stickers & charms on items'), h('b', {}, `+${invMoney(d.applied)}`)) : null,
-      h('div', { class: 'kv-row' }, h('span', {}, 'Average per priced item'), h('b', {}, invMoney(d.priced ? d.total / d.priced : 0))),
-      unpriced ? h('div', { class: 'kv-row', title: 'Medals, coins, badges and other items that cannot be sold' }, h('span', {}, 'Without a price'), h('b', {}, fmtNum(unpriced))) : null),
-    h('div', { class: 'hint', style: { marginTop: '10px' } }, 'Storage unit contents are not part of the Steam inventory and are not counted.'),
-  ]);
+  const stat = (label, value, detail, title) => h('div', { class: 'tile inv-stat', title },
+    h('div', { class: 'tile-k' }, label), h('div', { class: 'tile-v' }, value), detail ? h('div', { class: 'tile-sub' }, detail) : null);
+  const stats = [
+    stat('Tradable now', invMoney(tradableValue), `${fmtNum(tradable)} of ${fmtNum(d.count)} items`, 'Items you can trade or sell right now (new items have a 7-day trade hold)'),
+    stat('Items', [fmtNum(d.priced), h('small', {}, `of ${fmtNum(d.count)}`)], unpriced > 0 ? h('span', { title: 'Medals, coins, badges and other items that cannot be sold' }, `${fmtNum(unpriced)} without a price`) : null),
+    stat('Average per priced item', invMoney(d.priced ? d.total / d.priced : 0)),
+    d.applied > 0.005 ? stat('Stickers & charms on items', `+${invMoney(d.applied)}`, 'Included in inventory value', `Included in the value: charms at their full price (they come off), applied stickers at ${Math.round(d.stickerShare * 100)}% of theirs, less when scraped`) : null,
+    d.sales?.items ? stat('Priced from Steam sales', invMoney(d.sales.value), `${fmtNum(d.sales.items)} items`, 'These items are priced from their own Steam Market sales over the last day (the last week for rarely sold items). The rest use the price list.') : null,
+  ].filter(Boolean);
+  const summary = h('div', { class: 'inv-summary', style: { '--inv-stats': stats.length } },
+    h('div', { class: 'tile inv-stat inv-hero' }, h('div', { class: 'tile-k' }, 'Inventory value'),
+      h('div', { class: 'tile-row' }, h('div', { class: 'tile-v inv-total' }, invMoney(d.total)),
+        d.trend30 ? invChangeEl(invChange(d.trend30.now, d.trend30.then), `Against the same items at their 30-day average price (${invMoney(d.trend30.then)})`) : null),
+      h('div', { class: 'tile-sub' }, 'Total estimated value')), ...stats);
 
   const byType = new Map();
   for (const r of d.items) {
@@ -146,16 +147,17 @@ function renderInventory() {
   const typeCard = card('By type', barList(types.filter(([, x]) => x.v > 0).slice(0, 8).map(([t, x]) => ({
     label: t, note: `${fmtNum(x.n)} item${x.n === 1 ? '' : 's'}`, value: invMoney(x.v, { cents: false }), frac: x.v / maxType,
     title: `Show only ${t}`, onclick: () => { st.type = st.type === t ? 'all' : t; renderInventory(); },
-  })), { empty: 'No priced items' }));
+  })), { empty: 'No priced items' }), { span: 2, cls: 'inv-types' });
 
-  page(head, notes,
-    h('div', { class: 'dash inv-dash' }, valueCard, invHistoryCard(d), typeCard),
+  page(head, notes, summary,
+    h('div', { class: 'hint inv-storage' }, 'Storage unit contents are not part of the Steam inventory and are not counted.'),
+    h('div', { class: 'dash inv-dash' }, invHistoryCard(d), typeCard),
     invItemsSection(d));
 }
 
 // A line of dollar values over time (pts: [{ t, usd, n? }]) with a crosshair and a tooltip on the nearest
 // point. volume: a strip of bars under the line for the sale counts (n), on its own baseline.
-function invChart(pts, { W = 800, H = 240, volume = false, tip }) {
+function invChart(pts, { W = 800, H = 150, volume = false, tip }) {
   const padL = 64, padR = 12, padT = 12, padB = 24, volH = volume ? 46 : 0;
   const plotB = H - padB - volH;
   const vals = pts.map(p => p.usd);
@@ -184,7 +186,7 @@ function invChart(pts, { W = 800, H = 240, volume = false, tip }) {
     bars = `<line x1="${padL}" x2="${W - padR}" y1="${base}" y2="${base}" class="g"/><text x="${padL - 6}" y="${base - volH / 2 + 4}" class="g-t">sold</text>`
       + pts.map(p => { const bh = Math.max(1, (volH - 8) * (p.n || 0) / maxN); return `<rect x="${(x(p.t) - bw / 2).toFixed(1)}" y="${(base - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="1" class="inv-vol"/>`; }).join('');
   }
-  const svg = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg"><defs><linearGradient id="tFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" class="t-stop-a"/><stop offset="1" class="t-stop-b"/></linearGradient></defs>${grid.join('')}${axis}${bars}
+  const svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="trend-svg"><defs><linearGradient id="tFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" class="t-stop-a"/><stop offset="1" class="t-stop-b"/></linearGradient></defs>${grid.join('')}${axis}${bars}
     <path d="${area}" class="t-area"/><path d="${line}" class="t-line"/>
     <line class="inv-cross hidden" y1="${padT}" y2="${H - padB}"/><circle class="inv-dot hidden" r="5"/></svg>`;
   const tipEl = h('div', { class: 'inv-tip hidden' });
@@ -224,12 +226,12 @@ function invShareSelect(d, setInv) {
 function invHistoryCard(d) {
   const pts = d.history.filter(p => p.usd > 0);
   if (pts.length < 2) {
-    return card('Value over time', h('div', { class: 'muted-note' }, 'A point is added each time DemoLab reads this inventory (at most one an hour). Come back in a while to see the curve.'), { span: 2 });
+    return card('Value over time', h('div', { class: 'muted-note inv-history-empty' }, 'A point is added each time DemoLab reads this inventory (at most one an hour). Come back in a while to see the curve.'), { span: 2, cls: 'inv-history' });
   }
-  const el = invChart(pts, { tip: (p, prev) => [h('b', {}, invMoney(p.usd)), h('div', {}, fmtWhen(p.t)),
+  const el = invChart(pts, { W: 600, H: 150, tip: (p, prev) => [h('b', {}, invMoney(p.usd)), h('div', {}, fmtWhen(p.t)),
     h('div', { class: 'hint' }, `${fmtNum(p.n)} items`, prev ? [' · ', invChangeEl(invChange(p.usd, prev.usd), 'Since the point before')] : null)] });
   const first = pts[0];
-  return card('Value over time', el, { span: 2, extra: h('span', { class: 'hint' }, `${pts.length} points since ${new Date(first.t).toLocaleDateString()} · `, invChangeEl(invChange(pts[pts.length - 1].usd, first.usd), 'Since the first point')) });
+  return card('Value over time', el, { span: 2, cls: 'inv-history', extra: h('span', { class: 'hint' }, `${pts.length} points since ${new Date(first.t).toLocaleDateString()} · `, invChangeEl(invChange(pts[pts.length - 1].usd, first.usd), 'Since the first point')) });
 }
 
 // ---- Steam Market price graph of one item (item popup)
@@ -273,7 +275,7 @@ function invPriceGraph(r) {
           h('span', { class: 'hint', title: `Average sale price over the last day with sales (${fmtWhen(all[all.length - 1].t)})` }, 'Latest sales ', h('b', { class: 'inv-recent' }, invMoney(recent))),
           h('span', { class: 'spacer' }),
           h('div', { class: 'inv-seg' }, ...INV_RANGES.map(([k, l]) => h('button', { class: k === range ? 'on' : '', onclick: () => { range = state.inv.range = k; draw(); } }, l)))),
-        invChart(pts, { W: 800, H: 230, volume: true, tip: p => [h('b', {}, invMoney(p.usd)), h('div', {}, fmtWhen(p.t, !daily)),
+        invChart(pts, { W: 800, H: 180, volume: true, tip: p => [h('b', {}, invMoney(p.usd)), h('div', {}, fmtWhen(p.t, !daily)),
           h('div', { class: 'hint' }, `${fmtNum(p.n)} sold that ${daily ? 'day' : 'hour'} · median price`)] }),
         m.stale ? h('div', { class: 'hint' }, `Sales read ${ago(m.t)} (Steam did not answer now: ${m.stale})`) : null].filter(Boolean));
     };
@@ -347,11 +349,11 @@ function invItemCard(r) {
     r.applied.length ? h('span', { class: 'inv-stk', title: r.applied.map(invAppliedLine).join('\n') }, ...r.applied.map(x => invPic(r, 'stk', x.img))) : null),
   h('div', { class: 'inv-name' }, h('small', {}, top), h('b', { style: { color: r.nameColor && !/^#d2d2d2$/i.test(r.nameColor) ? r.nameColor : null } }, main)),
   h('div', { class: 'inv-meta' }, r.exterior || r.rarity?.name || r.type, c?.float != null ? h('span', { class: 'inv-float' }, fmtFloat(c.float)) : null),
-  h('div', { class: 'inv-price' }, h('b', {}, invMoney(r.value == null ? null : r.value * r.count)),
-    r.count > 1 && r.value != null ? h('small', {}, `${invMoney(r.value)} each`) : null,
-    h('span', { class: 'spacer' }), invChangeEl(ch, `Item price now against its 30-day average (${invMoney(r.avg30)})`)),
-  r.appliedValue >= 0.005 ? h('div', { class: 'inv-extra', title: r.applied.map(invAppliedLine).join('\n') },
-    `incl. +${invMoney(r.appliedValue)} ${invAppliedWhat(r)}`) : null);
+  h('div', { class: 'inv-price' }, invChangeEl(ch, `Item price now against its 30-day average (${invMoney(r.avg30)})`),
+    h('div', { class: 'inv-price-value' }, h('b', {}, invMoney(r.value == null ? null : r.value * r.count)),
+      r.count > 1 && r.value != null ? h('small', {}, `${invMoney(r.value)} each`) : null)),
+  h('div', { class: 'inv-extra', title: r.appliedValue >= 0.005 ? r.applied.map(invAppliedLine).join('\n') : null },
+    r.appliedValue >= 0.005 ? `incl. +${invMoney(r.appliedValue)} ${invAppliedWhat(r)}` : null));
 }
 const invAppliedWhat = r => {
   const k = new Set(r.applied.map(x => x.kind));

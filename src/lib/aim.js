@@ -220,4 +220,4 @@ function aimTotals(facts, steamid) {
   return { stop: counts.stop, first: counts.first, spray: counts.spray, hits: counts.hits, head: counts.head, shots: counts.shots, ttd: counts.ttd, xhair: counts.xhair.map(v => Math.round(v * 10) / 10) };
 }
 
-module.exports = { AimCollector, AIM_VERSION, summarizeAim, aimTotals };
+module.exports = { AimCollector, AIM_VERSION, summarizeAim, aimTotals, accurateSpeed };

@@ -7,6 +7,7 @@ const crypto = require('crypto');
 
 const TYPES = new Set(['smoke', 'flash', 'molotov', 'he']);
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
+const REMOTE_IMAGE = /^q\/[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)$/;
 const MAX_IMAGE = 25 * 1048576;
 
 const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -52,7 +53,8 @@ class UtilityStore {
       click: str(input.click, 16),
       aim: str(input.aim, 500),
       notes: str(input.notes, 4000),
-      images: (Array.isArray(input.images) ? input.images : []).filter(f => typeof f === 'string' && fs.existsSync(path.join(this.imageDir, path.basename(f)))).map(f => path.basename(f)),
+      images: (Array.isArray(input.images) ? input.images : []).filter(f => typeof f === 'string' && (fs.existsSync(path.join(this.imageDir, path.basename(f))) || REMOTE_IMAGE.test(({ ...input.remote, ...old?.remote })[path.basename(f)] || ''))).map(f => path.basename(f)),
+      remote: Object.fromEntries(Object.entries({ ...input.remote, ...old?.remote }).filter(([f, id]) => path.basename(f) === f && REMOTE_IMAGE.test(id))),
       path: Array.isArray(input.path) ? input.path.filter(p => vec(p, 3)).slice(0, 400).map(p => p.slice(0, 3).map(x => Math.round(x))) : null,
       source: input.source && typeof input.source === 'object' ? {
         demoPath: str(input.source.demoPath, 1024), demoId: str(input.source.demoId, 128), tick: num(input.source.tick), player: str(input.source.player, 64),
@@ -73,6 +75,7 @@ class UtilityStore {
     const items = this.list();
     const it = items.find(x => x.id === id);
     if (!it) throw new Error('Lineup not found.');
+    if (fields.remote) it.remote = { ...(it.remote || {}), ...Object.fromEntries(Object.entries(fields.remote).filter(([f, id]) => it.images.includes(f) && REMOTE_IMAGE.test(id))) };
     if (fields.fav !== undefined) it.fav = !!fields.fav;
     if (fields.practiced) { it.practiced = (it.practiced || 0) + 1; it.lastPracticed = Date.now(); }
     // Practice quiz: right and wrong answers, and when it was last asked.
@@ -129,7 +132,7 @@ class UtilityStore {
 }
 
 // ---- Share codes: lineups as one line of text to paste in Discord or a chat ("DLU2-…", or "DLU1-…" long).
-// Everything but the pictures, practice counts and the source demo (only on your PC): compact arrays,
+// Everything but practice counts and the source demo (only on your PC): compact arrays,
 // the flight cut to SHARE_PATH points and stored as steps from the previous point, deflated, base64url.
 const CODE_PREFIX = 'DLU1-';
 const SHARE_PATH = 40;
@@ -148,7 +151,7 @@ function pack(items) {
     }
     const r1 = v => (v == null ? null : Math.round(v * 10) / 10);
     return [x.map, TYPE_LIST.indexOf(x.type), SIDE_LIST.indexOf(x.side), x.name, x.from?.map(r1) || null, x.angle?.map(v => Math.round(v * 100) / 100) || null,
-      x.to?.map(v => (v == null ? null : Math.round(v))) || null, x.lower ? 1 : 0, x.move || '', x.click || '', x.aim || '', x.notes || '', flat];
+      x.to?.map(r1) || null, x.lower ? 1 : 0, x.move || '', x.click || '', x.aim || '', x.notes || '', flat, (x.images || []).map(f => x.remote?.[f]).filter(id => REMOTE_IMAGE.test(id || ''))];
   });
 }
 
@@ -207,7 +210,7 @@ async function readCodes(text, { fetchShort } = {}) {
     if (!Array.isArray(packed)) throw new Error('This is not a lineup code.');
     for (const p of packed.slice(0, 500)) {
       if (!Array.isArray(p)) continue;
-      const [map, type, side, name, from, angle, to, lower, move, click, aim, notes, flat] = p;
+      const [map, type, side, name, from, angle, to, lower, move, click, aim, notes, flat, pictures] = p;
       let path = null;
       if (Array.isArray(flat) && flat.length >= 6 && flat.length % 3 === 0 && flat.every(Number.isFinite)) {
         path = [];
@@ -219,7 +222,7 @@ async function readCodes(text, { fetchShort } = {}) {
       if (typeof map !== 'string' || !/^[a-z0-9_]+$/i.test(map)) continue;
       out.push({
         map, type: TYPE_LIST[type] || 'smoke', side: SIDE_LIST[side] || 'both', name: str(name, 120), from: vec(from, 3), angle: vec(angle, 2), to: vec(to, 3),
-        lower: !!lower, move: str(move, 32), click: str(click, 16), aim: str(aim, 500), notes: str(notes, 4000), path, images: [],
+        lower: !!lower, move: str(move, 32), click: str(click, 16), aim: str(aim, 500), notes: str(notes, 4000), path, images: [], pictures: Array.isArray(pictures) ? pictures.filter(id => typeof id === 'string' && REMOTE_IMAGE.test(id)).slice(0, 24) : [],
       });
     }
   }
@@ -248,4 +251,4 @@ function steamScreenshots(steamPath, steamid64, limit = 24) {
   }).sort((a, b) => b.time - a.time).slice(0, limit);
 }
 
-module.exports = { UtilityStore, steamScreenshots, shareCode, shortCode, readCodes, sameLineup };
+module.exports = { pack, REMOTE_IMAGE, UtilityStore, steamScreenshots, shareCode, shortCode, readCodes, sameLineup };

@@ -11,6 +11,7 @@ const MAP_ICONS = 'panorama/images/map_icons/';
 const SHOTS = `${MAP_ICONS}screenshots/1080p/`;
 const TEAMS = 'panorama/images/tournaments/teams/';
 const EQUIP = 'panorama/images/icons/equipment/';
+const DEATHNOTICE = 'panorama/images/hud/deathnotice/';
 
 // VPK v2 directory: a tree of extension → folder → file name, each with where its bytes live
 // (0x7fff = in the directory file after the tree, else pak01_NNN.vpk) and optional preload bytes.
@@ -96,7 +97,7 @@ class ThemeArt {
     let key;
     try { const st = fs.statSync(file); key = `${file}|${st.mtimeMs}|${st.size}`; } catch { return null; }
     if (key !== this.indexKey) {
-      this.index = readVpkIndex(file, f => f.startsWith(MAP_ICONS) || f.startsWith(TEAMS) || f.startsWith(EQUIP));
+      this.index = readVpkIndex(file, f => f.startsWith(MAP_ICONS) || f.startsWith(TEAMS) || f.startsWith(EQUIP) || f.startsWith(DEATHNOTICE));
       this.indexKey = key;
     }
     return { file, index: this.index };
@@ -182,6 +183,12 @@ class ThemeArt {
   weapon(code) {
     if (!/^\w+$/.test(code)) throw new Error('bad weapon code');
     return this.cached('weapons', code, '.svg', `${EQUIP}${code}.vsvg_c`, buf => embeddedSvg(buf));
+  }
+
+  // A kill feed mark: 'icon_headshot', 'penetrate' (wallbang), 'noscope', 'inairkill', 'blind_kill', 'smoke_kill'.
+  killIcon(name) {
+    if (!/^\w+$/.test(name)) throw new Error('bad icon name');
+    return this.cached('deathnotice', name, '.svg', `${DEATHNOTICE}${name}.vsvg_c`, buf => embeddedSvg(buf));
   }
 }
 
