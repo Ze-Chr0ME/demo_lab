@@ -1,4 +1,4 @@
-/* global $, api, state, h, icon, ICONS, toast, card, barList, select, toggle, modal, closeModal, spinner, avatar, steamAvatar, ago, fmtNum, clamp, showView */
+/* global $, api, state, h, icon, ICONS, toast, card, barList, select, toggle, modal, closeModal, spinner, avatar, steamAvatar, ago, fmtNum, clamp, showView, pickSvg, PICK_ICONS */
 'use strict';
 // The Inventory page: what a player's CS2 items are worth, item by item. lib/inventory.js reads the Steam
 // inventory and a price list for every item; this page converts the dollars to your currency, adds them up,
@@ -58,34 +58,34 @@ function invChangeEl(c, title) {
 
 function loadInventory(refresh = false) {
   const st = state.inv;
-  const who = st.who;
+  const who = st.who, request = st.request = (st.request || 0) + 1;
   st.loading = true;
   st.error = null;
   api.inventory(who, refresh)
-    .then(d => { if (st.who !== who) return; st.data = d; for (const [k, f] of Object.entries(d.images || {})) invImages.set(k, f); })
-    .catch(e => { if (st.who === who) st.error = e.message; })
-    .finally(() => { if (st.who !== who) return; st.loading = false; if (state.view === 'inventory') renderInventory(); });
+    .then(d => { if (st.who !== who || st.request !== request) return; st.data = d; for (const [k, f] of Object.entries(d.images || {})) invImages.set(k, f); })
+    .catch(e => { if (st.who === who && st.request === request) st.error = e.message; })
+    .finally(() => { if (st.who !== who || st.request !== request) return; st.loading = false; if (state.view === 'inventory') renderInventory(); });
 }
 
 function openInventory(steamid, name) {
-  if (steamid === state.env?.mySteamId) steamid = null;
-  if ((steamid || null) !== state.inv.who) { state.inv.who = steamid || null; state.inv.data = null; state.inv.error = null; }
-  state.inv.whoName = name || null;
+  selectPlayer(steamid);
   showView('inventory');
 }
 
 function renderInventory() {
   const view = $('#view-inventory');
   const st = state.inv, me = state.env?.mySteamId;
+  if (st.who !== state.who) { st.who = state.who; st.data = null; st.error = null; st.loading = false; }
+  st.whoName = state.other?.name || null;
   const page = (...body) => view.replaceChildren(h('div', { class: 'page dash-page inv-page' }, ...body));
-  const back = st.who ? h('button', { class: 'btn', onclick: () => openInventory(null) }, '← My inventory') : null;
+  const back = playerMenu();
   if (!st.who && !me) return page(h('div', { class: 'empty' }, h('h2', {}, 'Which player are you?'), h('div', {}, 'No Steam account was found on this PC. Enter your SteamID64 in Settings → Counter-Strike 2.')));
   const d = st.data && (st.data.steamid === (st.who || me)) ? st.data : null;
   if ((!d || st.stale) && !st.loading && !st.error) { st.stale = false; loadInventory(); }
   if (!d) {
-    return page(st.error
+    return page(h('div', { class: 'page-head' }, h('h2', {}, 'Inventory'), back), st.error
       ? h('div', { class: 'empty' }, icon(ICONS.demo, 'class="big"'), h('h2', {}, 'Could not read the inventory'), h('div', { class: 'err-box' }, st.error),
-        h('div', { style: { display: 'flex', gap: '10px', justifyContent: 'center' } }, back, h('button', { class: 'btn primary', onclick: () => loadInventory(true) }, 'Try again')))
+        h('div', { style: { display: 'flex', gap: '10px', justifyContent: 'center' } }, h('button', { class: 'btn primary', onclick: () => loadInventory(true) }, 'Try again')))
       : h('div', { class: 'empty' }, spinner(28), h('h2', {}, 'Reading the inventory from Steam…'), h('div', {}, 'And looking up a price for every item.')));
   }
 
@@ -110,8 +110,8 @@ function renderInventory() {
     h('span', { class: 'spacer' }),
     back,
     h('div', { class: 'filters' },
-      select(d.source, Object.entries(d.sources).map(([k, l]) => [k, `${l} prices`]), v => { setInv({ source: v }).then(() => loadInventory()); }),
-      select(cur, currencies.map(c => [c, c]), v => { setInv({ currency: v }).then(() => renderInventory()); }),
+      select(d.source, Object.entries(d.sources).map(([k, l]) => [k, l]), v => { setInv({ source: v }).then(() => loadInventory()); }, { seg: true, icon: () => pickSvg(PICK_ICONS.coin) }),
+      select(cur, currencies.map(c => [c, c, () => { let symbol = c; try { symbol = new Intl.NumberFormat(undefined, { style: 'currency', currency: c }).formatToParts(0).find(p => p.type === 'currency')?.value || c; } catch {} return h('span', { class: 'muted' }, symbol); }]), v => { setInv({ currency: v }).then(() => renderInventory()); }, { seg: false, search: true, noun: 'currencies', right: true }),
       invShareSelect(d, setInv)),
     h('button', { class: 'btn', disabled: st.loading, title: 'Read the inventory from Steam again', onclick: () => loadInventory(true) },
       icon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/>'), 'Refresh'));
@@ -217,7 +217,7 @@ const INV_SHARES = [0, 0.05, 0.1, 0.2, 0.35, 0.5, 1];
 function invShareSelect(d, setInv) {
   const cur = d.stickerShare ?? 0.1;
   const opts = [...new Set([...INV_SHARES, cur])].sort((a, b) => a - b);
-  const el = select(String(cur), opts.map(v => [String(v), v ? `Stickers at ${Math.round(v * 100)}%` : 'Stickers not counted']), v => { setInv({ stickerShare: +v }).then(() => loadInventory()); });
+  const el = select(String(cur), opts.map(v => [String(v), v ? `Stickers at ${Math.round(v * 100)}%` : 'Stickers not counted']), v => { setInv({ stickerShare: +v }).then(() => loadInventory()); }, { seg: false, icon: () => pickSvg(PICK_ICONS.sticker) });
   el.title = 'How much of an applied sticker’s price is added to the item’s value (an estimate: applied stickers resell for a fraction of their price, scraped ones for less). Charms always count in full.';
   return el;
 }
@@ -315,8 +315,8 @@ function invItemsSection(d) {
     }, 180);
   } });
   const filters = h('div', { class: 'filters inv-filters' }, search,
-    select(st.type, [['all', 'All types'], ...types.map(t => [t, t])], v => { st.type = v; renderInventory(); }),
-    select(st.sort, INV_SORTS, v => { st.sort = v; renderInventory(); }),
+    types.length > 1 ? select(st.type, [['all', 'All types'], ...types.map(t => [t, t])], v => { st.type = v; renderInventory(); }, { seg: false, icon: () => pickSvg(PICK_ICONS.layers) }) : null,
+    select(st.sort, INV_SORTS, v => { st.sort = v; renderInventory(); }, { seg: false, label: 'Sort', icon: () => pickSvg(PICK_ICONS.sort) }),
     toggle('Only priced items', st.hideFree, v => { st.hideFree = v; renderInventory(); }, 'Hide medals, coins and other items that have no market price'),
     h('span', { class: 'spacer' }),
     h('span', { class: 'hint' }, `${fmtNum(shownCount)} item${shownCount === 1 ? '' : 's'} · ${invMoney(shownValue)}`));

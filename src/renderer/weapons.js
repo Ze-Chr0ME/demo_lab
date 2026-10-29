@@ -1,4 +1,4 @@
-/* global api, state, h, fmtNum, spinner, select, renderDetail, povId, aimLevel, AIM_STATS, $, mapName, PERIODS, openPlayer, icon, ICONS */
+/* global api, state, h, fmtNum, spinner, select, renderDetail, povId, aimLevel, AIM_STATS, $, mapName, PERIODS, openPlayer, icon, ICONS, avatar, sideIcon, pickMap, pickWeapon, pickSvg, PICK_ICONS */
 'use strict';
 // The Weapons tab: per weapon kills, damage, accuracy and kill types, and where the bullets landed on
 // the body. Filters (rounds, player, team, side, weapon type) and the weapon selection only repaint
@@ -7,6 +7,7 @@
 state.wp = { key: null, data: null, loading: null, sel: new Set(), f: {}, metric: 'general', sort: null, hover: null };
 
 const WP_TYPES = [['rifles', 'Rifles'], ['snipers', 'Snipers'], ['pistols', 'Pistols'], ['smgs', 'SMGs'], ['heavy', 'Heavy'], ['grenades', 'Grenades'], ['other', 'Other']];
+const wpTypeIcon = t => t === 'all' ? pickSvg(PICK_ICONS.grid) : pickWeapon(({ rifles: 'ak47', snipers: 'awp', pistols: 'deagle', smgs: 'mp9', heavy: 'nova', grenades: 'hegrenade', other: 'knife' })[t] || 'knife');
 const wpType = w => /^(ak47|m4a1|m4a1_silencer|famas|galilar|aug|sg556)$/.test(w) ? 'rifles'
   : /^(awp|ssg08|g3sg1|scar20)$/.test(w) ? 'snipers'
     : /^(glock|usp_silencer|hkp2000|p250|fiveseven|tec9|cz75a|elite|deagle|revolver)$/.test(w) ? 'pistols'
@@ -142,6 +143,8 @@ function paintWeapons(root, v) {
   const pov = povId();
   const f = { rounds: 'all', team: 'all', side: 'all', type: 'all', ...wp.f };
   f.player = wp.f.player ?? (v.players.some(p => p.steamid === pov) ? pov : 'all');
+  const types = new Set(weaponRows(v, { ...f, type: 'all' }).rows.map(r => r.type));
+  if (f.type !== 'all' && !types.has(f.type)) f.type = 'all';
   const { rows, myTeam } = weaponRows(v, f);
 
   // ---- filters
@@ -149,14 +152,13 @@ function paintWeapons(root, v) {
   const halves = new Set(v.rounds.map(r => r.half));
   const teamName = t => (myTeam ? (t === myTeam ? 'Your team' : 'Opponents') : `Team ${t}`);
   const players = [...v.players].sort((a, b) => (b.team === myTeam) - (a.team === myTeam) || a.name.localeCompare(b.name));
-  const types = new Set(weaponRows(v, { ...f, type: 'all' }).rows.map(r => r.type));
   const filters = h('div', { class: 'filters wp-filters' },
     select(f.rounds, [['all', 'All rounds'], ['h0', 'First half'], ...(halves.has(1) ? [['h1', 'Second half']] : []), ...(halves.has(2) ? [['ot', 'Overtime']] : []),
-      ['pistol', 'Pistol rounds'], ...v.rounds.map(r => [`r${r.num}`, `Round ${r.num}`])], x => setF('rounds', x)),
-    select(f.player, [['all', 'All players'], ...players.map(p => [p.steamid, `${p.name}${p.steamid === pov ? ' (point of view)' : ''}`])], x => setF('player', x)),
-    select(f.team, [['all', 'Both teams'], ['mine', myTeam ? 'Your team' : 'Team of the point of view'], ['theirs', 'Opponents']], x => setF('team', x)),
-    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x)),
-    select(f.type, [['all', 'All weapon types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x)),
+      ['pistol', 'Pistol rounds'], ...v.rounds.map(r => [`r${r.num}`, `Round ${r.num}`])], x => setF('rounds', x), { seg: false, icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'clock' : 'timer']) }),
+    select(f.player, [['all', 'All players', () => pickSvg(PICK_ICONS.users)], ...players.map(p => [p.steamid, `${p.name}${p.steamid === pov ? ' (point of view)' : ''}`, () => avatar(p.name, p.steamid, 'xs')])], x => setF('player', x), { seg: false, search: true, noun: 'players' }),
+    select(f.team, [['all', 'Both teams'], ['mine', myTeam ? 'Your team' : 'Team of the point of view'], ['theirs', 'Opponents']], x => setF('team', x), { seg: true, icon: v => pickSvg(PICK_ICONS[v === 'theirs' ? 'swords' : 'users']) }),
+    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon }),
+    types.size > 1 ? select(f.type, [['all', 'All weapon types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x), { seg: false, icon: wpTypeIcon }) : null,
     h('span', { class: 'spacer' }),
     Object.keys(wp.f).length ? h('button', { class: 'link-btn', onclick: () => { wp.f = {}; repaint(); } }, 'Reset filters') : null);
 
@@ -294,10 +296,10 @@ function renderAimPage() {
   const page = (...body) => view.replaceChildren(h('div', { class: 'page ap-page' }, ...body));
   const other = !!state.who;
   const name = other ? state.other?.name || 'This player' : state.profile?.name || '';
-  const back = other ? h('button', { class: 'btn', onclick: () => { state.who = null; renderAimPage(); } }, '← My aim') : null;
+  const back = playerMenu();
   const st = aimPageData();
-  if (!st) return page(h('div', { class: 'empty' }, spinner(28), h('h2', {}, 'Adding up every bullet of every match…'), h('div', {}, 'The first time takes a moment: each match is added up once and kept.')));
-  if (st.error) return page(h('div', { class: 'empty' }, h('h2', {}, 'Could not add up the weapon stats'), h('div', { class: 'err-box' }, st.error)));
+  if (!st) return page(back, h('div', { class: 'empty' }, spinner(28), h('h2', {}, 'Adding up every bullet of every match…'), h('div', {}, 'The first time takes a moment: each match is added up once and kept.')));
+  if (st.error) return page(back, h('div', { class: 'empty' }, h('h2', {}, 'Could not add up the weapon stats'), h('div', { class: 'err-box' }, st.error)));
   const v = st.value;
   if (!v.steamid) return page(h('div', { class: 'empty' }, h('h2', {}, 'Which player are you?'), h('div', {}, 'No Steam account was found on this PC. Enter your SteamID64 in Settings → Counter-Strike 2.')));
   const pending = Math.max(v.pending, state.demos.filter(d => !d.summary && !d.failed).length);
@@ -311,10 +313,12 @@ function renderAimPage() {
   const f = { mode: 'all', map: 'all', period: 'all', side: 'all', type: 'all', ...ap.f };
   const modes = [...new Set(v.matches.map(m => m.mode).filter(Boolean))];
   const maps = [...new Set(v.matches.map(m => m.map))].sort((a, b) => mapName(a).localeCompare(mapName(b)));
+  if (f.mode !== 'all' && !modes.includes(f.mode)) f.mode = 'all';
   if (f.map !== 'all' && !maps.includes(f.map)) f.map = 'all';
   const list = aimPageMatches(v.matches, f);
-  const rows = aimPageRows(list, f);
   const types = new Set(aimPageRows(list, { ...f, type: 'all' }).map(r => r.type));
+  if (f.type !== 'all' && !types.has(f.type)) f.type = 'all';
+  const rows = aimPageRows(list, f);
   const setF = (k, val) => { ap.f = { ...ap.f, [k]: val }; repaint(); };
 
   const head = h('div', { class: 'page-head' },
@@ -324,11 +328,11 @@ function renderAimPage() {
         pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null)),
     h('span', { class: 'spacer' }), back);
   const filters = h('div', { class: 'filters wp-filters' },
-    modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], x => setF('mode', x)) : null,
-    select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], x => setF('map', x)),
-    select(f.period, PERIODS, x => setF('period', x)),
-    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x)),
-    select(f.type, [['all', 'All weapon types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x)),
+    modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], x => setF('mode', x), { icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'grid' : 'swords']) }) : null,
+    maps.length > 1 ? select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], x => setF('map', x), { seg: false, icon: pickMap, noun: 'maps' }) : null,
+    select(f.period, PERIODS, x => setF('period', x), { seg: false, icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'clock' : 'calendar']) }),
+    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon }),
+    types.size > 1 ? select(f.type, [['all', 'All weapon types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x), { seg: false, icon: wpTypeIcon }) : null,
     h('span', { class: 'spacer' }),
     Object.keys(ap.f).length ? h('button', { class: 'link-btn', onclick: () => { ap.f = {}; repaint(); } }, 'Reset filters') : null);
   if (!list.length) return page(head, filters, h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.')));

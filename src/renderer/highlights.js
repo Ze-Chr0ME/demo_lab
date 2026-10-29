@@ -1,4 +1,4 @@
-/* global $, api, state, h, icon, ICONS, toast, spinner, mapName, mapEmblem, fmtDate, fmtDur, clamp, select, openDemo, renderDetail, modal, closeModal, weaponIcon, BUY_COLS, confirmRecord */
+/* global pickSvg, PICK_ICONS, $, api, state, h, icon, ICONS, toast, spinner, mapName, mapEmblem, fmtDate, fmtDur, clamp, select, openDemo, renderDetail, modal, closeModal, weaponIcon, BUY_COLS, confirmRecord */
 'use strict';
 // The Highlights page: every highlight of every parsed match in one place, as cards on the right, with
 // the filters on the left. Weapons are picked in a copy of the scenarios' buy menu; kill types show the
@@ -33,19 +33,22 @@ const tagMark = t => hlMark(t.type === 'special' ? t.key : null, t.label);
 async function loadHighlights() {
   const st = state.hl;
   if (st.loading) return;
+  const who = state.who, request = st.request = (st.request || 0) + 1;
+  st.who = who;
   st.loading = true;
   st.error = null;
   renderHighlights(false);
   try {
-    const data = await api.allHighlights();
+    const data = await api.allHighlights(who || undefined);
+    if (st.request !== request) return;
     st.items = data.items;
     // Refresh queued metadata without losing selections hidden by filters or removed matches.
     for (const item of st.items) if (st.queue.has(hlQueueKey(item))) st.queue.set(hlQueueKey(item), item);
     st.parsed = data.parsed;
     st.total = data.total;
     $('#hlCount').textContent = String(st.items.length);
-  } catch (e) { st.error = e.message; }
-  finally { st.loading = false; if (state.view === 'highlights') renderHighlights(false); }
+  } catch (e) { if (st.request === request) st.error = e.message; }
+  finally { if (st.request !== request) return; st.loading = false; if (state.view === 'highlights') renderHighlights(false); }
 }
 
 // Match clipsOf's demo/round/player identity without changing the match currently open.
@@ -89,38 +92,60 @@ const hlBuyCols = () => BUY_COLS.map(([name, , items]) => [name, items.filter(([
   .map(([k, label]) => (k === 'molotov' ? ['inferno', 'Molotov / Incendiary', 'molotov'] : [k, label, k]))]);
 const hlCodes = hl => new Set((hl.kills || []).map(k => k.code).filter(Boolean));
 
-function hlWeaponMenu() {
-  const st = state.hl, counts = new Map();
-  for (const { highlight } of st.items || []) for (const c of hlCodes(highlight)) counts.set(c, (counts.get(c) || 0) + 1);
+function weaponBuyMenu({ picked, counts, unit, subtitle, onDone, onChange = () => {} }) {
   const root = h('div', { class: 'buy hl-buy', tabindex: '-1' });
-  const done = () => closeModal(() => renderHighlights(false));
+  const done = () => closeModal(onDone);
   const paint = () => {
     const scrolls = [...root.querySelectorAll('.buy-scroll')].map(el => el.scrollTop);
     root.replaceChildren(
-      h('header', { class: 'buy-top' },
-        h('span', { class: 'buy-money' }, st.weapons.size ? `${st.weapons.size} picked` : 'Any gun'),
-        h('span', { class: 'buy-title' }, 'Highlights ', h('b', {}, 'by weapon')),
-        h('span', { class: 'buy-min' }, 'Shows highlights with a kill from any picked weapon')),
       h('div', { class: 'buy-cols' }, ...hlBuyCols().map(([name, items], ci) => h('section', { class: 'buy-col' },
         h('h3', {}, h('span', { class: 'buy-col-n' }, ci + 1), name),
         h('div', { class: 'buy-scroll', role: 'group', 'aria-label': name }, ...items.map(([k, label, art], ri) => {
-          const n = counts.get(k) || 0, on = st.weapons.has(k);
+          const n = counts.get(k) || 0, on = picked.has(k);
           return h('button', { class: 'buy-item' + (on ? ' owned' : '') + (n ? '' : ' off'), 'aria-pressed': String(on), 'aria-disabled': String(!n && !on),
-            title: n ? label : `No highlights with the ${label}`,
-            onclick: () => { if (!n && !on) return; on ? st.weapons.delete(k) : st.weapons.add(k); st.limit = 60; paint(); } },
+            title: n ? label : `No ${unit}s with the ${label}`,
+            onclick: () => { if (!n && !on) return; on ? picked.delete(k) : picked.add(k); onChange(); paint(); } },
           h('span', { class: 'buy-slot' }, ri + 1), h('span', { class: 'buy-name' }, label), weaponIcon(art),
-          h('span', { class: 'buy-price' }, n ? `${n} highlight${n > 1 ? 's' : ''}` : '—'));
+          h('span', { class: 'buy-price' }, n ? `${n} ${unit}${n > 1 ? 's' : ''}` : '—'));
         }))))),
       h('footer', { class: 'buy-foot' },
+        h('span', { class: 'buy-picked' }, picked.size ? `${picked.size} picked` : 'Any weapon'),
+        h('span', { class: 'buy-hint' }, subtitle),
         h('span', { class: 'spacer' }),
-        h('button', { class: 'buy-btn', disabled: !st.weapons.size, onclick: () => { st.weapons.clear(); paint(); } }, 'Clear'),
+        h('button', { class: 'buy-btn', disabled: !picked.size, onclick: () => { picked.clear(); paint(); } }, 'Clear'),
         h('button', { class: 'buy-btn go', onclick: done }, h('kbd', {}, 'Enter'), 'Done')));
     root.querySelectorAll('.buy-scroll').forEach((el, i) => { el.scrollTop = scrolls[i] || 0; });
   };
   root.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); done(); } });
   paint();
-  modal(root, { wide: true, onClose: () => renderHighlights(false) }).classList.add('buy-modal');
+  modal(root, { wide: true, onClose: onDone }).classList.add('buy-modal');
   root.focus();
+}
+
+function hlWeaponMenu() {
+  const st = state.hl, counts = new Map();
+  for (const { highlight } of st.items || []) for (const c of hlCodes(highlight)) counts.set(c, (counts.get(c) || 0) + 1);
+  weaponBuyMenu({ picked: st.weapons, counts, unit: 'highlight',
+    subtitle: 'Shows highlights with a kill from any picked weapon',
+    onChange: () => { st.limit = 60; }, onDone: () => renderHighlights(false) });
+}
+
+function weaponBuyButton(weapons, onclick) {
+  const picked = [...weapons];
+  const catalog = new Map(hlBuyCols().flatMap(([, items]) => items.map(([code, label, art]) => [code, { label, art }])));
+  const selected = picked.map(code => catalog.get(code) || { label: code, art: code });
+  const summary = selected.length ? selected.map(w => w.label).join(', ') : 'Any weapon';
+  return h('button', { class: `hl-weapons-btn ${picked.length ? 'set' : ''}`, type: 'button', onclick,
+    title: selected.length ? `Change weapons: ${summary}` : 'Choose weapons',
+    'aria-label': `Filter by weapon: ${summary}`, 'aria-haspopup': 'dialog' },
+    selected.length ? h('span', { class: `hl-weapons-picked ${selected.length === 1 ? 'single' : ''}` },
+      ...selected.slice(0, 3).map(w => h('span', { class: 'hl-weapons-art', title: w.label, 'aria-hidden': 'true' }, weaponIcon(w.art))),
+      selected.length === 1 ? h('span', { class: 'hl-weapons-name' }, selected[0].label) : null,
+      selected.length > 3 ? h('small', { class: 'hl-weapons-more' }, `+${selected.length - 3}`) : null)
+      : h('span', { class: 'hl-weapons-empty' },
+        icon('<path d="M4 7h16M7 12h10M10 17h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>', 'aria-hidden="true"'),
+        'Any weapon'),
+    icon('<path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>', 'class="hl-weapons-chevron" aria-hidden="true"'));
 }
 
 const hlQueueKey = item => JSON.stringify([item.demo.id, item.player.steamid, item.highlight.id]);
@@ -198,6 +223,7 @@ function hlCard(item) {
 
 function renderHighlights(check = true) {
   const st = state.hl, view = $('#view-highlights');
+  if (st.who !== state.who) { st.request = (st.request || 0) + 1; st.loading = false; st.items = null; st.who = state.who; check = true; }
   // Each visit reads the list again (new demos, player or detection rules); internal renders never fetch.
   if (check && !st.loading) { loadHighlights(); return; }
   const change = patch => { Object.assign(st, patch); st.limit = 60; renderHighlights(false); };
@@ -238,11 +264,7 @@ function renderHighlights(check = true) {
     ...[5, 4, 3, 2, 1].map(n => h('button', { type: 'button', class: n <= st.stars ? 'on' : '', 'aria-pressed': String(st.stars === n),
       title: `${n}-star highlights (${counts[n]}). Click again to clear.`, 'aria-label': `${n} stars, ${counts[n]} highlights`,
       onclick: () => change({ stars: st.stars === n ? 0 : n }) }, '★', h('small', {}, counts[n]))));
-  const picked = [...st.weapons];
-  const weaponsBtn = h('button', { class: `hl-weapons-btn ${picked.length ? 'set' : ''}`, type: 'button', onclick: hlWeaponMenu },
-    picked.length ? h('span', { class: 'hl-weapons-picked' }, ...picked.slice(0, 4).map(c => weaponIcon(c === 'inferno' ? 'molotov' : c)),
-      picked.length > 4 ? h('small', {}, `+${picked.length - 4}`) : null) : h('span', {}, 'Any weapon'),
-    h('span', { class: 'hl-weapons-go' }, 'Buy menu →'));
+  const weaponsBtn = weaponBuyButton(st.weapons, hlWeaponMenu);
   const tagChips = h('div', { class: 'hl-chips', title: 'Shows highlights with any picked kill type' },
     ...[...tags.values()].sort((a, b) => b.n - a.n).map(({ tag, n }) => {
       const key = hlTag(tag), on = st.tags.has(key);
@@ -269,8 +291,12 @@ function renderHighlights(check = true) {
       mapEmblem(m, 'hl-map-emblem'), h('span', { class: 'hl-map-name' }, mapName(m)),
       selected || banned ? h('span', { class: 'hl-map-status', 'aria-hidden': 'true' }, selected ? '✓' : '⊘') : null, h('small', {}, n));
     }));
-  const sides = h('div', { class: 'hl-seg' }, ...[['all', 'Both'], ['T', 'T'], ['CT', 'CT']].map(([v, l]) =>
-    h('button', { class: `${st.side === v ? 'on' : ''} ${v !== 'all' ? `side-${v}` : ''}`, type: 'button', onclick: () => change({ side: v }) }, l)));
+  const sideEmblem = team => h('img', { class: 'hl-team-emblem', src: `img/team-${team.toLowerCase()}.png`, alt: '', 'aria-hidden': 'true' });
+  const sides = h('div', { class: 'hl-seg', role: 'group', 'aria-label': 'Team filter' },
+    ...[['T', 'T', 'Terrorists'], ['all', 'Both', 'Both teams'], ['CT', 'CT', 'Counter-Terrorists']].map(([v, l, label]) =>
+      h('button', { class: `${st.side === v ? 'on' : ''} ${v !== 'all' ? `side-${v}` : ''}`, type: 'button',
+        title: label, 'aria-label': label, 'aria-pressed': String(st.side === v), onclick: () => change({ side: v }) },
+      v === 'all' ? h('span', { class: 'hl-team-pair', 'aria-hidden': 'true' }, sideEmblem('T'), sideEmblem('CT')) : sideEmblem(v), l)));
   const toggle = (key, label, mark) => h('button', { class: `hl-chip hl-icon-toggle ${st[key] ? 'on' : ''}`, type: 'button',
     'aria-label': label, 'aria-pressed': String(st[key]), title: label,
     onclick: () => change({ [key]: !st[key] }) }, mark);
@@ -294,8 +320,8 @@ function renderHighlights(check = true) {
         : h('div', { class: 'hl-grid' }, ...items.slice(0, st.limit).map(hlCard));
   view.replaceChildren(h('div', { class: 'page hl-page' }, side,
     h('div', { class: 'hl-main' },
-      h('div', { class: 'page-head' }, h('h2', {}, 'Highlights'), h('span', { class: 'hl-summary', 'aria-live': 'polite' }, `${items.length} of ${all.length}`),
-        h('span', { class: 'spacer' }), h('label', { class: 'hl-select' }, 'Sort', select(st.sort, [['score', 'Best rated'], ['date', 'Newest match']], sort => change({ sort }))),
+      h('div', { class: 'page-head' }, h('h2', {}, 'Highlights'), playerMenu(), h('span', { class: 'hl-summary', 'aria-live': 'polite' }, `${items.length} of ${all.length}`),
+        h('span', { class: 'spacer' }), select(st.sort, [['score', 'Best rated', () => pickSvg(PICK_ICONS.sort)], ['date', 'Newest match', () => pickSvg(PICK_ICONS.calendar)]], sort => change({ sort }), { seg: true, title: 'Sort highlights' }),
         h('button', { class: 'btn ghost', disabled: st.loading, onclick: () => loadHighlights() }, st.loading ? spinner(14) : null, 'Refresh')),
       st.parsed < st.total ? h('div', { class: 'hl-progress', role: 'status' }, `${st.parsed} of ${st.total} matches parsed · Refresh to include newly parsed matches.`) : null,
       st.error ? h('div', { class: 'hl-error', role: 'alert' }, `Could not load highlights: ${st.error}`, h('button', { class: 'link-btn', onclick: () => loadHighlights() }, 'Try again')) : null,

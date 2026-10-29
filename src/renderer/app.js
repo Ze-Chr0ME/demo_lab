@@ -67,10 +67,9 @@ const state = {
 };
 
 // ---------- Navigation ----------
-// The Aim page keeps showing the player on the overview when opened from there, else it shows me.
+// Page navigation keeps the selected player.
 document.querySelectorAll('.nav-btn, .brand').forEach(b => b.addEventListener('click', () => {
-  if (b.dataset.view === 'overview' || (b.dataset.view === 'aim' && state.view !== 'overview')) state.who = null;
-  if (b.dataset.view === 'inventory' && state.inv?.who) { state.inv.who = null; state.inv.data = null; state.inv.error = null; } // the top bar always opens mine
+  if (b.dataset.view === 'compare') state.cmp.a = state.who;
   showView(b.dataset.view);
 }));
 function showView(v) {
@@ -85,7 +84,7 @@ function showView(v) {
   if (v === 'maps') renderMaps();
   if (v === 'utility') renderUtility();
   if (v === 'training') renderTraining();
-  if (v === 'matches' && !state.demo && state.demos[0]) openDemo(state.demos[0]);
+  if (v === 'matches') { renderDemoList(); renderDetail(); }
   if (v === 'clips') loadClips();
   if (v === 'downloads') loadDownloads();
   if (v === 'themes') renderThemes();
@@ -310,7 +309,7 @@ function openMeMenu() {
     e?.mySteamId ? h('div', { class: 'me-menu-id' }, `SteamID ${e.mySteamId}`) : null,
     ...ME_MENU.map(([v, label, d]) => h('button', {
       class: `me-item ${(v === 'overview' ? mine : state.view === v) ? 'on' : ''}`,
-      onclick: () => { if (v === 'overview') state.who = null; showView(v === 'overview' && !e?.mySteamId ? 'settings' : v); },
+      onclick: () => { if (v === 'overview') selectPlayer(null); showView(v === 'overview' && !e?.mySteamId ? 'settings' : v); },
     }, icon(d), label)));
   $('#meMenu').classList.remove('hidden');
   $('#meCard').classList.add('open');
@@ -320,7 +319,9 @@ function closeMeMenu() {
   $('#meCard').classList.remove('open');
 }
 document.addEventListener('mousedown', e => { if (!e.target.closest('.me-wrap')) closeMeMenu(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#meMenu').classList.contains('hidden')) closeMeMenu(); });
+document.addEventListener('keydown', e => {
+  if (e.target.closest('.cmp-menu, .pick-btn, .pick-seg')) return;
+  if (e.key === 'Escape' && !$('#meMenu').classList.contains('hidden')) closeMeMenu(); });
 
 async function refreshEnv() {
   state.env = await api.env();
@@ -348,6 +349,7 @@ async function loadProfile() {
   const p = await api.profile().catch(e => ({ error: e.message, matches: [] }));
   state.profile = p;
   state.players = null; // the player search index is rebuilt on next use
+  if (state.cmp) state.cmp.playersStale = true; // retain the old picker list while refreshing
   renderMeCard();
   if (state.who) loadOther();
   else if (state.view === 'overview') renderOverview();
@@ -369,11 +371,28 @@ async function loadOther() {
   const p = await api.profile(who).catch(e => ({ error: e.message, steamid: who, matches: [] }));
   if (state.who !== who) return;
   state.other = p;
-  if (state.view === 'overview') renderOverview();
+  rerender();
+}
+function selectPlayer(steamid) {
+  const who = !steamid || steamid === state.env?.mySteamId ? null : steamid;
+  const changed = state.who !== who;
+  const povChanged = state.view === 'matches' && state.analysis &&
+    state.analysis.player?.steamid !== (who || state.env?.mySteamId);
+  if (changed) {
+    state.who = who;
+    state.other = null;
+    if (who) loadOther();
+  }
+  if (changed || povChanged) {
+    state.demoRequest = (state.demoRequest || 0) + 1;
+    state.analyzing = false;
+    state.analysis = null;
+    state.analysisError = null;
+  }
+  rerender();
 }
 function openPlayer(steamid) {
-  if (!steamid || steamid === state.env?.mySteamId) state.who = null;
-  else if (state.who !== steamid) { state.who = steamid; state.other = null; loadOther(); }
+  selectPlayer(steamid);
   showView('overview');
   $('#view-overview').scrollTop = 0;
 }
@@ -436,22 +455,31 @@ const PENCIL = '<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4" fill="none" stroke="c
 
 const isRush = d => /^rush/i.test(d?.failure?.map || '') || /Rush match/.test(d === state.demo ? state.analysisError || '' : '');
 
+function playerDemos() {
+  if (!state.who) return state.demos;
+  const ids = new Set((state.other?.matches || []).map(m => m.id));
+  return state.demos.filter(d => ids.has(d.id));
+}
+
 function renderDemoList() {
   const q = state.search;
-  const list = state.demos.filter(d => !q || d.name.toLowerCase().includes(q) || mapName(d.summary?.map).toLowerCase().includes(q) || (d.customName || '').toLowerCase().includes(q));
+  const demos = playerDemos();
+  const list = demos.filter(d => !q || d.name.toLowerCase().includes(q) || mapName(d.summary?.map).toLowerCase().includes(q) || (d.customName || '').toLowerCase().includes(q));
   const pending = state.demos.filter(d => !d.summary && !d.failed).length;
   $('#matchCount').textContent = state.demos.length || '';
   $('#demoListSub').replaceChildren(
-    `${state.demos.length} match${state.demos.length === 1 ? '' : 'es'}`,
+    `${demos.length} match${demos.length === 1 ? '' : 'es'}`,
+    state.who ? ` Matches with ${state.other?.name || 'this player'}` : '',
+    playerMenu(),
     pending ? h('span', {}, ' · ', h('span', { class: 'spinner', style: { width: '11px', height: '11px', borderWidth: '2px' } }), ` analyzing ${pending}…`) : '',
   );
-  const mine = new Map((state.profile?.matches || []).map(m => [m.id, m]));
+  const mine = new Map((shownProfile()?.matches || []).map(m => [m.id, m]));
   $('#demos').replaceChildren(...list.map(d => {
     const s = d.summary;
-    const sc = s?.score;
+    const me = mine.get(d.id);
+    const sc = state.who && me?.score ? { mine: me.score[0], enemy: me.score[1] } : s?.score;
     const res = sc ? resultOf(sc.mine, sc.enemy) : null;
     const isMM = /^match730_/.test(d.name);
-    const me = mine.get(d.id);
     const title = h('div', { class: 'demo-title', title: 'Double-click to rename', ondblclick: e => { e.stopPropagation(); editName(d, title); } }, demoTitle(d));
     const where = isRush(d) ? 'could not be read' : isMM ? 'Valve match' : d.name.replace(/\.dem$/i, '');
     return h('div', { class: `demo res-${res || 'none'} ${state.demo?.path === d.path ? 'active' : ''}`, onclick: () => openDemo(d) },
@@ -466,6 +494,12 @@ function renderDemoList() {
           : s?.stats ? h('div', { class: 'demo-kd' }, `${s.stats.kills}–${s.stats.deaths}`) : null,
       ));
   }));
+  if (state.view === 'matches' && (!state.who || state.other)) {
+    if (!demos.some(d => d.id === state.demo?.id)) {
+      if (demos[0]) openDemo(demos[0]);
+      else { state.demoRequest = (state.demoRequest || 0) + 1; state.demo = null; state.analysis = null; state.analyzing = false; renderDetail(); }
+    } else if (state.demoSelection !== state.who || (!state.analysis && !state.analyzing && !state.analysisError)) openDemo(state.demo);
+  }
 }
 
 // Small square map badge: the radar image when there is one, else the map's color.
@@ -476,24 +510,33 @@ function mapThumb(map, fallback) {
     h('span', {}, map ? mapName(map).slice(0, 3).toUpperCase() : fallback));
 }
 
-async function openDemo(d, player, tab) {
+async function openDemo(d, player = state.who || undefined, tab) {
   if (state.demo?.id !== d.id) { state.stats = null; state.tab = tab || 'scoreboard'; resetZoom(state.heat.view); resetZoom(state.radar.view); }
   else if (tab) state.tab = tab;
   // Set before showing the page, which would otherwise open the newest match (on its scoreboard) first.
+  if (state.who && state.other && !playerDemos().some(x => x.id === d.id)) {
+    d = playerDemos()[0];
+    if (!d) return;
+  }
+  const request = state.demoRequest = (state.demoRequest || 0) + 1;
   state.demo = d;
-  if (state.view !== 'matches') showView('matches');
-  state.selected.clear();
+  state.demoSelection = state.who;
   state.analyzing = true;
   state.analysis = null;
+  state.analysisError = null;
+  if (state.view !== 'matches') showView('matches');
+  state.selected.clear();
   renderDemoList();
   renderDetail();
   try {
-    state.analysis = await api.analyze(d.path, player || undefined);
+    const analysis = await api.analyze(d.path, player || undefined);
+    if (state.demoRequest !== request) return;
+    state.analysis = analysis;
     state.player = state.analysis.player || null;
     // preselect strong highlights that weren't clipped yet
     for (const hl of state.analysis.highlights || []) if (hl.score >= 40 && !clipsOf(hl).length) state.selected.add(hl.id);
     state.analysisError = null;
-  } catch (e) { state.analysisError = e.message; }
+  } catch (e) { if (state.demoRequest !== request) return; state.analysisError = e.message; }
   state.analyzing = false;
   renderDetail();
   renderStatus();
@@ -506,7 +549,7 @@ function renderDetail() {
       h('div', {}, 'Your Premier & matchmaking demos are found automatically. Download them in CS2 from Watch → Your Matches.')));
     return;
   }
-  if (state.analyzing) {
+  if (state.analyzing || (state.who && !state.other)) {
     el.replaceChildren(h('div', { class: 'empty' }, h('span', { class: 'spinner', style: { width: '28px', height: '28px' } }), h('h2', {}, 'Reading demo…'), h('div', {}, 'Reading rounds, kills and stats. Each demo is only read once.')));
     return;
   }
@@ -521,9 +564,16 @@ function renderDetail() {
   }
 
   const d = state.demo;
-  const playerSelect = h('select', { onchange: e => openDemo(d, e.target.value) },
-    ...[...a.players].sort((x, y) => x.name.localeCompare(y.name)).map(p => h('option', { value: p.steamid, selected: a.player?.steamid === p.steamid }, p.name)));
-  if (!a.playerFound) playerSelect.prepend(h('option', { value: '', selected: true, disabled: true }, 'Choose a player…'));
+  const playerSelect = cmpMenu({
+    value: a.playerFound ? a.player?.steamid : '', search: true,
+    trigger: a.playerFound ? a.player?.name : 'Choose a player…',
+    items: [...a.players].sort((x, y) => x.name.localeCompare(y.name)).map(p => ({
+      value: p.steamid, label: p.name,
+      icon: () => avatar(p.name, p.steamid, 'sm'),
+    })),
+    onpick: steamid => selectPlayer(steamid),
+  });
+  playerSelect.setAttribute('aria-label', 'Point of view');
 
   const res = a.score ? resultOf(a.score.mine, a.score.enemy) : 'd';
   // Numbers of the point-of-view player: from the scoreboard once it's loaded (it has ADR and rating).
@@ -547,7 +597,7 @@ function renderDetail() {
         sb ? stat('Rating', sb.rating == null ? '—' : sb.rating.toFixed(2), ratingClass(sb.rating)) : null,
       ) : null,
     ),
-    h('div', { class: 'player-pick' }, a.player ? avatar(a.player.name, a.player.steamid, 'sm') : icon('<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8"/>'), 'Point of view', playerSelect,
+    h('div', { class: 'player-pick' }, 'Point of view', playerSelect,
       h('span', { class: 'spacer' }),
       viewInCs2Button('View demo', 'btn', 'Opens this demo in CS2 (through HLAE) at the first round, in the eyes of the point-of-view player',
         () => ({ name: a.player?.name }), 'The demo is playing in the CS2 window.')),
@@ -893,7 +943,7 @@ const roomLabel = r => r === 'roomparty' ? 'Party room' : r === 'convoy' ? 'Conv
 function roomSelect(info, value, onchange, counts) {
   if (!info.rooms) return null;
   const rooms = Object.keys(info.rooms).filter(r => !counts || counts[r]).sort();
-  return select(value, [['auto', 'Room: automatic'], ['overview', 'Whole hotel'], ...rooms.map(r => [r, roomLabel(r) + (counts ? ` (${counts[r]})` : '')])], onchange);
+  return select(value, [['auto', 'Room: automatic'], ['overview', 'Whole hotel'], ...rooms.map(r => [r, roomLabel(r) + (counts ? ` (${counts[r]})` : '')])], onchange, { seg: false, icon: () => pickSvg(PICK_ICONS.layers), noun: 'rooms' });
 }
 const onLower = (info, z) => info.lowerBelow !== undefined && z < info.lowerBelow;
 
@@ -1049,7 +1099,7 @@ function heatmapView() {
   const controls = h('div', { class: 'heat-controls' },
     h('div', { class: 'tabs' }, ...[['match', 'This match'], ['map', `All my ${mapName(a.map)} matches`]].map(([k, l]) =>
       h('button', { class: hs.scope === k ? 'on' : '', onclick: () => { hs.scope = k; renderDetail(); } }, l))),
-    select(hs.weapon, [['all', 'All weapons'], ...weapons.map(w => [w, w])], v => { hs.weapon = v; renderDetail(); }),
+    weapons.length > 1 ? select(hs.weapon, [['all', 'All weapons'], ...weapons.map(w => [w, wpName(w)])], v => { hs.weapon = v; renderDetail(); }, { seg: false, icon: pickWeapon, noun: 'weapons' }) : null,
     floors ? h('div', { class: 'tabs' }, ...[['upper', 'Upper floor'], ['lower', 'Lower floor']].map(([k, l]) =>
       h('button', { class: hs.floor === k ? 'on' : '', onclick: () => { hs.floor = k; renderDetail(); } }, l))) : null,
     roomSelect(info, hs.room, v => { hs.room = v; renderDetail(); }, roomCounts),
@@ -1437,7 +1487,7 @@ function radarView() {
     playBtn,
     h('button', { class: 'icon-btn', title: 'Next round (↓)', disabled: R.round >= data.rounds.length, onclick: () => { setRadarRound(R.round + 1); renderDetail(); } }, icon('<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2"/>')),
     timeline,
-    select(String(R.speed), [['0.25', '0.25×'], ['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }),
+    select(String(R.speed), [['0.25', '0.25×'], ['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }, { seg: true, icon: () => pickSvg(PICK_ICONS.speed) }),
   );
   const options = h('div', { class: 'radar-options' },
     toggle('Shots', R.shots, v => { R.shots = v; }, 'Bullet tracers, hits and damage numbers'),
@@ -1691,6 +1741,7 @@ function drawProfile(canvas, n) {
 }
 
 document.addEventListener('keydown', e => {
+  if (e.target.closest('.cmp-menu, .pick-btn, .pick-seg')) return;
   if (state.tab !== 'radar' || !state.radar.data?.rounds || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) && e.target.type !== 'range') return;
   const R = state.radar, tr = R.data.tickrate;
   const step = e.shiftKey ? 8 : 5 * tr;
@@ -2331,8 +2382,8 @@ function renderOverview() {
   const p = shownProfile();
   const other = !!state.who;
   const page = (...body) => view.replaceChildren(h('div', { class: 'page dash-page' }, ...body));
-  const back = other ? h('button', { class: 'btn', onclick: () => openPlayer(null) }, '← My stats') : null;
-  if (!p) return page(h('div', { class: 'empty' }, spinner(28), h('h2', {}, other ? 'Loading this player’s stats…' : 'Loading your stats…')));
+  const back = playerMenu();
+  if (!p) return page(back, h('div', { class: 'empty' }, spinner(28), h('h2', {}, other ? 'Loading this player’s stats…' : 'Loading your stats…')));
   if (other && !p.matches.length) {
     return page(h('div', { class: 'empty' }, icon(ICONS.demo, 'class="big"'),
       h('h2', {}, p.error ? 'Could not read this player’s stats' : 'No matches with this player'),
@@ -2370,21 +2421,19 @@ function renderOverview() {
       both.length - withMe.length ? `${both.length - withMe.length} against you` : null,
     ].filter(Boolean).join(' · ');
   }
+  const filterMenu = (key, options) => cmpMenu({ value: f[key], search: key === 'map' && options.length > 10, noun: key === 'map' ? 'maps' : 'options', items: options.map(([value, label]) => ({ value, label, icon: () => cmpFilterIcon(key, value) })), onpick: v => { f[key] = v; rerender(); } });
   const head = h('div', { class: 'dash-head' },
     steamAvatar(p.name, p.steamid, 'large'),
     h('div', { class: 'dash-title' },
-      h('h2', {}, p.name || 'Your stats', other ? h('span', { class: 'dash-tag', title: `SteamID ${p.steamid}` }, 'Player') : null),
+      h('h2', {}, playerMenu({ trigger: p.name || 'Your stats' }), other ? h('span', { class: 'dash-tag', title: `SteamID ${p.steamid}` }, 'Player') : null),
       h('div', { class: 'sub' }, `${t.played} match${t.played === 1 ? '' : 'es'} · ${fmtNum(t.rounds)} rounds`,
         together ? ` · ${together}` : null,
         pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null)),
     h('span', { class: 'spacer' }),
-    back,
-    h('button', { class: 'btn', title: other ? 'What this player’s CS2 items are worth (public inventories only)' : 'What your CS2 items are worth', onclick: () => openInventory(other ? p.steamid : null, other ? p.name : null) }, 'Inventory'),
-    h('button', { class: 'btn', title: other ? 'This player and you side by side' : 'You against your lobbies or any player from your demos', onclick: () => compareWith(other ? p.steamid : 'lobby') }, other ? 'Compare with you' : 'Compare'),
-    h('div', { class: 'filters' },
-      modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], v => { f.mode = v; rerender(); }) : null,
-      select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], v => { f.map = v; rerender(); }),
-      select(f.period, PERIODS, v => { f.period = v; rerender(); })),
+    h('div', { class: 'cmp-filters' },
+      modes.length > 1 ? filterMenu('mode', [['all', 'All modes'], ...modes.map(m => [m, m])]) : null,
+      maps.length > 1 ? filterMenu('map', [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])]) : null,
+      filterMenu('period', PERIODS)),
   );
   if (!list.length) return page(head, h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.')));
 
@@ -2521,7 +2570,7 @@ function matesCard(t) {
 function openMatch(m) {
   const d = state.demos.find(x => x.id === m.id) || state.demos.find(x => x.path === m.path);
   if (!d) return toast('This demo is no longer in your demo folders.', 'error');
-  const player = state.view === 'overview' ? state.who : null; // seen through the player shown on the overview
+  const player = state.who;
   showView('matches');
   openDemo(d, player || undefined, 'scoreboard');
 }
@@ -2606,6 +2655,7 @@ ps.input.addEventListener('keydown', e => {
   }
 });
 document.addEventListener('keydown', e => {
+  if (e.target.closest('.cmp-menu')) return;
   if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); ps.input.focus(); ps.input.select(); }
 });
 
@@ -2617,7 +2667,7 @@ state.mp = { map: null, who: 'me', side: 'both', layers: new Set(['kill', 'death
 function mapsIndex() {
   const by = new Map();
   const seen = new Set();
-  for (const d of state.demos) {
+  for (const d of playerDemos()) {
     const m = d.summary?.map;
     if (!m || seen.has(d.id)) continue;
     seen.add(d.id);
@@ -2625,7 +2675,7 @@ function mapsIndex() {
     e.demos++;
     e.last = Math.max(e.last, d.date);
   }
-  const mine = aggregate(state.profile?.matches || []).maps;
+  const mine = aggregate(shownProfile()?.matches || []).maps;
   return [...by.values()].map(e => ({ ...e, me: mine[e.map] })).sort((a, b) => b.demos - a.demos || b.last - a.last);
 }
 
@@ -2635,7 +2685,7 @@ function renderMaps() {
   const maps = mapsIndex();
   const pending = state.demos.filter(d => !d.summary && !d.failed).length;
   view.replaceChildren(h('div', { class: 'page' },
-    h('div', { class: 'page-head' }, h('h2', {}, 'Maps'), h('span', { class: 'dl-head-info' }, 'Kills, deaths, damage and grenades of every match on a map, in one zoomable radar.'),
+    h('div', { class: 'page-head' }, h('h2', {}, 'Maps'), playerMenu(), h('span', { class: 'dl-head-info' }, 'Kills, deaths, damage and grenades of every match on a map, in one zoomable radar.'),
       h('span', { class: 'spacer' }), pending ? h('span', { class: 'hint' }, spinner(11), ` reading ${pending} demos…`) : null),
     maps.length ? h('div', { class: 'map-grid' }, ...maps.map(e => {
       const info = radarMaps ? radarInfo(e.map) : null;
@@ -2653,7 +2703,7 @@ function renderMaps() {
               h('div', { class: 'map-card-sub' }, `${e.demos} match${e.demos === 1 ? '' : 'es'} · last ${new Date(e.last).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`))),
           me ? h('div', { class: 'map-card-rec' },
             h('span', {}, `${me.won}W – ${me.lost}L`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`),
-            h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))) : h('div', { class: 'map-card-rec muted' }, 'You did not play here'),
+            h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))) : h('div', { class: 'map-card-rec muted' }, state.who ? 'This player did not play here' : 'You did not play here'),
           info ? null : h('div', { class: 'map-card-sub' }, 'No radar image for this map')));
     })) : h('div', { class: 'empty' }, pending ? spinner(28) : icon(ICONS.demo, 'class="big"'), h('h2', {}, pending ? 'Reading your demos…' : 'No maps yet'), h('div', {}, 'Maps appear once their demos have been read.')),
   ));
@@ -2662,13 +2712,13 @@ function renderMaps() {
 function mapHeatData() {
   const mp = state.mp;
   const n = state.demos.filter(d => d.summary?.map === mp.map).length;
-  const key = `${mp.map}|${mp.who}|${n}`;
+  const key = `${mp.map}|${mp.who}|${state.who}|${n}`;
   if (mp.data?.key === key) return mp.data;
   if (mp.loading !== key) {
     mp.loading = key;
-    api.mapHeat(mp.map, mp.who === 'all' ? 'all' : null)
-      .then(v => { mp.data = { key, ...v }; })
-      .catch(e => { mp.data = { key, error: e.message }; })
+    api.mapHeat(mp.map, mp.who === 'all' ? 'all' : state.who)
+      .then(v => { if (mp.loading === key) mp.data = { key, ...v }; })
+      .catch(e => { if (mp.loading === key) mp.data = { key, error: e.message }; })
       .finally(() => { if (mp.loading === key) mp.loading = null; if (state.view === 'maps') renderMaps(); });
   }
   return null;
@@ -2682,9 +2732,9 @@ function mapDetail() {
   const head = h('div', { class: 'page-head map-head' },
     h('button', { class: 'btn ghost', onclick: () => { mp.map = null; rerender(); } }, icon('<path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2"/>'), 'All maps'),
     h('h2', { class: 'map-title' }, mapEmblem(map, 'map-title-icon'), mapName(map)),
-    select(map, maps.map(e => [e.map, `${mapName(e.map)} (${e.demos})`]), v => { mp.map = v; resetZoom(mp.view); rerender(); }),
-    h('span', { class: 'spacer' }),
-    h('div', { class: 'tabs' }, ...[['me', 'Me'], ['all', 'Everyone']].map(([k, l]) =>
+    maps.length > 1 ? select(map, maps.map(e => [e.map, `${mapName(e.map)} (${e.demos})`]), v => { mp.map = v; resetZoom(mp.view); rerender(); }, { seg: false, icon: pickMap, noun: 'maps' }) : null,
+    h('span', { class: 'spacer' }), playerMenu(),
+    h('div', { class: 'tabs' }, ...[['me', state.who ? 'Player' : 'Me'], ['all', 'Everyone']].map(([k, l]) =>
       h('button', { class: mp.who === k ? 'on' : '', onclick: () => { mp.who = k; if (k === 'all') mp.layers.delete('shot'); rerender(); } }, l))),
   );
   const wrap = (...body) => h('div', { class: 'page map-page' }, head, ...body);
@@ -2718,20 +2768,20 @@ function mapDetail() {
 
   const controls = card('Show', [
     h('div', { class: 'ctl-row' }, h('label', {}, 'Side'), h('div', { class: 'tabs' }, ...[['both', 'Both'], ['T', 'T'], ['CT', 'CT']].map(([k, l]) =>
-      h('button', { class: `${mp.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, onclick: () => { mp.side = k; rerender(); } }, l)))),
+      h('button', { class: `${mp.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, onclick: () => { mp.side = k; rerender(); } }, sideIcon(k), l)))),
     h('div', { class: 'ctl-row' }, h('label', {}, 'Display'), ...heatDisplayControls(mp, rerender)),
-    weapons.length ? h('div', { class: 'ctl-row' }, h('label', {}, 'Weapon'), select(mp.weapon, [['all', 'All weapons'], ...weapons.map(w => [w, w])], v => { mp.weapon = v; rerender(); })) : null,
+    weapons.length > 1 ? h('div', { class: 'ctl-row' }, h('label', {}, 'Weapon'), select(mp.weapon, [['all', 'All weapons'], ...weapons.map(w => [w, wpName(w)])], v => { mp.weapon = v; rerender(); }, { seg: false, icon: pickWeapon, noun: 'weapons' })) : null,
     floors ? h('div', { class: 'ctl-row' }, h('label', {}, 'Floor'), h('div', { class: 'tabs' }, ...[['upper', 'Upper'], ['lower', 'Lower']].map(([k, l]) =>
       h('button', { class: mp.floor === k ? 'on' : '', onclick: () => { mp.floor = k; rerender(); } }, l)))) : null,
     info.rooms ? h('div', { class: 'ctl-row' }, h('label', {}, 'Room'), roomSelect(info, mp.room, v => { mp.room = v; rerender(); }, roomCounts)) : null,
     h('div', { class: 'sub-head' }, 'Layers'),
     heatLayerChips(mp, pts, rerender, k => !(mp.who === 'all' && k === 'shot')),
-    h('div', { class: 'hint' }, `${data.matches} match${data.matches === 1 ? '' : 'es'} · ${mp.who === 'all' ? 'all players' : 'only you'}${mp.display === 'dots' ? '' : ' · switch to Dots to see single positions'}`),
+    h('div', { class: 'hint' }, `${data.matches} match${data.matches === 1 ? '' : 'es'} · ${mp.who === 'all' ? 'all players' : state.who ? 'selected player' : 'only you'}${mp.display === 'dots' ? '' : ' · switch to Dots to see single positions'}`),
   ], { cls: 'map-controls' });
 
-  const me = aggregate((state.profile?.matches || []).filter(m => m.map === map));
-  const mine = (state.profile?.matches || []).filter(m => m.map === map).sort((a, b) => b.date - a.date);
-  const stats = me.played ? card('You on ' + mapName(map), [
+  const me = aggregate((shownProfile()?.matches || []).filter(m => m.map === map));
+  const mine = (shownProfile()?.matches || []).filter(m => m.map === map).sort((a, b) => b.date - a.date);
+  const stats = me.played ? card((state.who ? (state.other?.name || 'Player') : 'You') + ' on ' + mapName(map), [
     h('div', { class: 'mini-stats' },
       ...[['Win rate', `${pct(me.won, me.played)}%`, pct(me.won, me.played) >= 50 ? 'good' : 'bad'], ['Rating', me.rating == null ? '—' : me.rating.toFixed(2), me.rating == null ? '' : ratingClass(me.rating)],
         ['K/D', me.kd.toFixed(2), qualityClass(me.kd, 1.05, 0.95)], ['ADR', me.adr.toFixed(0)]].map(([k, v, cls]) => h('div', { class: 'mini-stat' }, h('div', { class: 'k' }, k), h('div', { class: `v ${cls || ''}` }, v)))),
@@ -2841,9 +2891,9 @@ function renderUtility() {
     h('div', { class: 'tabs' }, ...[['all', 'All'], ...UT_TYPES].map(([k, l]) =>
       h('button', { class: u.type === k ? 'on' : '', onclick: () => { u.type = k; renderUtility(); } }, k !== 'all' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, l))),
     h('div', { class: 'tabs' }, ...[['both', 'Both sides'], ['T', 'T'], ['CT', 'CT']].map(([k, l]) =>
-      h('button', { class: `${u.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, onclick: () => { u.side = k; renderUtility(); } }, l))),
+      h('button', { class: `${u.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, onclick: () => { u.side = k; renderUtility(); } }, sideIcon(k), l))),
     search,
-    select(u.sort, UT_SORTS, v => { u.sort = v; renderUtility(); }));
+    select(u.sort, UT_SORTS, v => { u.sort = v; renderUtility(); }, { seg: false, label: 'Sort', icon: v => pickSvg(PICK_ICONS[v === 'new' ? 'calendar' : v === 'name' ? 'list' : 'repeat']) }));
 
   function utBody() {
     const list = utFiltered();
@@ -3233,7 +3283,7 @@ function editLineup(seed = {}) {
     const wrap = h('div', { class: 'tabs' });
     const paint = () => wrap.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', list[i][0] === d[key]));
     wrap.append(...list.map(([k, l]) => h('button', { class: key === 'side' && k !== 'both' ? `side-${k}` : '', onclick: () => { d[key] = k; paint(); onchange?.(); } },
-      key === 'type' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, l)));
+      key === 'side' ? sideIcon(k) : key === 'type' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, l)));
     paint();
     return wrap;
   };
@@ -3357,14 +3407,14 @@ function editLineup(seed = {}) {
       h('div', { class: 'ut-editor-form' },
         field('Name', name),
         h('div', { class: 'ut-field-row' },
-          field('Map', select(d.map, [...new Set([d.map, ...knownMaps])].map(m => [m, mapName(m)]), v => { d.map = v; resetZoom(pick.view); radarBox.replaceChildren(pickRadar()); })),
+          field('Map', select(d.map, [...new Set([d.map, ...knownMaps])].map(m => [m, mapName(m)]), v => { d.map = v; resetZoom(pick.view); radarBox.replaceChildren(pickRadar()); }, { seg: false, icon: pickMap, noun: 'maps' })),
           field('Side', seg([['T', 'T'], ['CT', 'CT'], ['both', 'Both']], 'side'))),
         field('Grenade', seg(UT_TYPES, 'type', () => radarBox.replaceChildren(pickRadar()))),
         field('Position', getpos, h('span', {}, 'In CS2, stand on the spot and aim, type ', h('kbd', {}, 'getpos_exact'), ' in the console and paste the line here. Or click the radar.')),
         posStatus,
         h('div', { class: 'ut-field-row' },
-          field('Movement', select(d.move, UT_MOVES, v => { d.move = v; })),
-          field('Mouse', select(d.click, UT_CLICKS, v => { d.click = v; }))),
+          field('Movement', select(d.move, UT_MOVES, v => { d.move = v; }, { seg: false, icon: () => pickSvg(PICK_ICONS.speed), noun: 'movements' })),
+          field('Mouse', select(d.click, UT_CLICKS, v => { d.click = v; }, { seg: false, icon: () => pickSvg(PICK_ICONS.mouse) }))),
         field('Where to aim', h('input', { type: 'text', value: d.aim, maxlength: 500, placeholder: 'e.g. Crosshair on the left edge of the antenna, bottom of the cloud', oninput: e => { d.aim = e.target.value; } })),
         field('Notes', h('textarea', { rows: 3, maxlength: 4000, placeholder: 'Timing, what it blocks, who throws it…', oninput: e => { d.notes = e.target.value; } }, d.notes)),
         field('Pictures', h('div', {}, shots, fileInput), 'The spot you stand on and your crosshair are the two that help most. The first picture is the cover.'),
@@ -3382,6 +3432,7 @@ function editLineup(seed = {}) {
 }
 
 document.addEventListener('keydown', e => {
+  if (e.target.closest('.cmp-menu, .pick-btn, .pick-seg')) return;
   if (state.view !== 'utility' || e.key !== 'Escape' || !$('#overlay').classList.contains('hidden')) return;
   if (state.ut.closeMenu?.() || !state.ut.sel) return;
   state.ut.sel = null;
@@ -3624,18 +3675,16 @@ async function loadClipCount() {
 }
 async function loadClips() { await loadClipCount(); renderClips(); }
 
-// Weapon categories, in the order groups are shown. Names match highlights.js weaponName().
-const WEAPON_TYPES = [
-  ['Rifles', ['AK-47', 'M4A4', 'M4A1-S', 'FAMAS', 'Galil', 'AUG', 'SG 553']],
-  ['Snipers', ['AWP', 'Scout', 'G3SG1', 'SCAR-20']],
-  ['Pistols', ['Deagle', 'R8', 'USP-S', 'P2000', 'Glock', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75', 'Dualies']],
-  ['SMGs', ['MAC-10', 'MP9', 'MP7', 'MP5-SD', 'UMP-45', 'P90', 'PP-Bizon']],
-  ['Shotguns', ['Nova', 'XM1014', 'MAG-7', 'Sawed-Off']],
-  ['Heavy', ['M249', 'Negev']],
-  ['Knife & Zeus', ['Knife', 'Zeus']],
-  ['Grenades', ['HE', 'Molotov', 'Incendiary']],
-];
-const weaponType = w => WEAPON_TYPES.find(([, list]) => list.includes(w))?.[0] || 'Other';
+// Buy-menu codes map to the display names stored in clip records.
+const CLIP_WEAPON_NAMES = {
+  taser: ['Zeus'], hkp2000: ['P2000'], usp_silencer: ['USP-S'], m4a1_silencer: ['M4A1-S'], m4a1: ['M4A4'],
+  cz75a: ['CZ75'], deagle: ['Deagle'], revolver: ['R8'], mp5sd: ['MP5-SD'], ssg08: ['Scout'], awp: ['AWP'],
+  ak47: ['AK-47'], galilar: ['Galil'], famas: ['FAMAS'], aug: ['AUG'], sg556: ['SG 553'], glock: ['Glock'],
+  p250: ['P250'], fiveseven: ['Five-SeveN'], tec9: ['Tec-9'], elite: ['Dualies'], mac10: ['MAC-10'], mp9: ['MP9'],
+  mp7: ['MP7'], ump45: ['UMP-45'], p90: ['P90'], bizon: ['PP-Bizon'], nova: ['Nova'], xm1014: ['XM1014'],
+  mag7: ['MAG-7'], sawedoff: ['Sawed-Off'], m249: ['M249'], negev: ['Negev'], g3sg1: ['G3SG1'], scar20: ['SCAR-20'],
+  hegrenade: ['HE'], knife: ['Knife'], inferno: ['Molotov', 'Incendiary'],
+};
 
 // The weapon a clip is "about": the one with the most kills (older clips only know the weapon list).
 function mainWeapon(c) {
@@ -3670,28 +3719,25 @@ function clipDayLabel(day, now = new Date()) {
 
 function renderClips() {
   const view = $('#view-clips');
-  const wf = state.weaponFilter || 'all';
+  const picked = state.clipWeapons ||= new Set();
   const sf = state.starFilter || 0;
   let items = state.clips.filter(c => state.clipFilter === 'all' || c.kind === state.clipFilter);
-  items = items.filter(c => {
-    if (wf === 'all') return true;
-    const ws = c.weapons || [];
-    return wf.startsWith('type:') ? ws.some(w => weaponType(w) === wf.slice(5)) : ws.includes(wf);
-  });
+  const counts = new Map();
+  for (const [code, names] of Object.entries(CLIP_WEAPON_NAMES)) {
+    counts.set(code, items.filter(c => names.some(name => (c.weapons || []).includes(name))).length);
+  }
+  const names = new Set([...picked].flatMap(code => CLIP_WEAPON_NAMES[code] || []));
+  if (picked.size) items = items.filter(c => (c.weapons || []).some(w => names.has(w)));
   // Counted before the star filter so each star can say how many clips it would show.
   const perStar = [0, 0, 0, 0, 0, 0];
   for (const c of items) perStar[clipStars(c)]++;
   if (sf) items = items.filter(c => clipStars(c) === sf);
   items.sort((a, b) => clipTime(b) - clipTime(a));
 
-  // Weapon filter offers the categories and the individual weapons present in your clips.
-  const present = [...new Set(state.clips.flatMap(c => c.weapons || []))];
-  const types = WEAPON_TYPES.map(([t]) => t).filter(t => present.some(w => weaponType(w) === t));
-  const weaponSelect = select(wf, [
-    ['all', 'All weapons'],
-    ...types.map(t => [`type:${t}`, t]),
-    ...types.flatMap(t => present.filter(w => weaponType(w) === t).sort().map(w => [w, `   ${w}`])),
-  ], v => { state.weaponFilter = v; renderClips(); });
+  const weaponsBtn = weaponBuyButton(picked, () => weaponBuyMenu({
+    picked, counts, unit: 'clip',
+    subtitle: 'Shows clips with a kill from any picked weapon', onDone: renderClips,
+  }));
   // Click a star for the clips rated exactly that many stars; click it again to show them all.
   const starPicker = h('div', { class: `clip-stars-pick ${sf ? 'set' : ''}` }, ...[5, 4, 3, 2, 1].map(n =>
     h('button', { class: n <= sf ? 'on' : '', title: sf === n ? 'Show all ratings' : `${n}-star clips (${perStar[n]})`,
@@ -3702,7 +3748,7 @@ function renderClips() {
       h('span', { class: 'clips-stats' }, `${items.length} clip${items.length === 1 ? '' : 's'} · ${fmtDur(items.reduce((s, c) => s + (c.duration || 0), 0))}`)),
     h('div', { class: 'tabs' }, ...[['all', 'All'], ['clip', 'Clips'], ['montage', 'Montages'], ['share', 'Shared']].map(([k, l]) =>
       h('button', { class: state.clipFilter === k ? 'on' : '', onclick: () => { state.clipFilter = k; renderClips(); } }, l))),
-    weaponSelect, starPicker,
+    weaponsBtn, starPicker,
     h('span', { class: 'spacer' }),
     galleryHeadButton(),
     h('button', { class: 'btn clips-folder', title: 'Open folder', onclick: () => api.open(state.env.outputDir) }, icon(ICONS.folder), h('span', {}, 'Open folder')),
@@ -3878,8 +3924,67 @@ function text(value, onchange, attrs = {}) { return h('input', { type: 'text', v
 function toggle(label, on, onchange, title) {
   return h('button', { class: `chip-toggle ${on ? 'on' : ''}`, title, onclick: e => { on = !on; e.currentTarget.classList.toggle('on', on); onchange(on); } }, label);
 }
-function select(value, options, onchange) {
-  return h('select', { onchange: e => onchange(e.target.value) }, ...options.map(([v, l]) => h('option', { value: v, selected: v === value }, l)));
+// Shared icons and pickers; long lists use the body-portal menu from review.js.
+const PICK_ICONS = Object.fromEntries(Object.entries({
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  sort: '<path d="M4 6h16M4 12h11M4 18h6m8-8v11m-3-3 3 3 3-3"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18m-14 4h3m4 0h3"/>',
+  coin: '<circle cx="12" cy="12" r="9"/><path d="M15 8H10a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H9m3-10v12"/>',
+  sticker: '<path d="M21 12V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7l9-9Zm-9 9v-7a2 2 0 0 1 2-2h7"/>',
+  speed: '<path d="M4 17a9 9 0 1 1 16 0M12 13l5-6M6 13h1m10 0h1M8 7l1 1"/><circle cx="12" cy="13" r="2"/>',
+  film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16m10-16v16M3 9h4m-4 6h4m10-6h4m-4 6h4"/>',
+  monitor: '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M12 17v4m-4 0h8"/>',
+  chip: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 9h6v6H9zM9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4"/>',
+  star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/>',
+  list: '<path d="M9 6h12M9 12h12M9 18h12M3 6h1m-1 6h1m-1 6h1"/>',
+  hash: '<path d="M10 3 8 21M16 3l-2 18M4 8h17M3 16h17"/>',
+  layers: '<path d="m12 3 10 5-10 5L2 8Zm-10 9 10 5 10-5M2 16l10 5 10-5"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2"/>',
+  users: '<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v3m1-16a3 3 0 0 1 0 6m2 3a5 5 0 0 1 3 4v3"/>',
+  swords: '<path d="m4 3 3 1 13 15m-4 1 5-5M3 4l1 3 15 13M20 3l-3 1-5 6M21 4l-1 3-6 5M3 15l6 6m-5-1 5-5"/>',
+  flag: '<path d="M5 22V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0"/>',
+  timer: '<circle cx="12" cy="14" r="8"/><path d="M9 2h6m-3 0v4m0 4v5m6-9 2-2"/>',
+  trophy: '<path d="M7 3h10v6a5 5 0 0 1-10 0Zm0 2H3v3a4 4 0 0 0 5 4m9-7h4v3a4 4 0 0 1-5 4m-4 2v7m-4 0h8"/>',
+  repeat: '<path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4m14-1v2a3 3 0 0 1-3 3H3"/>',
+  map: '<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2Zm6-2v16m6-14v16"/>',
+  mouse: '<rect x="6" y="2" width="12" height="20" rx="6"/><path d="M12 2v8M6 10h12"/>',
+}).map(([k, svg]) => [k, `<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${svg}</g>`]));
+function pickSvg(svg) { return h('span', { class: 'pick-ic', 'aria-hidden': 'true' }, icon(svg)); }
+function sideIcon(side) {
+  if (side === 'both' || side === 'all') return h('span', { class: 'pick-sides', 'aria-hidden': 'true' }, sideIcon('T'), sideIcon('CT'));
+  return h('img', { class: 'pick-side', src: `img/team-${String(side).toLowerCase()}.png`, alt: '', 'aria-hidden': 'true' });
+}
+function pickMap(m) { return !m || m === 'all' ? pickSvg(PICK_ICONS.map) : mapEmblem(m, 'pick-emblem'); }
+function pickWeapon(code) { return code === 'all' ? pickSvg(PICK_ICONS.grid) : h('span', { class: 'pick-wpn', 'aria-hidden': 'true' }, weaponIcon(code)); }
+function select(value, options, onchange, opts = {}) {
+  const same = (a, b) => String(a) === String(b);
+  const image = ([v, , factory]) => factory ? factory() : opts.icon ? opts.icon(v) : pickSvg(PICK_ICONS.grid);
+  const prefix = () => opts.label ? h('span', { class: 'pick-prefix' }, opts.label) : null;
+  if (opts.seg === true || (opts.seg !== false && options.length <= 4 && options.every(([, l]) => String(l).length <= 18))) {
+    const root = h('div', { class: `tabs pick-seg ${opts.cls || ''}`, title: opts.title, role: 'group', 'aria-label': opts.label || opts.title });
+    const buttons = options.map(o => h('button', { type: 'button', class: `${same(o[0], value) ? 'on' : ''} ${['T', 'CT'].includes(o[0]) ? 'side-' + o[0] : ''}`,
+      'aria-pressed': String(same(o[0], value)), onclick: () => {
+        buttons.forEach((b, i) => { const on = same(options[i][0], o[0]); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+        onchange(o[0]);
+      } }, image(o), h('span', { class: 'pick-label' }, o[1])));
+    root.append(...[prefix(), ...buttons].filter(Boolean));
+    return root;
+  }
+  const items = options.map(o => ({ value: String(o[0]), label: String(o[1]), icon: () => image(o) }));
+  const build = current => {
+    const btn = cmpMenu({ value: String(current), items, search: opts.search ?? options.length > 10, noun: opts.noun || 'options', right: opts.right,
+      cls: `pick-btn ${opts.cls || ''}`, onpick: v => {
+        const next = build(v), focused = document.activeElement === btn;
+        btn.replaceWith(next);
+        if (focused) next.focus({ preventScroll: true });
+        onchange(options.find(o => same(o[0], v))[0]);
+      } });
+    if (opts.label) btn.prepend(prefix());
+    if (opts.title) btn.title = opts.title;
+    return btn;
+  };
+  return build(value);
 }
 
 // ---------- HLAE updates ----------
@@ -4044,10 +4149,11 @@ function themeCard() {
   };
   const color = (key, label, value, fallback) => h('label', { class: 'theme-color' },
     h('input', { type: 'color', value: value || fallback, oninput: e => edit({ [key]: e.target.value }, true), onchange: e => edit({ [key]: e.target.value }, false) }), label);
-  const teamSelect = h('span', {}, select(c.logo || '', [['', 'No logo'], ...(c.logo ? [[c.logo, teamName(c.logo)]] : [])], () => {}));
+  const teamIcon = code => code ? artImg('pick-emblem', Scene.teamUrl(code)) : pickSvg(PICK_ICONS.users);
+  const teamSelect = h('span', {}, select(c.logo || '', [['', 'No logo'], ...(c.logo ? [[c.logo, teamName(c.logo)]] : [])], () => {}, { seg: false, search: true, icon: teamIcon, noun: 'teams' }));
   Scene.list().then(l => {
     const codes = (l?.teams || []).slice().sort((a, b) => teamName(a).localeCompare(teamName(b)));
-    teamSelect.replaceChildren(select(c.logo || '', [['', 'No logo'], ...codes.map(code => [code, teamName(code)])], v => edit({ logo: v, map: v ? '' : c.map, art: '' }, false)));
+    teamSelect.replaceChildren(select(c.logo || '', [['', 'No logo'], ...codes.map(code => [code, teamName(code)])], v => edit({ logo: v, map: v ? '' : c.map, art: '' }, false), { seg: false, search: true, icon: teamIcon, noun: 'teams' }));
   });
   const maps = Object.keys(MAPS);
   return h('div', { class: 'card' },
@@ -4066,9 +4172,9 @@ function themeCard() {
         color('data', 'Highlights', c.data, c.accent),
         c.data ? h('button', { class: 'link-btn', onclick: () => edit({ data: '' }, false) }, 'Highlights = accent') : null),
       h('div', { class: 'theme-custom-ctl' },
-        h('label', { class: 'theme-color' }, select(c.map || '', [['', 'No map'], ...maps.map(m => [m, mapName(m)])], v => edit({ map: v, shot: '', logo: v ? '' : c.logo, art: '' }, false)), 'Map picture'),
+        h('label', { class: 'theme-color' }, select(c.map || '', [['', 'No map'], ...maps.map(m => [m, mapName(m)])], v => edit({ map: v, shot: '', logo: v ? '' : c.logo, art: '' }, false), { seg: false, icon: pickMap, noun: 'maps' }), 'Map picture'),
         h('label', { class: 'theme-color' }, teamSelect, 'Team logo'),
-        h('label', { class: 'theme-color' }, select(c.pattern || '', PATTERN_NAMES, v => edit({ pattern: v }, false)), 'Pattern'))),
+        h('label', { class: 'theme-color' }, select(c.pattern || '', PATTERN_NAMES, v => edit({ pattern: v }, false), { seg: true, cls: 'pick-patterns', icon: v => { const tile = Scene.patternTile(v, c.accent); return tile ? h('span', { class: 'pick-pattern', style: { backgroundImage: tile.url }, 'aria-hidden': 'true' }) : pickSvg(PICK_ICONS.grid); } }), 'Pattern'))),
     ...(cur === 'custom' ? shotPicker : []),
   );
 }
@@ -4081,7 +4187,7 @@ function renderThemes() {
     h('div', { class: 'card' },
       h('h3', {}, 'Display'),
       row('Interface size', select(String(st.uiScale || 0), [['0', `Automatic (now ${Math.round((st.uiScale ? autoScale() : api.getZoom()) * 100)}%)`], ['0.9', '90%'], ['1', '100%'], ['1.1', '110%'], ['1.25', '125%'], ['1.4', '140%'], ['1.6', '160%'], ['1.8', '180%'], ['2', '200%']],
-        v => save({ uiScale: +v }).then(() => { applyScale(); renderThemes(); })), 'Automatic follows the window: everything is drawn bigger on large screens, about 30% at 2560 × 1440 and 80% at 3840 × 2160.'),
+        v => save({ uiScale: +v }).then(() => { applyScale(); renderThemes(); }), { seg: false, icon: () => pickSvg(PICK_ICONS.monitor) }), 'Automatic follows the window: everything is drawn bigger on large screens, about 30% at 2560 × 1440 and 80% at 3840 × 2160.'),
     )));
 }
 
@@ -4096,10 +4202,10 @@ function renderSettings() {
     h('div', { class: 'card' },
       h('h3', {}, 'Highlights'),
       h('div', { class: 'desc' }, 'What counts as a highlight. Each round becomes at most one clip.'),
-      row('Multi-kill from', select(String(d.minMultiKill), [['2', '2 kills'], ['3', '3 kills (3K)'], ['4', '4 kills (4K)'], ['5', 'Aces only']], v => save({ detection: { minMultiKill: +v } }, true))),
+      row('Multi-kill from', select(String(d.minMultiKill), [['2', '2 kills'], ['3', '3 kills (3K)'], ['4', '4 kills (4K)'], ['5', 'Aces only']], v => save({ detection: { minMultiKill: +v } }, true), { seg: true, icon: () => pickSvg(PICK_ICONS.trophy) })),
       row('Clutches', h('div', { class: 'ctl' },
         toggle('Include clutches', d.clutch, v => save({ detection: { clutch: v } }, true)),
-        select(String(d.minClutch), [['1', 'from 1v1'], ['2', 'from 1v2'], ['3', 'from 1v3'], ['4', 'from 1v4'], ['5', '1v5 only']], v => save({ detection: { minClutch: +v } }, true)))),
+        select(String(d.minClutch), [['1', 'from 1v1'], ['2', 'from 1v2'], ['3', 'from 1v3'], ['4', 'from 1v4'], ['5', '1v5 only']], v => save({ detection: { minClutch: +v } }, true), { seg: true, icon: () => pickSvg(PICK_ICONS.swords) }))),
       row('Special kills', h('div', { class: 'chips' }, ...Object.entries(SPECIAL_LABELS).map(([k, l]) => toggle(l, d.specials[k], v => save({ detection: { specials: { [k]: v } } }, true))))),
       row('Seconds before / after', h('div', { class: 'ctl' },
         num(t.padBefore, v => save({ timing: { padBefore: v } }, true), { max: 15, step: 0.5 }), ' / ',
@@ -4117,8 +4223,8 @@ function renderSettings() {
         'HLAE must match your CS2 version. After a CS2 update, recording can fail until HLAE is updated.'),
       row('HLAE updates', hlaeUpdateCtl()),
       row('Resolution', select(`${st.hlae.width}x${st.hlae.height}`, [['1280x720', '1280 × 720'], ['1920x1080', '1920 × 1080'], ['2560x1440', '2560 × 1440']],
-        v => { const [w, hh] = v.split('x').map(Number); save({ hlae: { width: w, height: hh } }); })),
-      row('Frame rate', select(String(st.hlae.fps), [['30', '30 fps'], ['60', '60 fps'], ['120', '120 fps']], v => save({ hlae: { fps: +v } }))),
+        v => { const [w, hh] = v.split('x').map(Number); save({ hlae: { width: w, height: hh } }); }, { seg: true, icon: () => pickSvg(PICK_ICONS.monitor) })),
+      row('Frame rate', select(String(st.hlae.fps), [['30', '30 fps'], ['60', '60 fps'], ['120', '120 fps']], v => save({ hlae: { fps: +v } }), { seg: true, icon: () => pickSvg(PICK_ICONS.film) })),
     ),
 
     h('div', { class: 'card' },
@@ -4148,7 +4254,7 @@ function renderSettings() {
       h('h3', {}, 'Output'),
       row('Save clips to', h('div', { class: 'ctl' }, h('span', { class: 'mono', style: { flex: 1 } }, e.outputDir),
         h('button', { class: 'btn', onclick: async () => { const p = await api.pickFolder('Where to save clips'); if (p) { await save({ outputDir: p }); await refreshEnv(); renderSettings(); } } }, 'Change'))),
-      row('Video encoder', select(st.encoder, [['auto', `Auto (using ${e.encoder})`], ['libx264', 'CPU (x264)'], ['h264_nvenc', 'NVIDIA (NVENC)'], ['h264_amf', 'AMD (AMF)'], ['h264_qsv', 'Intel (QuickSync)']], v => save({ encoder: v }).then(refreshEnv))),
+      row('Video encoder', select(st.encoder, [['auto', `Auto (using ${e.encoder})`], ['libx264', 'CPU (x264)'], ['h264_nvenc', 'NVIDIA (NVENC)'], ['h264_amf', 'AMD (AMF)'], ['h264_qsv', 'Intel (QuickSync)']], v => save({ encoder: v }).then(refreshEnv), { seg: false, icon: () => pickSvg(PICK_ICONS.chip) })),
       row('Montage fade', h('div', { class: 'ctl' }, num(st.montage.fade, v => save({ montage: { fade: v } }), { max: 2, step: 0.05 }), 'seconds')),
       row('Keep raw recordings', toggle('Keep', st.keepRaw, v => save({ keepRaw: v })), "Keeps HLAE's separate video and audio files in a _raw folder."),
       row('ffmpeg', h('div', { class: 'ctl' }, h('span', { class: 'mono', style: { flex: 1 } }, e.ffmpeg || 'not found'),
