@@ -4,12 +4,14 @@ const { extractRounds } = require('./rounds');
 const { extractTrack, packTrack, flightsHelper } = require('./track');
 const { extractIntegrity, tickHelper } = require('./integrity');
 const { loadGeometry } = require('./geometry');
+const { analyzeSession } = require('./drillStats');
 
 // mode 'track': sample player positions for the 2D replay (needs the demo's core data).
 // mode 'integrity': aim and visibility facts for the Integrity and Aim tabs (needs the core data too).
 // mode 'rounds': money, loadouts and callouts per round (for demos read before that existed).
 // mode 'ticks': helper of 'integrity', reads part of the ticks into shared memory (see integrity.js).
 // mode 'flights': helper of 'track', reads the grenade flights (see track.js).
+// mode 'drill': what happened in a training session's demo (drillStats.js).
 // default: everything the app reads from every demo (core, events, rounds).
 if (workerData.mode === 'ticks') {
   tickHelper(workerData);
@@ -27,6 +29,14 @@ if (workerData.mode === 'ticks') {
   try {
     const buf = packTrack(extractTrack(workerData.file, workerData.core, { lowEnd: !!workerData.lowEnd }));
     parentPort.postMessage({ ok: true, data: buf });
+  } catch (err) {
+    parentPort.postMessage({ ok: false, error: String(err && err.message || err) });
+  }
+} else if (workerData.mode === 'drill') {
+  try {
+    const map = require('./parser').parseHeader(workerData.file).map_name;
+    const geometry = workerData.geometryDir ? loadGeometry(workerData.geometryDir, map) : null;
+    parentPort.postMessage({ ok: true, data: analyzeSession(workerData.file, { me: workerData.me, geometry, parts: workerData.parts }) });
   } catch (err) {
     parentPort.postMessage({ ok: false, error: String(err && err.message || err) });
   }

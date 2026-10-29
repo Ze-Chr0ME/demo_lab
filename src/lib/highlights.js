@@ -116,7 +116,7 @@ function buildHighlights(data, steamid, opts) {
       title: tags.map(t => t.label).join(' · '),
       weapons,
       kills: kills.map(k => ({
-        tick: k.tick, victim: k.victimName, weapon: weaponName(k.weapon), headshot: k.headshot,
+        tick: k.tick, victim: k.victimName, weapon: weaponName(k.weapon), code: isKnife(k.weapon) ? 'knife' : k.weapon, headshot: k.headshot,
         flags: Object.entries(SPECIALS).filter(([key, d]) => d.test && d.test(k)).map(([, d]) => d.label),
       })),
       segments,

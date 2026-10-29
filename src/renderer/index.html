@@ -28,11 +28,12 @@
     <nav class="topnav">
       <button class="nav-btn active" data-view="overview">Overview</button>
       <button class="nav-btn" data-view="matches">Matches<span class="nav-count" id="matchCount"></span></button>
+      <button class="nav-btn" data-view="highlights">Highlights<span class="nav-count" id="hlCount"></span></button>
       <button class="nav-btn" data-view="aim">Aim</button>
       <button class="nav-btn" data-view="maps">Maps</button>
       <button class="nav-btn" data-view="compare">Compare</button>
       <button class="nav-btn" data-view="inventory">Inventory</button>
-      <button class="nav-btn" data-view="utility">Utility<span class="nav-count" id="utilCount"></span></button>
+      <button class="nav-btn" data-view="training">Training<span id="utilCount" style="display:none"></span></button>
       <button class="nav-btn" data-view="clips">Clips<span class="nav-count" id="clipCount"></span></button>
       <button class="nav-btn" data-view="downloads">Downloads<span class="nav-count" id="dlCount"></span></button>
     </nav>
@@ -70,11 +71,13 @@
       <div class="detail" id="detail"></div>
     </section>
 
+    <section class="view" id="view-highlights"></section>
     <section class="view" id="view-aim"></section>
     <section class="view" id="view-maps"></section>
     <section class="view" id="view-compare"></section>
     <section class="view" id="view-inventory"></section>
     <section class="view" id="view-utility"></section>
+    <section class="view" id="view-training"></section>
     <section class="view" id="view-clips"></section>
     <section class="view" id="view-downloads"></section>
     <section class="view" id="view-themes"></section>
@@ -89,6 +92,9 @@
   <script src="weapons.js"></script>
   <script src="review.js"></script>
   <script src="inventory.js"></script>
+  <script src="highlights.js"></script>
+  <script src="training.js"></script>
+  <script src="scenarios.js"></script>
   <script src="gallery.js"></script>
 </body>
 </html>

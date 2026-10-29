@@ -43,7 +43,7 @@ const MAPS = {
   de_dust2: ['Dust II', '#c9a36b'], de_mirage: ['Mirage', '#d9a35f'], de_inferno: ['Inferno', '#c8693f'], de_nuke: ['Nuke', '#6b9ac9'],
   de_overpass: ['Overpass', '#6fa77a'], de_ancient: ['Ancient', '#5fa08a'], de_anubis: ['Anubis', '#d4b45a'], de_vertigo: ['Vertigo', '#8aa3c4'],
   de_train: ['Train', '#8c8f99'], cs_office: ['Office', '#9aa6b5'], cs_italy: ['Italy', '#c98c5a'], de_cache: ['Cache', '#7fa36b'],
-  rush_001: ['Rush', '#c45b8a'],
+  rush_001: ['Rush', '#c45b8a'], pg_training: ['Procedural map', '#7c8cff'],
 };
 const mapName = m => MAPS[m]?.[0] || (m || '?').replace(/^(de|cs|ar)_/, '').replace(/^\w/, c => c.toUpperCase());
 const mapColor = m => MAPS[m]?.[1] || '#7a8494';
@@ -74,7 +74,8 @@ document.querySelectorAll('.nav-btn, .brand').forEach(b => b.addEventListener('c
   showView(b.dataset.view);
 }));
 function showView(v) {
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  // Utility is one of the Training page's cards
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === (v === 'utility' ? 'training' : v)));
   $('#meCard').classList.toggle('active', v === 'themes' || v === 'settings');
   closeMeMenu();
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === `view-${v}`));
@@ -83,6 +84,7 @@ function showView(v) {
   if (v === 'aim') renderAimPage();
   if (v === 'maps') renderMaps();
   if (v === 'utility') renderUtility();
+  if (v === 'training') renderTraining();
   if (v === 'matches' && !state.demo && state.demos[0]) openDemo(state.demos[0]);
   if (v === 'clips') loadClips();
   if (v === 'downloads') loadDownloads();
@@ -90,6 +92,8 @@ function showView(v) {
   if (v === 'settings') renderSettings();
   if (v === 'compare') renderCompare();
   if (v === 'inventory') renderInventory();
+  if (v === 'highlights') renderHighlights();
+  pageBackdrop();
   Scene.follow($(`#view-${v}`));
 }
 
@@ -99,8 +103,10 @@ function rerender() {
   if (state.view === 'aim') renderAimPage();
   if (state.view === 'maps') renderMaps();
   if (state.view === 'utility') renderUtility();
+  if (state.view === 'training') renderTraining();
   if (state.view === 'compare') renderCompare();
   if (state.view === 'inventory') renderInventory();
+  if (state.view === 'highlights') renderHighlights(false);
   if (state.view === 'matches') { renderDemoList(); renderDetail(); }
 }
 
@@ -218,7 +224,19 @@ function applyTheme(t) {
   // The picture URLs are cached with the theme so the next start shows them straight away.
   Scene.set(t, urls => { Object.assign(t, urls); remember(t); });
   remember(t);
+  shownTheme = t; backdrop = '';
   windowIcon();
+}
+// Utility and My scenarios show their selected map behind the page, in the theme's colors.
+let shownTheme = null, backdrop = '';
+function pageBackdrop() {
+  const map = (state.view === 'utility' && state.ut.map !== 'all' ? state.ut.map
+    : state.view === 'training' && state.tr?.drill === 'scenario' ? state.sc?.edit?.map || state.sc?.map : '') || '';
+  if (map === backdrop || !shownTheme) return;
+  backdrop = map;
+  if (!map) return Scene.set(shownTheme);
+  // No CS2 screenshot: the map name makes the scene fall back to its radar.
+  mapShot(map).then(shot => { if (backdrop === map) Scene.set({ ...shownTheme, scene: 'map', map, shot: shot || map, photoUrl: '' }); });
 }
 // The taskbar icon follows the theme: the top bar's logo, with its colors resolved, drawn at 256 px.
 // Debounced, as dragging a custom color applies the theme many times a second.
@@ -809,14 +827,14 @@ function showInReplay(steamid, tick) {
 // ---------- Map pictures from CS2 (Maps page, map themes) ----------
 // The map-picker screenshot (the one chosen for the map's theme, else the first) and the map's vector
 // emblem, read from the player's CS2 install; null when CS2 or the picture isn't there.
-function mapShotUrl(map, thumb = false) {
+function mapShot(map) {
   return Scene.list().then(l => {
     const shots = l?.maps?.[map] || [];
     const chosen = state.settings?.themeShots?.[THEMES.find(t => t.map === map)?.id];
-    const shot = shots.includes(chosen) ? chosen : shots[0];
-    return shot ? Scene.shotUrl(shot, thumb) : null;
+    return shots.includes(chosen) ? chosen : shots[0];
   });
 }
+const mapShotUrl = (map, thumb = false) => mapShot(map).then(shot => (shot ? Scene.shotUrl(shot, thumb) : null));
 const mapIconUrl = map => Scene.list().then(l => (l?.icons?.includes(map) ? Scene.mapIconUrl(map) : null));
 // An <img> that fades in once loaded; one the browser already has shows at once, so pages that render
 // again while demos are read don't blink. missing(img) runs when there is no picture.
@@ -1557,7 +1575,7 @@ function throwTechnique(th) {
 
 const setposCmd = th => {
   const p = th.air && th.jumpPos ? th.jumpPos : th.pos;
-  return `setpos ${p[0]} ${p[1]} ${p[2]}; setang ${th.pitch} ${th.yaw} 0`;
+  return `setpos_exact ${p[0]} ${p[1]} ${p[2]}; setang_exact ${th.pitch} ${th.yaw} 0; noclip 0`;
 };
 
 // Button opening the current demo in CS2 at a moment (see demo:watch in main.js); opts() is read on click.
@@ -2386,6 +2404,7 @@ function renderOverview() {
         ([, [k, hs]]) => [`${pct(hs, k)}%`, hs / k], 'Weapons with at least 10 kills')),
     section('Aim', null, aimCard(list)),
     section('Deaths', null, ...deathCards(list)),
+    (cards => (cards.length ? section('Training', null, ...cards) : null))(other || typeof trainingCards !== 'function' ? [] : trainingCards()),
     section(other ? 'Their teammates' : 'Teammates', null, matesCard(t)),
   );
 }
@@ -2738,6 +2757,7 @@ function mapDetail() {
 const UT_TYPES = [['smoke', 'Smoke'], ['flash', 'Flash'], ['molotov', 'Molotov'], ['he', 'HE']];
 const UT_MOVES = [['stand', 'Standing still'], ['crouch', 'Crouching'], ['jump', 'Jump-throw'], ['crouchjump', 'Crouching jump-throw'], ['runjump', 'Running jump-throw'], ['walk', 'Walking (Shift)'], ['crouchwalk', 'Crouch-walking'], ['run', 'Running']];
 const UT_CLICKS = [['left', 'Left click · full throw'], ['right', 'Right click · short underhand throw'], ['both', 'Left + right click · medium throw']];
+const UT_PLURAL = { smoke: 'Smokes', flash: 'Flashes', molotov: 'Molotovs', he: 'HEs' };
 const UT_SORTS = [['new', 'Newest first'], ['name', 'By name'], ['practice', 'Least practiced first']];
 const utLabel = (list, k) => list.find(x => x[0] === k)?.[1] || '';
 // Commands for a private practice server (paste in the console once the map is loaded).
@@ -2753,11 +2773,14 @@ async function loadUtility() {
   $('#utilCount').textContent = state.ut.items.length || '';
   if (state.view === 'utility') renderUtility();
 }
-const utImg = f => api.fileUrl(`${state.ut.imageDir}\\${f}`);
+const utImg = f => {
+  const x = state.ut.items.find(x => x.images?.includes(f));
+  return x?.missingImages?.includes(f) && x.remote?.[f] ? `https://qu.ax/x/${x.remote[f].slice(2)}` : api.fileUrl(`${state.ut.imageDir}\\${f}`);
+};
 // Lineups are filed under the radar's map name, so de_ancient_night ones show with de_ancient.
 const utMapKey = m => { const info = radarMaps && radarInfo(m); return info ? radarName(info, m) : m; };
 const utMoved = x => [x.move && utLabel(UT_MOVES, x.move), x.click && { left: 'left click', right: 'right click', both: 'left + right' }[x.click]].filter(Boolean).join(' · ');
-const utSetpos = x => (x.from && x.from[2] != null ? `setpos ${x.from.join(' ')}; setang ${x.angle ? `${x.angle[0]} ${x.angle[1]}` : '0 0'} 0` : null);
+const utSetpos = x => (x.from && x.from[2] != null ? `setpos_exact ${x.from.join(' ')}; setang_exact ${x.angle ? `${x.angle[0]} ${x.angle[1]}` : '0 0'} 0; noclip 0` : null);
 
 function utFiltered(map = state.ut.map) {
   const u = state.ut, q = u.search;
@@ -2776,20 +2799,30 @@ function renderUtility() {
   const maps = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || mapName(a).localeCompare(mapName(b)));
   if (u.map !== 'all' && !counts[u.map]) u.map = 'all';
   if (u.sel && !u.items.some(x => x.id === u.sel)) u.sel = null;
+  pageBackdrop();
 
   const body = h('div', { class: 'ut-body' });
+  const onMap = u.map !== 'all';
+  let updateMapSearch;
   const search = h('input', { type: 'search', placeholder: 'Search lineups…', value: u.search, class: 'ut-search',
-    oninput: e => { u.search = e.target.value.toLowerCase(); body.replaceChildren(...utBody()); } });
-  const head = h('div', { class: 'page-head' },
-    h('h2', {}, 'Utility'), h('span', { class: 'dl-head-info' }, 'Your lineups: where to stand, where to aim and how to throw.'),
+    oninput: e => { u.search = e.target.value.toLowerCase(); if (onMap) updateMapSearch(utFiltered()); else body.replaceChildren(...utBody()); } });
+  const chip = (on, label, onclick, extra = {}) => h('button', { class: `chip-toggle ${on ? 'on' : ''}`, onclick, ...extra }, label);
+  const mapChips = onMap && maps.length > 1 ? h('div', { class: 'chips ut-maps' },
+    ...maps.map(m => chip(u.map === m, [mapEmblem(m, 'ut-chip-emblem'), `${mapName(m)} (${counts[m]})`], () => { u.map = m; u.sel = null; resetZoom(u.view); renderUtility(); }, { style: { '--c': mapColor(m) } }))) : null;
+  const head = h('div', { class: 'page-head ut-head' },
+    onMap ? h('button', { class: 'link-btn', onclick: () => { u.map = 'all'; u.sel = null; renderUtility(); } }, '← All maps')
+      : h('button', { class: 'link-btn', onclick: () => { state.tr.drill = null; showView('training'); } }, '← Training'),
+    onMap ? h('h2', { class: 'ut-title' }, mapEmblem(u.map, 'ut-title-emblem'), mapName(u.map), h('span', { class: 'ut-title-k' }, 'lineups')) : h('h2', {}, 'Utility'),
+    mapChips,
     h('span', { class: 'spacer' }),
-    u.items.length ? search : null,
-    h('button', { class: 'btn', title: `Copy commands for a private practice server (sv_cheats, infinite ammo and grenades, grenade preview, no bots). Paste them in the CS2 console after "map ${u.map === 'all' ? 'de_mirage' : u.map}".`,
-      onclick: async () => { await copyText(PRACTICE_CMDS); toast('Practice commands copied. In CS2 start a private map (e.g. "map de_mirage" in the console), then paste them.', 'ok'); } }, 'Copy practice commands'),
-    u.items.length ? h('button', { class: 'btn', title: 'Test yourself: where does it land, where is it thrown from, which lineup is this picture', onclick: () => quizSetup() }, 'Practice quiz') : null,
-    h('button', { class: 'btn', title: 'Add lineups from a code a friend shared (DLU2-…)', onclick: () => importDialog() }, 'Import code'),
-    u.items.length ? h('button', { class: 'btn', title: 'Copy the lineups shown below as one code to paste in Discord or a chat', onclick: () => shareLineups(utFiltered()) }, 'Share these') : null,
-    h('button', { class: 'btn primary', onclick: () => editLineup({ map: u.map !== 'all' ? u.map : undefined }) }, icon(PLUS), 'New lineup'));
+    !onMap && u.items.length ? search : null,
+    h('div', { class: 'ut-toolbar', role: 'group', 'aria-label': 'Lineup actions' },
+      h('button', { class: 'btn', title: `Copy commands for a private practice server (sv_cheats, infinite ammo and grenades, grenade preview, no bots). Paste them in the CS2 console after "map ${u.map === 'all' ? 'de_mirage' : u.map}".`,
+        onclick: async () => { await copyText(PRACTICE_CMDS); toast('Practice commands copied. In CS2 start a private map (e.g. "map de_mirage" in the console), then paste them.', 'ok'); } }, icon('<rect x="8" y="8" width="12" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15 8V3H3v12h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>'), 'Practice commands'),
+      u.items.length ? h('button', { class: 'btn', title: 'Test yourself: where does it land, where is it thrown from, which lineup is this picture', onclick: () => quizSetup() }, icon(ICONS.play), 'Quiz') : null,
+      h('button', { class: 'btn', title: 'Add lineups from a code a friend shared (DLU2-…)', onclick: () => importDialog() }, icon(ICONS.folder), 'Import'),
+      onMap ? h('button', { class: 'btn', title: 'Copy the lineups shown below as one code to paste in Discord or a chat', onclick: () => lineupShareDialog(utFiltered()) }, icon('<path d="M12 16V3m-5 5l5-5 5 5M5 13v8h14v-8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'), 'Share') : null),
+    h('button', { class: 'btn primary ut-new', style: onMap ? { '--c': mapColor(u.map) } : {}, onclick: () => editLineup({ map: u.map !== 'all' ? u.map : undefined }) }, icon(PLUS), 'New lineup'));
 
   if (!u.items.length) {
     return view.replaceChildren(h('div', { class: 'page' }, head, h('div', { class: 'empty ut-empty' },
@@ -2797,38 +2830,52 @@ function renderUtility() {
       h('h2', {}, 'No lineups yet'),
       h('div', {}, 'Save the smokes, flashes and molotovs you want to remember.'),
       h('ol', { class: 'ut-howto' },
-        h('li', {}, h('b', {}, 'New lineup'), ': in CS2 stand on the spot, aim, type ', h('kbd', {}, 'getpos'), ' in the console and paste its line. Then click where it lands on the radar.'),
+        h('li', {}, h('b', {}, 'New lineup'), ': in CS2 stand on the spot, aim, type ', h('kbd', {}, 'getpos_exact'), ' in the console and paste its line. Then click where it lands on the radar.'),
         h('li', {}, h('b', {}, 'From a match'), ': in a match\'s 2D Replay, click a grenade and press ', h('b', {}, 'Save to Utility'), '. Position, aim and technique are filled in.'),
         h('li', {}, 'Add screenshots of the spot and the aim point: paste them (Ctrl+V), drop them, or pick your CS2 screenshots (F12).')),
       h('button', { class: 'btn primary', onclick: () => editLineup() }, icon(PLUS), 'New lineup'))));
   }
 
-  const chip = (on, label, onclick, extra = {}) => h('button', { class: `chip-toggle ${on ? 'on' : ''}`, onclick, ...extra }, label);
-  const filters = h('div', { class: 'ut-filters' },
-    h('div', { class: 'chips' },
-      chip(u.map === 'all', `All maps (${u.items.length})`, () => { u.map = 'all'; u.sel = null; renderUtility(); }),
-      ...maps.map(m => chip(u.map === m, `${mapName(m)} (${counts[m]})`, () => { u.map = m; u.sel = null; resetZoom(u.view); renderUtility(); }, { style: { '--c': mapColor(m) } }))),
-    h('div', { class: 'ut-filter-row' },
-      h('div', { class: 'tabs' }, ...[['all', 'All'], ...UT_TYPES].map(([k, l]) =>
-        h('button', { class: u.type === k ? 'on' : '', onclick: () => { u.type = k; renderUtility(); } }, k !== 'all' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, l))),
-      h('div', { class: 'tabs' }, ...[['both', 'Both sides'], ['T', 'T'], ['CT', 'CT']].map(([k, l]) =>
-        h('button', { class: `${u.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, onclick: () => { u.side = k; renderUtility(); } }, l))),
-      select(u.sort, UT_SORTS, v => { u.sort = v; renderUtility(); })));
+  // one map at a time: the landing page is the maps, a map shows its lineups with the filters
+  const filterRow = !onMap ? null : h('div', { class: 'ut-filter-row' },
+    h('div', { class: 'tabs' }, ...[['all', 'All'], ...UT_TYPES].map(([k, l]) =>
+      h('button', { class: u.type === k ? 'on' : '', onclick: () => { u.type = k; renderUtility(); } }, k !== 'all' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, l))),
+    h('div', { class: 'tabs' }, ...[['both', 'Both sides'], ['T', 'T'], ['CT', 'CT']].map(([k, l]) =>
+      h('button', { class: `${u.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, onclick: () => { u.side = k; renderUtility(); } }, l))),
+    search,
+    select(u.sort, UT_SORTS, v => { u.sort = v; renderUtility(); }));
 
   function utBody() {
     const list = utFiltered();
+    if (u.map === 'all' && !u.search) return [h('div', { class: 'ut-map-grid' }, ...maps.map(m => utMapCard(m, u.items.filter(x => x.map === m))))];
     if (u.map === 'all') {
-      if (!list.length) return [h('div', { class: 'muted-note' }, 'No lineup matches these filters.')];
+      if (!list.length) return [h('div', { class: 'muted-note' }, 'No lineup matches this search.')];
       const byMap = maps.map(m => [m, list.filter(x => x.map === m)]).filter(([, l]) => l.length);
       return byMap.map(([m, l]) => h('div', {},
         h('div', { class: 'section-head' }, h('h3', {}, mapName(m)), h('span', { class: 'hint' }, `${l.length} lineup${l.length > 1 ? 's' : ''}`),
           h('button', { class: 'link-btn', onclick: () => { u.map = m; u.sel = null; resetZoom(u.view); renderUtility(); } }, 'Show on the radar')),
         h('div', { class: 'ut-grid' }, ...l.map(x => utCard(x, () => { u.map = x.map; u.sel = x.id; resetZoom(u.view); renderUtility(); })))));
     }
-    return [utMapView(list)];
+    return [utMapView(list, filterRow, update => { updateMapSearch = update; })];
   }
   body.replaceChildren(...utBody());
-  view.replaceChildren(h('div', { class: `page ${u.map !== 'all' ? 'map-page' : ''}` }, head, filters, body));
+  view.replaceChildren(h('div', { class: `page ${u.map !== 'all' ? 'map-page' : ''}` }, head, body));
+}
+
+// A map on the Utility landing page: its picture, how many lineups of each grenade, starred and side.
+function utMapCard(m, list) {
+  const u = state.ut;
+  const n = t => list.filter(x => x.type === t).length;
+  const fav = list.filter(x => x.fav).length;
+  const side = s => list.filter(x => x.side === s).length;
+  return h('button', { class: 'map-card ut-map-card', style: { '--c': mapColor(m) }, onclick: () => { u.map = m; u.sel = null; resetZoom(u.view); renderUtility(); } },
+    artImg('map-card-photo', mapShotUrl(m)),
+    h('div', { class: 'map-card-body' },
+      h('div', { class: 'map-card-title' }, mapEmblem(m, 'map-card-icon'),
+        h('div', { class: 'map-card-t' }, h('div', { class: 'map-card-name' }, mapName(m)),
+          h('div', { class: 'map-card-sub' }, [`${list.length} lineup${list.length === 1 ? '' : 's'}`, side('T') ? `${side('T')} T` : '', side('CT') ? `${side('CT')} CT` : '', fav ? `${fav} starred` : ''].filter(Boolean).join(' · ')))),
+      h('div', { class: 'ut-types' }, ...UT_TYPES.filter(([k]) => n(k)).map(([k, l]) =>
+        h('span', { class: 'ut-type', style: { '--c': NADE_COLOR[k] } }, h('span', { class: 'ut-dot' }), h('b', {}, n(k)), n(k) === 1 ? l : UT_PLURAL[k])))));
 }
 
 function utCard(x, onclick) {
@@ -2843,7 +2890,7 @@ function utCard(x, onclick) {
 }
 
 // One map: every lineup drawn on the radar, the list (or the picked lineup) beside it.
-function utMapView(list) {
+function utMapView(list, filterRow, bindSearch) {
   const u = state.ut, map = u.map;
   const info = radarInfo(map);
   const sel = u.items.find(x => x.id === u.sel) || null;
@@ -2851,16 +2898,41 @@ function utMapView(list) {
   // Opening a lineup shows its floor; the floor tabs still work while it is open.
   if (sel && u.floorFor !== sel.id && floors) u.floor = sel.lower ? 'lower' : 'upper';
   u.floorFor = sel?.id || null;
-  const side = h('div', { class: 'map-side ut-side' },
-    sel ? utDetail(sel) : list.length ? h('div', { class: 'ut-list' }, ...list.map(x => utCard(x, () => { u.sel = x.id; renderUtility(); })))
-      : h('div', { class: 'muted-note' }, 'No lineup on this map matches these filters.'));
+  const cards = new Map();
+  let hover = null, redraw = () => {};
+  let shown = sel && !list.includes(sel) ? [...list, sel] : list;
+  const renderContent = () => sel ? utDetail(sel) : list.length ? h('div', { class: 'ut-map-lineups' }, ...list.map(x => {
+      const card = utCard(x, () => { u.sel = x.id; renderUtility(); });
+      card.onpointerenter = () => setHover(x.id);
+      card.onpointerleave = () => setHover(null);
+      cards.set(x.id, card);
+      return card;
+    }))
+      : h('div', { class: 'muted-note' }, 'No lineup on this map matches these filters.');
+  let content = renderContent();
+  const side = h('div', { class: 'map-side ut-side' }, filterRow, content);
+  // Keep the filters mounted so search retains focus and its caret.
+  bindSearch?.(next => {
+    list = next;
+    shown = sel && !list.includes(sel) ? [...list, sel] : list;
+    cards.clear();
+    content.replaceWith(content = renderContent());
+    hover = null;
+    redraw();
+  });
+  function setHover(id) {
+    if (!info || hover === id) return;
+    cards.get(hover)?.classList.remove('radar-hover');
+    hover = id;
+    cards.get(hover)?.classList.add('radar-hover');
+    redraw();
+  }
   if (!info) return h('div', { class: 'map-layout' }, h('div', { class: 'map-stage' }, h('div', { class: 'empty' }, h('h2', {}, 'No radar for this map'))), side);
 
   const frame = radarFrame(info, map, { lower: floors && u.floor === 'lower' });
   const canvas = h('canvas', { width: 1800, height: 1800 });
-  const shown = sel && !list.includes(sel) ? [...list, sel] : list;
-  let img = null, hover = null;
-  const redraw = () => drawUtility(canvas, img, frame, info, shown, u.sel, hover);
+  let img = null;
+  redraw = () => drawUtility(canvas, img, frame, info, shown, u.sel, hover);
   radarImage(frame.src).then(i => { img = i; redraw(); });
 
   // Clicking a throw spot, its flight or where it lands opens the lineup. Where several are under the
@@ -2891,10 +2963,10 @@ function utMapView(list) {
   const openMenu = (e, list) => {
     closeMenu();
     const wrapEl = canvas.parentElement, r = wrapEl.getBoundingClientRect(), zoom = r.width / wrapEl.offsetWidth || 1;
-    menu = h('div', { class: 'ut-menu', onpointerleave: () => { hover = null; redraw(); } },
+    menu = h('div', { class: 'ut-menu', onpointerleave: () => setHover(null) },
       h('div', { class: 'ut-menu-head' }, `${list.length} lineups here`),
       ...list.map(x => h('button', { class: `ut-menu-item ${x.id === u.sel ? 'on' : ''}`, style: { '--c': NADE_COLOR[x.type] },
-        onpointerenter: () => { hover = x.id; redraw(); },
+        onpointerenter: () => setHover(x.id),
         onclick: () => { closeMenu(); u.sel = x.id; renderUtility(); } },
         h('span', { class: 'ut-dot' }),
         h('span', { class: 'ut-menu-t' }, h('b', {}, x.name),
@@ -2920,8 +2992,9 @@ function utMapView(list) {
     const hits = lineupsAt(toCanvas(e));
     canvas.style.cursor = hits.length ? 'pointer' : '';
     canvas.title = hits.length > 1 ? `${hits.length} lineups here: click to choose` : '';
-    if ((hits[0]?.id || null) !== hover) { hover = hits[0]?.id || null; redraw(); }
+    setHover(hits[0]?.id || null);
   });
+  canvas.addEventListener('pointerleave', () => { if (!menu) setHover(null); });
 
   return h('div', { class: 'map-layout' },
     h('div', { class: 'map-stage' },
@@ -3080,7 +3153,7 @@ function utDetail(x) {
     h('div', { class: 'nc-actions' },
       h('button', { class: 'btn primary nc-btn', title: 'Count one more practice session', onclick: () => patch({ practiced: true }, 'Nice. Marked as practiced.') }, icon(ICONS.check), 'Practiced'),
       h('button', { class: 'btn nc-btn', onclick: () => editLineup(x) }, icon(PENCIL), 'Edit'),
-      h('button', { class: 'btn nc-btn', title: 'Copy this lineup as a code to paste in Discord or a chat', onclick: () => shareLineups([x]) }, 'Share'),
+      h('button', { class: 'btn nc-btn', title: 'Copy this lineup as a code to paste in Discord or a chat', onclick: () => lineupShareDialog([x]) }, 'Share'),
       h('button', { class: 'btn nc-btn danger ut-del', title: 'Delete this lineup', onclick: () => deleteLineup(x) }, icon(ICONS.trash))));
 }
 
@@ -3175,7 +3248,7 @@ function editLineup(seed = {}) {
       d.angle ? ` · aim ${d.angle[0]}°, ${d.angle[1]}°` : '',
       ' · ', t ? h('span', { class: 'good' }, 'landing spot set') : h('span', {}, 'no landing spot yet'));
   };
-  const getpos = h('input', { type: 'text', class: 'mono', placeholder: 'setpos -1234.5 567.8 -160.0;setang 4.2 -120.6 0.0', value: d.from?.[2] != null ? utSetpos(d) : '',
+  const getpos = h('input', { type: 'text', class: 'mono', placeholder: 'setpos_exact -1234.5 567.8 -160.0;setang_exact 4.2 -120.6 0.0', value: d.from?.[2] != null ? utSetpos(d) : '',
     oninput: e => {
       const r = parseGetpos(e.target.value);
       if (!r.from) return;
@@ -3190,7 +3263,7 @@ function editLineup(seed = {}) {
   const radarBox = h('div', { class: 'ut-pick' });
   function pickRadar() {
     const info = radarInfo(d.map);
-    if (!info) return h('div', { class: 'muted-note' }, `No radar image for ${mapName(d.map)}: positions can only come from getpos.`);
+    if (!info) return h('div', { class: 'muted-note' }, `No radar image for ${mapName(d.map)}: positions can only come from getpos_exact.`);
     const floors = info.lowerBelow !== undefined;
     const frame = radarFrame(info, d.map, { lower: floors && pick.floor === 'lower' });
     const canvas = h('canvas', { width: 1200, height: 1200 });
@@ -3287,7 +3360,7 @@ function editLineup(seed = {}) {
           field('Map', select(d.map, [...new Set([d.map, ...knownMaps])].map(m => [m, mapName(m)]), v => { d.map = v; resetZoom(pick.view); radarBox.replaceChildren(pickRadar()); })),
           field('Side', seg([['T', 'T'], ['CT', 'CT'], ['both', 'Both']], 'side'))),
         field('Grenade', seg(UT_TYPES, 'type', () => radarBox.replaceChildren(pickRadar()))),
-        field('Position', getpos, h('span', {}, 'In CS2, stand on the spot and aim, type ', h('kbd', {}, 'getpos'), ' in the console and paste the line here. Or click the radar.')),
+        field('Position', getpos, h('span', {}, 'In CS2, stand on the spot and aim, type ', h('kbd', {}, 'getpos_exact'), ' in the console and paste the line here. Or click the radar.')),
         posStatus,
         h('div', { class: 'ut-field-row' },
           field('Movement', select(d.move, UT_MOVES, v => { d.move = v; })),
@@ -3357,7 +3430,9 @@ function highlightCard(hl) {
 
 function estimateSeconds(hls) {
   const t = state.settings.timing;
-  const segs = hls.reduce((n, x) => n + x.segments.length, 0);
+  // The cross-match Highlights list carries a count instead of the full segment data.
+  // Fall back to one for lists loaded before the main process was updated.
+  const segs = hls.reduce((n, x) => n + (x.segments?.length ?? x.segmentCount ?? 1), 0);
   const play = hls.reduce((n, x) => n + x.duration, 0);
   // CS2 start + demo load + ~1.3x game time (more if CS2 is minimized) + closing CS2.
   return t.startupWait + 40 + 15 + segs * 6 + play * 1.3 + hls.length * 4 + 20;
@@ -3451,15 +3526,15 @@ function sizeDialog({ kind, title, clips = [], ids, goLabel, goIcon, onBack, onG
   refresh();
 }
 
-function confirmRecord(hls) {
-  const mins = Math.ceil(estimateSeconds(hls) / 60);
+function confirmRecord(hls, context = {}) {
+  const mins = Math.ceil((estimateSeconds(hls) + Math.max(0, (context.demoCount || 1) - 1) * 40) / 60);
   const steps = [
     h('li', {}, 'CS2 opens ', h('b', {}, 'in a window through HLAE'), '. ', h('b', {}, 'Keep using your PC'), ': put other windows over it or minimize it (it renders a bit slower when minimized).'),
     state.env.cs2Running ? h('li', {}, h('b', {}, 'Close your running CS2 first'), ' — the recording session needs its own CS2.') : null,
     h('li', {}, 'CS2 runs with ', h('code', {}, '-insecure'), ' (no VAC servers) and ', h('b', {}, 'is closed automatically'), ' when done. Never join matches from that session.'),
     h('li', {}, 'Clips are saved to ', h('code', {}, state.env.outputDir)),
   ];
-  const dup = hls.filter(x => clipsOf(x).length);
+  const dup = hls.filter(x => context.isClipped ? context.isClipped(x) : clipsOf(x).length);
   const fresh = hls.filter(x => !dup.includes(x));
   modal([
     h('h2', {}, `Record ${hls.length} clip${hls.length > 1 ? 's' : ''}?`),
@@ -3469,26 +3544,29 @@ function confirmRecord(hls) {
     h('ul', { class: 'steps' }, ...steps),
     h('div', { class: 'actions' },
       h('button', { class: 'btn', onclick: () => closeModal() }, 'Cancel'),
-      dup.length && fresh.length ? h('button', { class: 'btn', onclick: () => pickRecordSize(hls, fresh) }, `Skip clipped · record ${fresh.length}`) : null,
-      h('button', { class: 'btn primary', onclick: () => pickRecordSize(hls, hls) }, dup.length ? `Record all ${hls.length}` : 'Next'),
+      dup.length && fresh.length ? h('button', { class: 'btn', onclick: () => pickRecordSize(hls, fresh, context) }, `Skip clipped · record ${fresh.length}`) : null,
+      h('button', { class: 'btn primary', onclick: () => pickRecordSize(hls, hls, context) }, dup.length ? `Record all ${hls.length}` : 'Next'),
     ),
   ]);
 }
 
-function pickRecordSize(all, hls) {
+function pickRecordSize(all, hls, context = {}) {
   sizeDialog({
     kind: 'clip', title: `Video size · ${hls.length} clip${hls.length > 1 ? 's' : ''}`,
     clips: hls.map(x => ({ label: `R${x.round} ${x.title}`, seconds: x.duration })),
-    goLabel: 'Start recording', goIcon: ICONS.rec, onBack: () => confirmRecord(all), onGo: mb => startRecord(hls, mb),
+    goLabel: 'Start recording', goIcon: ICONS.rec, onBack: () => confirmRecord(all, context), onGo: mb => startRecord(hls, mb, context),
   });
 }
 
-async function startRecord(hls, mb = state.settings.videoSize?.clip || 0) {
-  const items = hls.map(x => ({ demoPath: state.demo.path, highlightId: x.id }));
-  const steamid = state.analysis.player?.steamid;
+async function startRecord(hls, mb = state.settings.videoSize?.clip || 0, context = {}) {
+  if (state.recording || state.recordStarting) return;
+  const items = context.itemsFor ? context.itemsFor(hls) : hls.map(x => ({ demoPath: state.demo.path, highlightId: x.id }));
+  const steamid = context.itemsFor ? undefined : state.analysis.player?.steamid;
+  state.recordStarting = true;
   try {
     const r = await api.record(items, steamid, { mb });
     state.recording = { total: r.count, log: [] };
+    context.onStarted?.(hls);
     renderRecording({ state: 'running', step: 'Starting…', progress: 0 });
   } catch (e) {
     const hlaeMissing = e.message.includes('HLAE_MISSING:');
@@ -3503,12 +3581,12 @@ async function startRecord(hls, mb = state.settings.videoSize?.clip || 0) {
         toast(`HLAE ${r.version} installed`, 'ok');
         await refreshEnv();
         closeModal();
-        startRecord(hls);
+        startRecord(hls, mb, context);
       } catch (err) { status.textContent = '✗ ' + err.message; btn.disabled = false; }
     } }, 'Install HLAE') : null;
     modal([h('h2', {}, 'Could not start'), h('div', { class: 'err-box' }, msg), status,
       h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => closeModal() }, 'Close'), install)]);
-  }
+  } finally { state.recordStarting = false; }
 }
 
 function renderRecording(u) {
@@ -3529,7 +3607,7 @@ function renderRecording(u) {
     r.log.length ? h('div', { class: 'log' }, ...r.log.map(l => h('div', {}, l))) : null,
     h('div', { class: 'actions' },
       done
-        ? [h('button', { class: 'btn', onclick: () => { state.recording = null; closeModal(); renderDetail(); } }, 'Close'),
+        ? [h('button', { class: 'btn', onclick: () => { state.recording = null; closeModal(); if (state.view === 'highlights') renderHighlights(false); else renderDetail(); } }, 'Close'),
           r.state === 'done' ? h('button', { class: 'btn primary', onclick: () => { state.recording = null; closeModal(); showView('clips'); } }, icon(ICONS.film), 'View clips') : null]
         : h('button', { class: 'btn danger', onclick: () => api.cancelRecord() }, 'Cancel'),
     ),
@@ -3542,6 +3620,7 @@ api.onRecord(u => renderRecording(u));
 async function loadClipCount() {
   state.clips = await guard(() => api.listClips()) || [];
   $('#clipCount').textContent = state.clips.length || '';
+  if (state.view === 'highlights') renderHighlights(false); // "Not clipped yet" changes as clips finish
 }
 async function loadClips() { await loadClipCount(); renderClips(); }
 
@@ -3567,26 +3646,43 @@ function mainWeapon(c) {
   return Object.entries(count).sort((a, b) => b[1] - a[1])[0][0];
 }
 
+function clipTime(c) {
+  for (const value of [c.createdAt, c.matchDate]) {
+    const ms = value ? new Date(value).getTime() : 0;
+    if (Number.isFinite(ms) && ms > 0) return ms;
+  }
+  return 0;
+}
+
+// Star rating 1-5, the same scale stars() draws. Montages have no rating of their own.
+const clipStars = c => (c.kind === 'montage' || !Number.isFinite(c.score) ? 0 : clamp(Math.round(c.score / 25), 1, 5));
+
+function clipDayLabel(day, now = new Date()) {
+  if (!day) return 'Unknown date';
+  // Calendar-day distances stay correct across daylight saving changes.
+  const dayNumber = d => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000;
+  const date = new Date(day), age = dayNumber(now) - dayNumber(date);
+  const label = age === 0 ? 'Today' : age === 1 ? 'Yesterday'
+    : age > 1 && age < 7 ? date.toLocaleDateString(undefined, { weekday: 'long' })
+      : date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', ...(date.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 function renderClips() {
   const view = $('#view-clips');
   const wf = state.weaponFilter || 'all';
-  const sort = state.clipSort || 'type';
+  const sf = state.starFilter || 0;
   let items = state.clips.filter(c => state.clipFilter === 'all' || c.kind === state.clipFilter);
   items = items.filter(c => {
     if (wf === 'all') return true;
     const ws = c.weapons || [];
     return wf.startsWith('type:') ? ws.some(w => weaponType(w) === wf.slice(5)) : ws.includes(wf);
   });
-  const typeRank = c => {
-    if (c.kind === 'montage') return 100;
-    if (c.kind === 'share') return 101;
-    const i = WEAPON_TYPES.findIndex(([t]) => t === weaponType(mainWeapon(c)));
-    return i < 0 ? 99 : i;
-  };
-  const byType = (a, b) => typeRank(a) - typeRank(b) || (mainWeapon(a) || '').localeCompare(mainWeapon(b) || '') || (b.score || 0) - (a.score || 0);
-  items.sort(sort === 'best' ? (a, b) => (b.score || 0) - (a.score || 0)
-    : sort === 'type' ? byType
-      : (a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  // Counted before the star filter so each star can say how many clips it would show.
+  const perStar = [0, 0, 0, 0, 0, 0];
+  for (const c of items) perStar[clipStars(c)]++;
+  if (sf) items = items.filter(c => clipStars(c) === sf);
+  items.sort((a, b) => clipTime(b) - clipTime(a));
 
   // Weapon filter offers the categories and the individual weapons present in your clips.
   const present = [...new Set(state.clips.flatMap(c => c.weapons || []))];
@@ -3596,52 +3692,77 @@ function renderClips() {
     ...types.map(t => [`type:${t}`, t]),
     ...types.flatMap(t => present.filter(w => weaponType(w) === t).sort().map(w => [w, `   ${w}`])),
   ], v => { state.weaponFilter = v; renderClips(); });
-  const sortSelect = select(sort, [['type', 'Sort: weapon type'], ['best', 'Sort: best first'], ['new', 'Sort: newest']], v => { state.clipSort = v; renderClips(); });
+  // Click a star for the clips rated exactly that many stars; click it again to show them all.
+  const starPicker = h('div', { class: `clip-stars-pick ${sf ? 'set' : ''}` }, ...[5, 4, 3, 2, 1].map(n =>
+    h('button', { class: n <= sf ? 'on' : '', title: sf === n ? 'Show all ratings' : `${n}-star clips (${perStar[n]})`,
+      onclick: () => { state.starFilter = sf === n ? 0 : n; renderClips(); } }, '★')));
 
   const head = h('div', { class: 'page-head' },
-    h('h2', {}, 'Clips'),
+    h('div', { class: 'clips-heading' }, h('h2', {}, 'Clips'),
+      h('span', { class: 'clips-stats' }, `${items.length} clip${items.length === 1 ? '' : 's'} · ${fmtDur(items.reduce((s, c) => s + (c.duration || 0), 0))}`)),
     h('div', { class: 'tabs' }, ...[['all', 'All'], ['clip', 'Clips'], ['montage', 'Montages'], ['share', 'Shared']].map(([k, l]) =>
       h('button', { class: state.clipFilter === k ? 'on' : '', onclick: () => { state.clipFilter = k; renderClips(); } }, l))),
-    weaponSelect, sortSelect,
+    weaponSelect, starPicker,
     h('span', { class: 'spacer' }),
     galleryHeadButton(),
-    h('button', { class: 'btn', onclick: () => api.open(state.env.outputDir) }, icon(ICONS.folder), 'Open folder'),
+    h('button', { class: 'btn clips-folder', title: 'Open folder', onclick: () => api.open(state.env.outputDir) }, icon(ICONS.folder), h('span', {}, 'Open folder')),
   );
 
-  // Sorting by weapon type shows one section per category; montages go last.
+  // One section per day the clips were made, newest first.
   let body;
   if (!items.length) {
     body = h('div', { class: 'empty' }, icon(ICONS.film, 'class="big"'),
       h('h2', {}, state.clips.length ? 'No clips match' : 'No clips yet'),
-      h('div', {}, state.clips.length ? 'Try another weapon filter.' : 'Record highlights from a match’s Highlights & clips tab and they will show up here.'));
-  } else if (sort === 'type') {
+      h('div', {}, state.clips.length ? (sf ? `No ${sf}-star clips here. Click the star again to show them all.` : 'Try another weapon filter.') : 'Record highlights from a match’s Highlights & clips tab and they will show up here.'));
+  } else {
     const groups = new Map();
     for (const c of items) {
-      const key = c.kind === 'montage' ? 'Montages' : c.kind === 'share' ? 'Shared' : weaponType(mainWeapon(c));
+      const ms = clipTime(c), d = new Date(ms);
+      const key = ms ? new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() : 0;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(c);
     }
-    body = h('div', {}, ...[...groups].map(([name, list]) => h('div', { class: 'clip-group' },
-      h('div', { class: 'group-head' }, name, h('span', {}, `${list.length} clip${list.length > 1 ? 's' : ''}`)),
-      h('div', { class: 'grid' }, ...list.map(clipCard)))));
-  } else body = h('div', { class: 'grid' }, ...items.map(clipCard));
-  const grid = body;
-  const hint = state.clips.some(c => c.kind === 'clip') ? h('div', { class: 'list-sub', style: { padding: '0 0 14px' } }, 'Click clips to select them for a montage — they will be joined in the order you click them.') : null;
-  view.replaceChildren(h('div', { class: 'page' }, head, hint, grid), montageBar());
+    const now = new Date();
+    body = h('div', {}, ...[...groups].sort(([a], [b]) => b - a).map(([day, list]) => {
+      const clips = list.filter(c => c.kind === 'clip');
+      const selected = clips.length > 0 && clips.every(c => state.montageSel.includes(c.id));
+      const maps = [...new Set(list.flatMap(c => (c.map || '').split(',').map(m => m.trim()).filter(Boolean)))];
+      return h('section', { class: 'clip-day' },
+        h('div', { class: 'clip-day-head' },
+          h('h3', {}, clipDayLabel(day, now)),
+          h('span', { class: 'clips-stats' }, `${list.length} clip${list.length === 1 ? '' : 's'} · ${fmtDur(list.reduce((s, c) => s + (c.duration || 0), 0))}`),
+          ...maps.map(m => h('span', { class: 'clip-day-map' }, h('i', { style: { background: mapColor(m) } }), mapName(m))),
+          h('span', { class: 'clip-day-rule' }),
+          clips.length ? h('button', { class: 'link-btn clip-day-select', onclick: () => {
+            const ids = new Set(clips.map(c => c.id));
+            if (selected) state.montageSel = state.montageSel.filter(id => !ids.has(id));
+            else for (const c of [...clips].sort((a, b) => clipTime(a) - clipTime(b))) if (!state.montageSel.includes(c.id)) state.montageSel.push(c.id);
+            renderClips();
+          } }, selected ? 'Deselect day' : 'Select day') : null),
+        h('div', { class: 'grid' }, ...list.map(clipCard)));
+    }));
+  }
+  const hint = state.clips.some(c => c.kind === 'clip') ? h('div', { class: 'clips-hint' }, 'Click clips to select them for a montage — they will be joined in the order you click them.') : null;
+  view.replaceChildren(h('div', { class: `page clips-page ${state.montageSel.length ? 'has-montage' : ''}` }, head, hint, body), montageBar());
 }
 
 function clipCard(c) {
   const order = state.montageSel.indexOf(c.id);
   const thumbStyle = c.thumb ? { backgroundImage: `url("${api.fileUrl(c.thumb)}")` } : {};
-  const thumb = h('div', { class: 'thumb', style: thumbStyle },
+  const thumb = h('div', { class: `thumb ${c.thumb ? '' : 'clip-placeholder'}`, style: thumbStyle },
+    !c.thumb ? h('div', { class: 'clip-placeholder-icon' }, icon(ICONS.film)) : null,
     order >= 0 ? h('div', { class: 'order' }, order + 1) : null,
     c.kind === 'montage' ? h('div', { class: 'kind' }, 'MONTAGE') : null,
     c.kind === 'share' ? h('div', { class: 'kind' }, shareBadge(c)) : null,
     galleryBadge(c),
     h('div', { class: 'dur' }, fmtDur(c.duration || 0)));
+  const ms = clipTime(c), rating = clipStars(c);
+  const main = mainWeapon(c);
+  const weapons = [...new Set([main, ...(c.weapons || [])].filter(Boolean))];
   let video = null;
   const card = h('div', {
     class: `clip ${order >= 0 ? 'selected' : ''}`,
+    style: { '--clip-map': mapColor(c.map) },
     onclick: () => {
       if (c.kind !== 'clip') return playClip(c);
       const i = state.montageSel.indexOf(c.id);
@@ -3660,8 +3781,14 @@ function clipCard(c) {
     h('button', { title: 'Delete (to Recycle Bin)', onclick: e => { e.stopPropagation(); deleteClip(c); } }, icon(ICONS.trash)),
   ),
   h('div', { class: 'clip-body' },
-    h('div', { class: 'clip-title', title: c.title }, c.title),
-    h('div', { class: 'clip-meta' }, c.kind === 'share' ? `${shareBadge(c)} · ${new Date(c.createdAt).toLocaleDateString()}` : c.kind === 'montage' ? `${c.tags?.[0] || ''} · ${new Date(c.createdAt).toLocaleDateString()}` : `${mapName(c.map)} · Round ${c.round} · ${(c.weapons || []).join(', ')}`),
+    h('div', { class: 'clip-top' },
+      h('div', { class: 'clip-title', title: c.title }, c.title),
+      rating ? h('span', { class: 'clip-score', title: `Score ${Math.round(c.score)}` }, h('b', {}, '★'.repeat(rating)), '★'.repeat(5 - rating)) : null),
+    h('div', { class: 'clip-meta' },
+      c.kind === 'clip' ? h('i', { class: 'clip-dot' }) : null,
+      h('span', {}, c.kind === 'share' ? shareBadge(c) : c.kind === 'montage' ? `${c.tags?.[0] || 'Montage'} · ${(c.map || '').split(',').map(m => mapName(m.trim())).join(', ')}` : `${mapName(c.map)} · Round ${c.round ?? '?'}`),
+      ms ? h('time', { datetime: new Date(ms).toISOString(), title: fmtDate(ms) }, new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })) : null),
+    c.kind === 'clip' && weapons.length ? h('div', { class: 'clip-weapons' }, ...weapons.map((w, i) => h('span', { class: i ? '' : 'main' }, w))) : null,
   ));
   return card;
 }
@@ -3700,7 +3827,7 @@ function montageBar() {
   const total = state.montageSel.reduce((s, id) => s + (state.clips.find(c => c.id === id)?.duration || 0), 0);
   const name = h('input', { type: 'text', placeholder: 'Montage name (optional)' });
   return h('div', { class: `montage-bar ${n ? 'show' : ''}` },
-    h('div', { class: 'info' }, h('b', {}, `${n} clip${n === 1 ? '' : 's'}`), ` · ${fmtDur(total)}`),
+    h('div', { class: 'info' }, h('b', { class: 'montage-count' }, n), h('span', {}, `clip${n === 1 ? '' : 's'} selected`), h('span', { class: 'clips-stats' }, fmtDur(total))),
     h('button', { class: 'link-btn', onclick: () => { state.montageSel = []; renderClips(); } }, 'Clear'),
     h('span', { style: { flex: 1 } }),
     name,
