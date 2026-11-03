@@ -1,4 +1,4 @@
-/* global weaponIcon, guard, modal, closeModal, copyText, $, api, state, h, icon, ICONS, toast, card, select, toggle, spinner, ago, trOpts, mapName, mapColor, mapShotUrl, artImg, mapEmblem, renderTraining, liveBar, running, trGuard, sessionList, GUNS, LEVELS, radarInfo, radarMaps, radarFrame, radarImage, toPx, viewPt, viewScale, applyView, zoomable, newView, resetZoom, RADAR_SIZE */
+/* global pickWeapon, pickSvg, PICK_ICONS, weaponIcon, guard, modal, closeModal, copyText, $, api, state, h, icon, ICONS, toast, card, select, toggle, spinner, ago, trOpts, mapName, mapColor, mapShotUrl, artImg, mapEmblem, renderTraining, liveBar, running, trGuard, sessionList, GUNS, LEVELS, radarInfo, radarMaps, radarFrame, radarImage, toPx, viewPt, viewScale, applyView, zoomable, newView, resetZoom, RADAR_SIZE */
 'use strict';
 // "My scenarios" (a Training card): the player records a scenario in CS2 (or places it on the 2D map):
 // where they start and which way they face, bots on spots holding the angles they're given. The list
@@ -104,7 +104,7 @@ function scenarioList() {
 
 const newScenario = map => {
   const sc = state.sc;
-  sc.edit = { map, name: '', me: null, bots: [], options: { reps: 10, seconds: 25, firstTo: 0 } };
+  sc.edit = { map, name: '', me: null, bots: [], options: { reps: 10, seconds: 45, firstTo: 0 } };
   sc.sel = null; sc.tool = 'me'; sc.floor = 'upper'; resetZoom(sc.view);
   renderTraining();
 };
@@ -147,9 +147,9 @@ function scPlayPanel(map, list) {
     h('span', { class: 'sc-k' }, one ? 'Play' : 'Map mix'),
     h('h3', {}, one ? one.name || 'Untitled' : `All ${list.length} ${mapName(map)} scenarios`),
     h('p', {}, one ? `${plural(one.bots.length, 'bot')} · ${one.options.firstTo ? `first to ${one.options.firstTo}` : plural(one.options.reps, 'rep')} · ${one.options.seconds} s rounds`
-      : 'A random one every rep, each with its own timer.'),
+      : 'A random one every rep, with 45 s rounds.'),
     one ? null : h('div', { class: 'sc-play-opts' },
-      select(String(mix.firstTo), [['0', 'Play every rep'], ...[3, 5, 7, 10, 13, 16].map(n => [String(n), `First team to ${n}`])], v => { mix.firstTo = +v; renderTraining(); }),
+      select(String(mix.firstTo), [['0', 'Play every rep'], ...[3, 5, 7, 10, 13, 16].map(n => [String(n), `First team to ${n}`])], v => { mix.firstTo = +v; renderTraining(); }, { seg: false, icon: () => pickSvg(PICK_ICONS.trophy) }),
       mix.firstTo ? null : select(String(mix.reps), [5, 10, 15, 20, 30].map(n => [String(n), `${n} reps`]), v => { mix.reps = +v; })),
     h('button', { class: 'btn primary sc-play-btn', disabled: running(),
       onclick: () => (one ? buyMenu(one.name || 'Untitled', () => playScenario(one)) : buyMenu(`${mapName(map)} mix`, () => playMix({ ...mix, map }))) },
@@ -179,6 +179,34 @@ function scRating(map, hist) {
 }
 
 // A scenario: where its bots and you stand, what it is, how it went.
+function scVersionReps(s, hist) {
+  const groups = {};
+  for (const e of [...hist].sort((a, b) => new Date(a.date) - new Date(b.date))) {
+    for (const r of Array.isArray(e.reps) ? e.reps : []) {
+      if (!r) continue;
+      const legacy = r.scenarioId == null && e.scenario?.id === s.id && !e.scenario.id.startsWith('mix_');
+      if ((r.scenarioId ?? (legacy ? s.id : null)) !== s.id) continue;
+      const bots = r.bots ?? (legacy ? s.bots.length : null);
+      if (!Number.isInteger(bots) || bots < 1) continue;
+      (groups[bots] ||= []).push(legacy ? { ...r, scenarioId: s.id, bots, of: s.bots.length } : r);
+    }
+  }
+  return groups;
+}
+
+function scVersions(s, hist) {
+  const groups = scVersionReps(s, hist), counts = Object.keys(groups).map(Number).sort((a, b) => b - a).slice(0, 5);
+  const rate = reps => Math.round(reps.filter(r => r.result === 'cleared').length / reps.length * 100);
+  return counts.length ? h('div', { class: 'sc-versions', title: 'Win rate by bot count · up to 5 versions, highest first' }, ...counts.map(n => {
+    const reps = groups[n], won = reps.filter(r => r.result === 'cleared').length, pct = rate(reps);
+    const recent = reps.slice(-10), before = reps.slice(-20, -10);
+    const trend = recent.length >= 5 && before.length >= 5 ? rate(recent) - rate(before) : null;
+    return h('div', { class: 'sc-version' }, h('b', {}, `${n}v1`), h('span', {}, `${won}/${reps.length} won`),
+      h('span', { class: 'sc-version-bar' }, h('i', { style: { width: `${pct}%` } })), h('span', {}, `${pct}%`),
+      trend != null ? h('span', { class: trend >= 0 ? 'up' : 'down', title: 'Win percentage points vs the 10 reps before' }, `${trend >= 0 ? '▲' : '▼'} ${Math.abs(trend)}`) : null);
+  })) : null;
+}
+
 function scCard(s, hist) {
   const mine = hist.filter(e => e.scenario?.id === s.id), last = mine.at(-1);
   const jig = s.bots.filter(b => b.jiggle).length, still = s.bots.filter(b => !b.shoot).length;
@@ -192,6 +220,7 @@ function scCard(s, hist) {
         stat(s.bots.length, s.bots.length === 1 ? 'bot' : 'bots', 'bots'),
         jig ? stat(jig, 'jiggling') : null, still ? stat(still, 'not shooting') : null,
         s.options.firstTo ? stat(s.options.firstTo, 'to win') : stat(s.options.reps, 'reps'), stat(s.options.seconds, 's')),
+      scVersions(s, hist),
       h('small', { class: 'sc-card-meta' }, last ? `${plural(mine.length, 'session')} · ${ago(last.date)}` : 'Not played yet'),
       h('div', { class: 'sc-card-foot' },
         h('button', { class: 'btn primary', disabled: running(), onclick: () => buyMenu(s.name || 'Untitled', () => playScenario(s)) }, icon(ICONS.play), 'Play'),
@@ -319,8 +348,8 @@ function buyMenu(title, go) {
         h('div', { class: 'buy-scroll', tabindex: '0', role: 'group', 'aria-label': name + ' weapons' }, ...items.map((_, ri) => tile(ci, ri)))))),
       h('footer', { class: 'buy-foot' },
         h('span', { class: 'buy-k' }, 'Bots'),
-        select(opt.botWeapon, BOT_GUNS.slice(1), v => { opt.botWeapon = v; }),
-        select(String(opt.difficulty), LEVELS.map(([v, l]) => [String(v), l]), v => { opt.difficulty = +v; }),
+        select(opt.botWeapon, BOT_GUNS.slice(1), v => { opt.botWeapon = v; }, { seg: false, search: true, noun: 'guns', icon: pickWeapon }),
+        select(String(opt.difficulty), LEVELS.map(([v, l]) => [String(v), l]), v => { opt.difficulty = +v; }, { seg: true }),
         toggle('Headshots only', opt.hsOnly, v => { opt.hsOnly = v; }, 'mp_damage_headshot_only: body shots do no damage'),
         h('span', { class: 'spacer' }),
         h('span', { class: 'buy-hint' }, col === null ? 'Scroll for all weapons' : `${BUY_COLS[col][0]}: 1-5 on screen`),
@@ -629,7 +658,7 @@ function scenarioEditor() {
       body = [h('b', {}, `Bot ${s.i + 1}`),
         h('div', { class: 'tr-row' }, toggle('Shoots back', b.shoot, v => { b.shoot = v; redraw(); }, 'Off: it holds the angle but never fires (pre-aim practice)'),
           toggle('Crouched', b.crouch, v => { b.crouch = v; redraw(); })),
-        h('div', { class: 'tr-row' }, h('span', { class: 'tr-label' }, 'Gun'), select(b.weapon || '', BOT_GUNS, v => { b.weapon = v || null; })),
+        h('div', { class: 'tr-row' }, h('span', { class: 'tr-label' }, 'Gun'), select(b.weapon || '', BOT_GUNS, v => { b.weapon = v || null; }, { seg: false, search: true, noun: 'guns', icon: v => v ? pickWeapon(v) : pickSvg(PICK_ICONS.repeat) })),
         h('div', { class: 'tr-row' }, h('span', { class: 'tr-label' }, 'Level'),
           select(b.level == null ? '' : String(b.level), [['', 'Session level'], ...LEVELS.map(([v, l]) => [String(v), l])], v => { b.level = v === '' ? null : +v; })),
         h('div', { class: 'tr-row' }, h('span', { class: 'tr-label' }, 'Moves'),
@@ -669,11 +698,11 @@ function scenarioEditor() {
     counts,
     panel,
     h('div', { class: 'tr-row' }, h('span', { class: 'tr-label' }, 'Win'),
-      select(String(d.options.firstTo || 0), [['0', 'Play every rep'], ...[3, 5, 7, 10, 13, 16].map(n => [String(n), `First team to ${n}`])], v => { d.options.firstTo = +v; renderTraining(); })),
+      select(String(d.options.firstTo || 0), [['0', 'Play every rep'], ...[3, 5, 7, 10, 13, 16].map(n => [String(n), `First team to ${n}`])], v => { d.options.firstTo = +v; renderTraining(); }, { seg: false, icon: () => pickSvg(PICK_ICONS.trophy) })),
     d.options.firstTo ? null : h('div', { class: 'tr-row' }, h('span', { class: 'tr-label' }, 'Reps'),
       select(String(d.options.reps), [3, 5, 10, 15, 20, 30].map(n => [String(n), String(n)]), v => { d.options.reps = +v; })),
     h('div', { class: 'tr-row' }, h('span', { class: 'tr-label' }, 'Timer'),
-      select(String(d.options.seconds), [10, 15, 20, 25, 30, 45, 60, 90, 120].map(n => [String(n), `${n} s per round`]), v => { d.options.seconds = +v; })),
+      select(String(d.options.seconds), [10, 15, 20, 25, 30, 45, 60, 90, 120].map(n => [String(n), `${n} s per round`]), v => { d.options.seconds = +v; }, { seg: false, icon: () => pickSvg(PICK_ICONS.timer) })),
     h('div', { class: 'tr-note' }, `A round is yours when every bot is dead, the bots' when you die or the timer runs out. ${d.options.firstTo ? `The first side to ${d.options.firstTo} wins` : 'After the last rep you see the result'}, then CS2 closes.`),
     noMesh ? h('div', { class: 'tr-note' }, `No map mesh for ${mapName(d.map)} on this PC: heights come from your matches only (open a match's Integrity tab once to download the meshes).`) : null,
     h('div', { class: 'tr-start' },

@@ -1,7 +1,7 @@
 /* global api, state, h, icon, ICONS, toast, guard, mapName, fmtDate, fmtDur, clamp, pct, fmtNum, spinner, card, kv, barList, big,
    select, modal, closeModal, renderDetail, showInReplay, viewInCs2Button, statsPending, radarInfo, radarFrame, radarImage, toPx, viewPt, applyView,
    viewScale, zoomable, newView, resetZoom, RADAR_SIZE, NADE_COLOR, SMOKE_RADIUS, MOLOTOV_RADIUS, utLabel, UT_TYPES, UT_MOVES, UT_CLICKS, utImg,
-   utMoved, renderUtility, onLower, loadProfile, reloadProfileSoon, renderOverview, shownProfile, renderClips, loadClips, playClip, utMapKey */
+   utMoved, renderUtility, onLower, loadProfile, reloadProfileSoon, renderOverview, shownProfile, renderClips, loadClips, playClip, utMapKey, pickMap, pickSvg, PICK_ICONS */
 'use strict';
 // Coaching views added on top of app.js: the round strip and Economy tab, the Aim tab and its overview
 // section, where you play on each map, the Utility quiz with "Practice in CS2", and "Export for sharing".
@@ -366,45 +366,14 @@ api.onAimBatch(s => {
 });
 api.onProfileChanged(() => reloadProfileSoon());
 
-function aimCard(list) {
-  const p = shownProfile();
-  const withAim = list.filter(m => m.aim);
-  const batch = state.aimBatch?.running ? state.aimBatch : p?.aimBatch?.running ? p.aimBatch : null;
-  const missing = p?.aimMissing || 0;
-  const batchCall = async action => { state.aimBatch = await guard(() => api.aimBatch(action, state.who || undefined)) || state.aimBatch; renderOverview(); };
-  const n = batch && Math.min(batch.done + 1, batch.total);
-  const last = state.aimBatch?.stopped ? state.aimBatch : null;
-  const action = batch
-    ? h('div', { class: `aim-batch ${batch.stopping ? 'stopping' : ''}` }, spinner(12), batch.stopping
-      ? [` Stopping once match ${n} of ${batch.total} is measured…`, h('button', { class: 'link-btn', onclick: () => batchCall('resume') }, 'Keep going')]
-      : [` Measuring match ${n} of ${batch.total}…`, h('button', { class: 'link-btn', onclick: () => batchCall('cancel') }, 'Stop after this one')])
-    : missing ? h('div', { class: 'aim-batch' },
-      h('button', { class: 'btn', title: 'Goes through every tick of each match once (about 10 seconds per match, in the background). The Integrity tab of those matches is ready afterwards too.',
-        onclick: () => batchCall('start') },
-      `Measure ${missing} more match${missing === 1 ? '' : 'es'} (~${Math.max(1, Math.round(missing / 6))} min)`),
-      last ? h('span', {}, `Stopped: ${last.done} of ${last.total} measured.`) : null) : null;
-  if (!withAim.length) {
-    return card(null, [h('div', { class: 'muted-note' }, 'Counter-strafing, first-bullet and spray accuracy, crosshair placement and time to damage need one pass over every tick of a match. Open a match’s Aim tab, or measure all your matches at once.'), action], { span: 4 });
-  }
-  const vals = aimValues(withAim.map(m => m.aim));
-  const tiles = h('div', { class: 'aim-tiles' }, ...AIM_STATS.map(s => {
-    const [v, n] = vals[s.k];
-    const ok = v != null && n >= s.min;
-    return h('div', { class: `aim-tile ${ok ? aimLevel(s, v) : ''}`, title: `${s.tip}\n\n${n} samples over ${withAim.length} match${withAim.length === 1 ? '' : 'es'}` },
-      h('div', { class: 'k' }, s.label), h('div', { class: 'v' }, ok ? s.fmt(v) : '—'),
-      h('div', { class: 'aim-bench' }, `good ${s.low ? '≤' : '≥'} ${s.fmt(s.good)} · needs work ${s.low ? '>' : '<'} ${s.fmt(s.bad)}`));
-  }));
-  return card(null, [tiles, h('div', { class: 'aim-foot' },
-    h('span', { class: 'hint' }, `From ${withAim.length} of ${list.length} matches · green: better than three players in four of your lobbies, red: worse`), h('span', { class: 'spacer' }), action)], { span: 4 });
-}
-
 // ---------- Positions (Maps page) ----------
 state.posSide = 'T';
 function positionsCard(map) {
-  const matches = (state.profile?.matches || []).filter(m => m.map === map);
+  const matches = (shownProfile()?.matches || []).filter(m => m.map === map);
   if (!matches.length) return null;
   const rows = matches.flatMap(m => m.positions || []);
-  const pending = state.profile?.positionsPending;
+  const pending = shownProfile()?.positionsPending;
+  if (state.who && !rows.length) return null; // Position summaries are only collected for your account.
   if (!rows.length) return card('Where you play', h('div', { class: 'muted-note' }, pending ? [spinner(11), ' Reading the positions of your matches…'] : 'No positions for your matches on this map.'), { cls: 'map-stats' });
   const side = state.posSide;
   const by = new Map();
@@ -467,9 +436,9 @@ function quizSetup() {
     h('h2', {}, 'Practice quiz'),
     h('p', {}, 'Test yourself on your lineups: find where a grenade lands, where you throw it from, or recognise it from its picture.'),
     h('div', { class: 'quiz-setup' },
-      h('label', {}, 'Map'), select(q.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], v => { q.map = v; update(); }),
-      h('label', {}, 'Questions'), select(q.kind, QUIZ_KINDS, v => { q.kind = v; update(); }),
-      h('label', {}, 'How many'), select(String(q.count), [['5', '5'], ['10', '10'], ['20', '20'], ['999', 'All']], v => { q.count = +v; })),
+      ...(maps.length > 1 ? [h('label', {}, 'Map'), select(q.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], v => { q.map = v; update(); }, { seg: false, icon: pickMap, noun: 'maps' })] : []),
+      h('label', {}, 'Questions'), select(q.kind, QUIZ_KINDS, v => { q.kind = v; update(); }, { seg: false, icon: v => pickSvg(PICK_ICONS[({ mix: 'grid', land: 'layers', from: 'user', name: 'list' })[v]]) }),
+      h('label', {}, 'How many'), select(String(q.count), [['5', '5'], ['10', '10'], ['20', '20'], ['999', 'All']], v => { q.count = +v; }, { seg: true })),
     info,
     h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => closeModal() }, 'Cancel'), start),
   ]);
@@ -635,9 +604,9 @@ async function shareDialog(c) {
     h('h2', {}, 'Export for sharing'),
     h('p', { class: 'hint' }, c.title),
     h('div', { class: 'share-form' },
-      row('Format', select(o.format, SHARE_FORMATS, v => { o.format = v; })),
+      row('Format', select(o.format, SHARE_FORMATS, v => { o.format = v; }, { seg: false, icon: v => { const [w, h] = v === 'square' ? [14, 14] : v === 'original' ? [20, 12] : [11, 20]; return icon(`<g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="${(24 - w) / 2}" y="${(24 - h) / 2}" width="${w}" height="${h}" rx="2"/>${v === 'verticalFit' ? '<path d="M7 8h10v8H7z"/>' : ''}</g>`); } })),
       row('Slow motion', [cb(o.slowmo, 'Slow down the last kill', v => { o.slowmo = v; }, !kills?.length),
-        select(String(o.speed), [['0.5', 'Half speed'], ['0.33', 'Third speed'], ['0.25', 'Quarter speed']], v => { o.speed = +v; })],
+        select(String(o.speed), [['0.5', '½×'], ['0.33', '⅓×'], ['0.25', '¼×']], v => { o.speed = +v; }, { seg: true, icon: () => pickSvg(PICK_ICONS.speed) })],
       kills?.length ? null : isClip ? 'The kill times of this clip are unknown (its demo is gone or the timing settings changed since it was recorded).' : 'Only for single clips.'),
       row('Kill feed', cb(o.feed, 'Show your kills as a kill feed (the vertical crop cuts the game’s own off)', v => { o.feed = v; }, !kills?.length)),
       row('Title', [cb(o.titleOn, 'Title for the first 3 seconds', v => { o.titleOn = v; }), title, subtitle]),

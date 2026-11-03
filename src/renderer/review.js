@@ -1,7 +1,7 @@
-/* global $, api, state, h, icon, ICONS, toast, guard, mapName, fmtDate, fmtDur, clamp, pct, fmtNum, spinner, card, barList, big, select, toggle,
+/* global pickWeapon, pickSvg, PICK_ICONS, sideIcon, $, api, state, h, icon, ICONS, toast, guard, mapName, fmtDate, fmtDur, clamp, pct, fmtNum, spinner, card, barList, big, select, toggle,
    modal, closeModal, renderDetail, showInReplay, viewInCs2Button, openDemo, showView, loadDemos, loadUtility, renderUtility, utFiltered,
    copyText, mapThumb, avatar, aggregate, per, PERIODS, shownProfile, povId, placeLabel, AIM_STATS, aimValues, aimLevel, ratingClass, row, save,
-   NADE_COLOR, utLabel, UT_TYPES, renderOverview, openPlayer, ago */
+   NADE_COLOR, utLabel, UT_TYPES, renderOverview, openPlayer, ago, artImg, mapIconUrl */
 'use strict';
 // Added on top of app.js and insights.js: the death review (match tab and overview card), the Compare
 // page, the new-match processing shown in the app, and share codes for Utility lineups. Loaded last.
@@ -133,70 +133,6 @@ function deathTotals(list) {
 }
 const deathShare = (t, k) => { const of = MEASURED_ONLY.has(k) ? t.measuredN : t.n; return of ? (t.tags[k] || 0) / of : null; };
 
-function deathCards(list) {
-  const p = shownProfile();
-  const t = deathTotals(list);
-  const missing = list.length - t.matches;
-  if (!t.matches) {
-    return [card(null, h('div', { class: 'muted-note' }, missing && p?.positionsPending !== 0 ? [spinner(11), ' Reading where everyone stood at each kill, match by match…'] : 'No deaths to review yet.'), { span: 4 })];
-  }
-  const rows = kind => DEATH_ORDER.filter(k => DEATH_TAGS[k].kind === kind && deathShare(t, k) != null && (kind === 'bad' || t.tags[k])).map(k => {
-    const share = deathShare(t, k), of = MEASURED_ONLY.has(k) ? t.measuredN : t.n;
-    return { label: DEATH_TAGS[k].label, note: `${t.tags[k] || 0}/${of}`, value: `${Math.round(share * 100)}%`, frac: share, fillCls: kind === 'bad' ? 'bad' : '',
-      title: `${DEATH_TAGS[k].tip}\n\nClick to see these deaths`, onclick: () => deathsModal(k, list) };
-  }).sort((a, b) => b.frac - a.frac);
-  const bad = rows('bad');
-  const top = bad[0];
-  const foot = [
-    missing ? h('div', { class: 'hint' }, spinner(10), ` ${missing} more match${missing > 1 ? 'es' : ''} still being read`) : null,
-    t.measuredN < t.n ? h('div', { class: 'hint' }, `“Caught off guard” only counts the ${t.measuredN} deaths of measured matches (see Aim above).`) : null,
-  ];
-  return [
-    card('Death review', [
-      top ? big(top.value, null, `of your deaths: ${top.label.toLowerCase()}`) : null,
-      barList(bad), ...foot], { span: 2, extra: h('span', { class: 'hint' }, `${fmtNum(t.n)} deaths in ${t.matches} match${t.matches > 1 ? 'es' : ''}`) }),
-    card('How the fights went', [barList(rows('info'), { empty: 'Nothing yet' }),
-      h('div', { class: 'card-link' }, h('button', { class: 'link-btn', onclick: () => deathsModal('all', list) }, 'All deaths →'))], { span: 2 }),
-  ];
-}
-
-// Every death with one tag over the overview's matches, newest first; each opens in its match's 2D replay.
-async function deathsModal(tag, list) {
-  const who = state.who || undefined;
-  const ids = new Set(list.map(m => m.id));
-  modal([h('h2', {}, 'Loading…'), spinner(24)], { wide: true });
-  const all = await api.deathsAll(who).catch(e => ({ error: e.message, matches: [] }));
-  if (all.error) return modal([h('h2', {}, 'Could not load the deaths'), h('div', { class: 'err-box' }, all.error), h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => closeModal() }, 'Close'))]);
-  const matches = all.matches.filter(m => ids.has(m.id));
-  let current = tag;
-  const name = shownProfile()?.name || 'You';
-  const show = () => {
-    const rows = [];
-    for (const m of matches) for (const x of m.deaths) if (current === 'all' || x.tags.includes(current)) rows.push([m, x]);
-    const shown = rows.slice(0, 80);
-    const open = (m, x) => {
-      const d = state.demos.find(y => y.id === m.id) || state.demos.find(y => y.path === m.path);
-      if (!d) return toast('This demo is no longer in your demo folders.', 'error');
-      closeModal();
-      state.radar.jump = x.tick - 5 * 64;
-      showView('matches');
-      openDemo(d, who, 'radar');
-    };
-    modal([
-      h('div', { class: 'section-head' }, h('h2', {}, current === 'all' ? `All deaths · ${name}` : `${DEATH_TAGS[current].label} · ${name}`), h('span', { class: 'spacer' }),
-        h('span', { class: 'hint' }, `${rows.length} death${rows.length === 1 ? '' : 's'}${rows.length > shown.length ? `, newest ${shown.length} shown` : ''}`)),
-      current !== 'all' ? h('p', { class: 'hint' }, DEATH_TAGS[current].tip) : null,
-      deathChips(matches.flatMap(m => m.deaths), current, k => { current = k; show(); }),
-      h('div', { class: 'integ-moments death-modal-list' }, ...shown.map(([m, x]) => deathRow(x, {
-        name, cs2: false, onReplay: () => open(m, x),
-        extra: h('div', { class: 'death-match' }, mapThumb(m.map), h('b', {}, mapName(m.map)), h('span', { class: `hp-res r-${m.result}` }, h('i', {}, m.result), `${m.score[0]}:${m.score[1]}`), h('span', { class: 'hint' }, ago(m.date))),
-      }))),
-      h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => closeModal() }, 'Close')),
-    ], { wide: true });
-  };
-  show();
-}
-
 // ---------- Compare ----------
 // Two players side by side over the same filters (or one against "your lobbies": every player of every
 // demo you have). Bars show where each value ranks among your lobbies' player-matches.
@@ -215,6 +151,11 @@ const CMP_ICONS = {
   swap: '<path d="M4 7h16M16 3l4 4-4 4M20 17H4M8 13l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
   up: '<path d="M12 20V4M6 10l6-6 6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
   down: '<path d="M12 4v16M6 14l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  teamed: '<circle cx="9" cy="7" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6M18 13a5 5 0 0 1 3 5v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  grid: '<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+  team: '<circle cx="12" cy="6" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6 21v-4a6 6 0 0 1 12 0v4M5 4a3 3 0 0 0 0 6M3 14a5 5 0 0 0-1 3v3M19 4a3 3 0 0 1 0 6M21 14a5 5 0 0 1 1 3v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  map: '<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  chevron: '<path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
   flame: '<path d="M13 3c1 5-4 5-3 9-2 0-3-2-3-3-4 5-1 12 5 12 7 0 10-8 1-18z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
   shield: '<path d="M12 3l8 3v6c0 4-5 8-8 9-3-1-8-5-8-9V6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
 };
@@ -287,35 +228,160 @@ function aimRank(s, v) {
   return clamp(x, 0.02, 0.98);
 }
 
+let cmpCloseMenu = null;
+let cmpMenuId = 0;
+function cmpFilterIcon(key, value) {
+  let svg;
+  if (key === 'map') svg = CMP_ICONS.map;
+  else if (key === 'mode') svg = value === 'all' ? CMP_ICONS.grid : value === 'Wingman' ? CMP_ICONS.teamed : value === 'Rush' ? CMP_ICONS.flame : CMP_ICONS.team;
+  else svg = value === 'all' ? CMP_ICONS.clock : /d$/.test(value) ? CMP_ICONS.matches : CMP_ICONS.chart;
+  return h('span', { class: 'cmp-filter-icon', 'aria-hidden': 'true' }, icon(svg),
+    key === 'map' && value !== 'all' ? artImg('cmp-filter-emblem', mapIconUrl(value).catch(() => null)) : null);
+}
+
+// Also the menu behind every long select() in the app: cls styles the button, noun names what the search looks for.
+function cmpMenu({ value, items, onpick, trigger, search = false, right = false, cls, noun = 'players' }) {
+  const selected = items.find(p => p.value === value);
+  const players = search && !cls;
+  const btn = h('button', { type: 'button', class: cls || (search ? 'cmp-pick' : 'cmp-filter-pick'),
+    'aria-haspopup': 'listbox', 'aria-expanded': 'false', onclick: () => open() },
+    selected?.icon ? selected.icon() : null,
+    h('span', { class: players ? 'cmp-name' : 'pick-label' }, trigger || selected?.label || value),
+    icon(CMP_ICONS.chevron, 'aria-hidden="true"'));
+  let close = null;
+  const open = (edge = 0) => {
+    if (close) { close(true); return; }
+    cmpCloseMenu?.();
+    const id = `cmp-menu-${++cmpMenuId}`;
+    const list = h('div', { class: 'cmp-menu-list', id, role: 'listbox', tabindex: '-1', 'aria-label': players ? 'Players' : btn.textContent });
+    const input = search ? h('input', { class: 'cmp-menu-search', type: 'search', placeholder: `Search ${noun}...`, 'aria-label': `Search ${noun}`,
+      role: 'combobox', 'aria-autocomplete': 'list', 'aria-controls': id, 'aria-expanded': 'true', oninput: () => draw() }) : null;
+    const menu = h('div', { class: `cmp-menu ${players ? 'cmp-player-menu' : ''}` }, input, list);
+    const focus = input || list;
+    let visible = [], rows = [], active = -1;
+    const highlight = i => {
+      active = i;
+      rows.forEach((row, n) => row.classList.toggle('active', n === active));
+      if (rows[active]) {
+        focus.setAttribute('aria-activedescendant', rows[active].id);
+        rows[active].scrollIntoView({ block: 'nearest' });
+      } else focus.removeAttribute('aria-activedescendant');
+    };
+    const pick = item => { close(true); onpick(item.value); };
+    const draw = () => {
+      const query = (input?.value || '').trim().toLocaleLowerCase();
+      visible = items.filter(p => p.label.toLocaleLowerCase().includes(query));
+      rows = visible.map((p, i) => h('button', { type: 'button', class: `cmp-menu-row ${p.value === value ? 'selected' : ''}`,
+        id: `${id}-${i}`, role: 'option', 'aria-selected': String(p.value === value), tabindex: '-1',
+        onpointermove: () => { if (active !== i) highlight(i); }, onpointerdown: e => e.preventDefault(), onclick: () => pick(p) },
+        ...(p.content ? p.content() : [p.icon ? p.icon() : null, h('span', { class: 'cmp-menu-name' }, p.label), h('span', { class: 'cmp-menu-check' }, p.value === value ? icon(ICONS.check, 'aria-hidden="true"') : null)])));
+      list.replaceChildren(...rows, !rows.length ? h('div', { class: 'cmp-menu-empty' }, `No ${noun} found`) : '');
+      highlight(Math.max(0, visible.findIndex(p => p.value === value)));
+      position();
+    };
+    // Body portal avoids clipping in scrolling views.
+    const position = e => {
+      if (e && menu.contains(e.target)) return;
+      const r = btn.getBoundingClientRect(), w = document.documentElement.clientWidth, ht = document.documentElement.clientHeight;
+      if (!btn.isConnected || r.bottom < 0 || r.top > ht) { close(); return; }
+      const below = Math.max(0, ht - r.bottom - 14), above = Math.max(0, r.top - 14);
+      const up = below < Math.min(420, list.scrollHeight + (input ? input.offsetHeight + 5 : 0) + 12) && above > below;
+      menu.style.maxHeight = `${Math.min(420, up ? above : below)}px`;
+      menu.style.left = `${Math.max(8, Math.min(right ? r.right - menu.offsetWidth : r.left, w - menu.offsetWidth - 8))}px`;
+      menu.style.top = `${up ? Math.max(8, r.top - menu.offsetHeight - 6) : r.bottom + 6}px`;
+    };
+    const outside = e => { if (!menu.contains(e.target) && !btn.contains(e.target)) close(); };
+    const key = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); }
+      else if (e.key === 'Tab') close(true);
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault(); e.stopPropagation();
+        if (rows.length) highlight((active + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length);
+      } else if (e.key === 'Enter' && visible[active]) { e.preventDefault(); e.stopPropagation(); pick(visible[active]); }
+    };
+    const view = btn.closest('.view') || $('#overlay'); // pickers in dialogs live in the overlay
+    const gone = () => !btn.isConnected || (view.id === 'overlay' ? view.classList.contains('hidden') : !view.classList.contains('active'));
+    const observer = new MutationObserver(() => { if (gone()) close(); });
+    close = (restore = false) => {
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('keydown', key, true);
+      window.removeEventListener('resize', position);
+      window.removeEventListener('scroll', position, true);
+      observer.disconnect();
+      menu.remove();
+      btn.setAttribute('aria-expanded', 'false');
+      btn.removeAttribute('aria-controls');
+      if (cmpCloseMenu === close) cmpCloseMenu = null;
+      close = null;
+      if (restore && btn.isConnected) btn.focus({ preventScroll: true });
+    };
+    cmpCloseMenu = close;
+    btn.setAttribute('aria-expanded', 'true');
+    btn.setAttribute('aria-controls', id);
+    document.body.append(menu);
+    draw();
+    if (!close) return;
+    focus.focus({ preventScroll: true });
+    highlight(edge < 0 ? rows.length - 1 : active);
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('keydown', key, true);
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true);
+    observer.observe(view, { attributes: true, childList: true, subtree: true });
+  };
+  btn.addEventListener('keydown', e => {
+    if (!close && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); e.stopPropagation(); open(e.key === 'ArrowUp' ? -1 : 0); }
+  });
+  return btn;
+}
+
+// Shared searchable player picker; one index request serves every page.
+function playerMenu({ value = state.who, onpick = selectPlayer, right = false, trigger, lobby = false, you = true } = {}) {
+  const c = state.cmp, me = state.env?.mySteamId;
+  if ((!c.players || c.playersStale) && !c.playersLoading) {
+    c.playersStale = false;
+    c.playersLoading = true;
+    api.players().then(p => { c.players = p; }).catch(() => { c.players ||= { self: me, players: [] }; })
+      .finally(() => { c.playersLoading = false; rerender(); });
+  }
+  const known = (c.players?.players || []).filter(p => p.steamid !== c.players?.self).sort((x, y) => (y.with + y.against) - (x.with + x.against) || y.matches - x.matches);
+  const myName = state.env?.steamUser?.name || 'You';
+  const self = { value: me, label: `${myName} (you)`, content: () => [avatar(myName, me, 'sm'), h('span', { class: 'cmp-menu-name' }, `${myName} (you)`)] };
+  const opts = (cur, extra) => {
+    const list = known.slice();
+    const count = (n, teamed) => h('span', { class: `cmp-menu-count ${teamed ? 'teamed' : 'against'} ${n ? '' : 'zero'}`,
+      title: teamed ? `${n} matches on your team` : `${n} matches against you` },
+      icon(teamed ? CMP_ICONS.teamed : CMP_ICONS.crosshair, 'aria-hidden="true"'), h('span', {}, n));
+    return [...extra, ...list.map(p => ({ value: p.steamid, label: p.name || p.steamid,
+      content: () => [avatar(p.name, p.steamid, 'sm'), h('span', { class: 'cmp-menu-name' }, p.name || p.steamid), count(p.with || 0, true), count(p.against || 0, false)] }))];
+  };
+  const extra = [...(lobby ? [{ value: 'lobby', label: 'Your lobbies (the median player)',
+    content: () => [h('span', { class: 'cmp-menu-lobby' }, icon(CMP_ICONS.chart, 'aria-hidden="true"')), h('span', { class: 'cmp-menu-name' }, 'Your lobbies (the median player)')] }] : []), ...(you ? [self] : [])];
+  value = value || me;
+  return cmpMenu({ value, items: opts(value, extra), search: true, right, onpick,
+    trigger: trigger || (value === 'lobby' ? 'Your lobbies' : value === me ? myName : known.find(p => p.steamid === value)?.name || (value === state.who ? state.other?.name : null) || value) });
+}
+
 function renderCompare() {
+  cmpCloseMenu?.();
   const view = $('#view-compare');
   const c = state.cmp, env = state.env;
   const me = env?.mySteamId;
   const aId = c.a || me;
   const page = (...body) => view.replaceChildren(h('div', { class: 'page cmp-page' }, ...body));
   if (!me && !c.a) return page(h('div', { class: 'empty' }, h('h2', {}, 'Which player are you?'), h('div', {}, 'Set your SteamID in Settings first.')));
-  if (!c.players) {
-    api.players().then(p => { c.players = p; }).catch(() => { c.players = { self: me, players: [] }; }).finally(() => { if (state.view === 'compare') renderCompare(); });
-    return page(h('div', { class: 'empty' }, spinner(28), h('h2', {}, 'Loading players…')));
-  }
   const A = cmpProfileOf(aId);
   const B = c.b === 'lobby' ? null : cmpProfileOf(c.b);
   const lobby = cmpLobby();
 
   // ---- pickers
-  const known = c.players.players.filter(p => p.steamid !== c.players.self).sort((x, y) => (y.with + y.against) - (x.with + x.against) || y.matches - x.matches);
-  const opts = (cur, extra) => {
-    const list = known.slice(0, 80);
-    if (cur && cur !== 'lobby' && cur !== me && !list.some(p => p.steamid === cur)) { const p = known.find(x => x.steamid === cur); if (p) list.unshift(p); }
-    return [...extra, ...list.map(p => [p.steamid, `${p.name || p.steamid} · ${p.with ? `${p.with} with you` : ''}${p.with && p.against ? ', ' : ''}${p.against ? `${p.against} against` : ''}`])];
-  };
-  const pickA = select(aId, opts(aId, [[me, `${env?.steamUser?.name || 'You'} (you)`]]), v => { c.a = v === me ? null : v; renderCompare(); });
-  const pickB = select(c.b, opts(c.b, [['lobby', 'Your lobbies (the median player)'], ...(aId !== me ? [[me, `${env?.steamUser?.name || 'You'} (you)`]] : [])]), v => { c.b = v; renderCompare(); });
+  const pickA = playerMenu({ value: aId, trigger: A?.name,
+    onpick: v => { c.a = v === me ? null : v; renderCompare(); } });
+  const pickB = playerMenu({ value: c.b, lobby: true, you: aId !== me, right: true, trigger: B?.name,
+    onpick: v => { c.b = v; renderCompare(); } });
   const swap = c.b !== 'lobby' ? h('button', { class: 'icon-btn cmp-swap', title: 'Swap sides', 'aria-label': 'Swap sides', onclick: () => { const a = aId; c.a = c.b === me ? null : c.b; c.b = a; renderCompare(); } }, icon(CMP_ICONS.swap, 'aria-hidden="true"')) : null;
 
-  const head = h('div', { class: 'page-head' }, h('h2', {}, 'Compare'),
-    h('span', { class: 'dl-head-info' }, 'Two players side by side, or one against everyone in your demos. Only matches from your own demos count.'));
-  if (!A || (c.b !== 'lobby' && !B)) return page(head, h('div', { class: 'cmp-pickers' }, pickA, swap, pickB), h('div', { class: 'empty' }, spinner(28), h('h2', {}, 'Loading stats…')));
+  if (!A || (c.b !== 'lobby' && !B)) return page(h('div', { class: 'cmp-filters loading' }, pickA, pickB), h('div', { class: 'empty' }, spinner(28), h('h2', {}, 'Loading stats…')));
 
   // ---- filters (modes and maps of both players)
   const pool = [...A.matches, ...(B?.matches || [])];
@@ -325,10 +391,11 @@ function renderCompare() {
   const both = B ? new Set(A.matches.filter(m => B.matches.some(n => n.id === m.id)).map(m => m.id)) : null;
   const ids = c.together && both ? both : null;
   const la = cmpFilter(A.matches, ids), lb = B ? cmpFilter(B.matches, ids) : [];
-  const filters = h('div', { class: 'filters' },
-    modes.length > 1 ? select(c.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], v => { c.mode = v; renderCompare(); }) : null,
-    select(c.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], v => { c.map = v; renderCompare(); }),
-    select(c.period, PERIODS, v => { c.period = v; renderCompare(); }),
+  const filterMenu = (key, options) => cmpMenu({ value: c[key], search: key === 'map' && options.length > 10, noun: key === 'map' ? 'maps' : 'options', items: options.map(([value, label]) => ({ value, label, icon: () => cmpFilterIcon(key, value) })), onpick: v => { c[key] = v; renderCompare(); } });
+  const filters = h('div', { class: 'cmp-filters', title: 'Only matches from your own demos count' },
+    modes.length > 1 ? filterMenu('mode', [['all', 'All modes'], ...modes.map(m => [m, m])]) : null,
+    maps.length > 1 ? filterMenu('map', [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])]) : null,
+    filterMenu('period', PERIODS),
     both ? toggle(`Only your ${both.size} shared match${both.size === 1 ? '' : 'es'}`, c.together, v => { c.together = v; renderCompare(); }, 'Only matches both players were in: same lobbies, a fairer comparison') : null);
 
   // ---- the lobby: per stat, every player-match value (10+ rounds) under the same filters
@@ -402,10 +469,10 @@ function renderCompare() {
       `${s.tip}\nBars: rough rank among your lobbies, from their quartiles (measured matches only).`));
   }
 
-  const who = (p, list, id, lead) => h('div', { class: `cmp-who ${lead ? 'leading' : ''}` },
+  const who = (p, list, id, lead, pick) => h('div', { class: `cmp-who ${lead ? 'leading' : ''}` },
     h('span', { class: 'cmp-avatar' }, p ? avatar(p.name, id, 'large') : h('span', { class: 'avatar large lobby-avatar' }, glyph(CMP_ICONS.chart)),
       lead ? h('span', { class: 'cmp-crown', title: 'Ahead in more stats' }, glyph(CMP_ICONS.trophy)) : null),
-    h('div', { class: 'cmp-identity' }, h('div', { class: 'cmp-name', title: p ? p.name || id : 'Your lobbies' }, p ? p.name || id : 'Your lobbies'),
+    h('div', { class: 'cmp-identity' }, pick,
       h('div', { class: 'cmp-meta' }, p ? [
         h('span', {}, glyph(CMP_ICONS.matches), `${list.length} match${list.length === 1 ? '' : 'es'}`),
         h('span', {}, glyph(CMP_ICONS.clock), `${fmtNum(aggregate(list).rounds)} rounds`),
@@ -413,20 +480,20 @@ function renderCompare() {
       p && id !== me ? h('button', { class: 'link-btn', onclick: () => openPlayer(id) }, 'Their overview \u2192') : null));
 
   const empty = !la.length || (B && !lb.length);
-  page(head,
-    h('div', { class: 'cmp-pickers' }, pickA, swap, h('span', { class: 'cmp-vs' }, 'vs'), pickB, h('span', { class: 'spacer' }), filters),
-    h('div', { class: 'cmp-heads' }, who(A, la, aId, winsA > winsB), h('div', { class: 'cmp-score', title: 'Stats where each side is better (roles like “Opening duels taken” don’t count)' },
+  page(
+    h('div', { class: 'cmp-heads' }, filters, who(A, la, aId, winsA > winsB, pickA), h('div', { class: 'cmp-score', title: 'Stats where each side is better (roles like “Opening duels taken” don’t count)' },
       glyph(CMP_ICONS.trophy),
       h('div', { class: 'cmp-nums' }, counted ? [h('b', { class: winsA > winsB ? 'cmp-ahead' : '' }, winsA), h('span', {}, '–'), h('b', { class: winsB > winsA ? 'cmp-ahead' : '' }, winsB)] : '—'),
       h('small', {}, counted ? 'stats ahead' : ''),
-      h('div', { class: 'cmp-split', 'aria-hidden': 'true' }, h('i', { style: { width: `${counted ? winsA / counted * 100 : 50}%` } }), h('i', { style: { width: `${counted ? winsB / counted * 100 : 50}%` } }))), who(B, lb, c.b, winsB > winsA)),
+      h('div', { class: 'cmp-split', 'aria-hidden': 'true' }, h('i', { style: { width: `${counted ? winsA / counted * 100 : 50}%` } }), h('i', { style: { width: `${counted ? winsB / counted * 100 : 50}%` } })),
+      swap), who(B, lb, c.b, winsB > winsA, pickB)),
     !lobby ? h('div', { class: 'hint' }, spinner(10), ' Reading everyone’s numbers in your demos (only the first time takes a few seconds)…') : null,
     lobby?.pending ? h('div', { class: 'hint' }, `${lobby.pending} demo${lobby.pending > 1 ? 's are' : ' is'} not read yet and not in the lobby numbers.`) : null,
     empty ? h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.'))
       : h('div', { class: 'cmp-groups' }, ...[...groups].map(([g, rows]) => {
         const [a, b] = tallies.get(g) || [0, 0];
         return h('section', { class: 'dcard cmp-group' }, h('div', { class: 'dcard-head' },
-          h('span', { class: 'cmp-group-icon' }, glyph(CMP_GROUP_ICONS[g])), h('h4', {}, g),
+          h('div', { class: 'cmp-group-heading' }, h('span', { class: 'cmp-group-icon' }, glyph(CMP_GROUP_ICONS[g])), h('h4', {}, g)),
           h('span', { class: `cmp-tally ${a > b ? 'a' : b > a ? 'b' : ''}`, title: `${nameA}: ${a} \u00b7 ${nameB}: ${b} stats ahead` }, glyph(CMP_ICONS.trophy), `${a}\u2013${b}`)), ...rows);
       })),
   );
@@ -507,8 +574,8 @@ function lineupShareDialog(list) {
   modal([
     h('h2', {}, 'Share lineups'),
     h('div', { class: 'actions' },
-      select(type, [['all', 'All grenades'], ...UT_TYPES.filter(([v]) => v !== 'all')], v => { type = v; paint(); }),
-      select(side, [['all', 'All sides'], ['T', 'T'], ['CT', 'CT'], ['both', 'Both sides']], v => { side = v; paint(); }),
+      select(type, [['all', 'All grenades'], ...UT_TYPES.filter(([v]) => v !== 'all')], v => { type = v; paint(); }, { seg: false, icon: v => v === 'all' ? pickSvg(PICK_ICONS.layers) : pickWeapon({ smoke: 'smokegrenade', flash: 'flashbang', molotov: 'molotov', he: 'hegrenade' }[v]) }),
+      select(side, [['all', 'All sides'], ['T', 'T'], ['CT', 'CT'], ['both', 'Both sides']], v => { side = v; paint(); }, { seg: true, icon: sideIcon }),
       h('button', { class: 'btn', onclick: () => { visible().forEach(x => picked.add(x.id)); paint(); } }, 'Select all'),
       h('button', { class: 'btn', onclick: () => { visible().forEach(x => picked.delete(x.id)); paint(); } }, 'Select none')),
     count, rows,

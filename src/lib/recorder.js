@@ -265,17 +265,22 @@ class Recorder {
     }
     await ffmpeg.concat(parts, file);
     parts.forEach(p => fs.rmSync(p, { force: true }));
-    // Target size chosen before recording: re-encode the joined clip to about that many MB.
-    if (this.s.targetMB > 0) {
+    const video = job.video || {};
+    const mb = video.mb !== undefined ? video.mb : this.s.targetMB;
+    const manual = video.height > 0 || video.fps > 0 || video.videoKbps > 0;
+    let encoded;
+    if (mb > 0 || manual) {
       const tmp = `${file}.fit.mp4`;
-      this.emit({ step: `Fitting "${h.title}" into ${this.s.targetMB} MB…` });
+      this.emit({ step: manual ? `Encoding "${h.title}"…` : `Fitting "${h.title}" into ${mb} MB…` });
       try {
-        const r = await ffmpeg.fitToSize(file, tmp, this.s.targetMB);
+        const r = await ffmpeg.encodeClip(file, tmp, { mb, height: video.height, fps: video.fps, videoKbps: video.videoKbps,
+          floor: { minHeight: this.s.videoSize?.minHeight, minFps: this.s.videoSize?.minFps } });
         fs.renameSync(tmp, file);
+        encoded = r;
         if (!r.kept) this.log(`${path.basename(file)}: ${(r.bytes / 1048576).toFixed(1)} MB at ${r.width}×${r.height} ${r.fps} fps, ${(r.videoKbps / 1000).toFixed(1)} Mbps`);
       } catch (e) {
         fs.rmSync(tmp, { force: true });
-        this.log(`Could not fit ${path.basename(file)} into ${this.s.targetMB} MB, kept full quality: ${e.message}`);
+        this.log(`Could not encode ${path.basename(file)}, kept full quality: ${e.message}`);
       }
     }
 
@@ -296,6 +301,7 @@ class Recorder {
       // which highlight this is, so the match view can mark it as already clipped
       demoId: job.demoId, steamid: job.player.steamid, highlightId: h.id,
       matchDate: job.demoDate, duration: info.duration, createdAt: Date.now(),
+      width: info.width || encoded?.width, height: info.height || encoded?.height, fps: info.fps || encoded?.fps,
       // kills with their time in the clip, for slow motion and the kill feed when exporting for sharing
       kills: clipKills(h).map(k => ({ t: Math.round(k.t * 100) / 100, victim: k.victim, weapon: k.weapon, headshot: k.headshot })),
     };

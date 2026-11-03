@@ -147,11 +147,11 @@ class HlaeSession {
   }
 
   // Always closes CS2 afterwards: an -insecure HLAE session must never be used to queue for matches.
-  async quit() {
+  async quit({ timeoutMs = 12000 } = {}) {
     const pids = cs2Pids();
-    try { await this.send(['disconnect', 'quit']); } catch {}
-    const until = Date.now() + 12000;
-    while (Date.now() < until && cs2Pids().some(p => pids.includes(p))) await sleep(1000);
+    try { await this.send(['quit']); } catch {}
+    const until = Date.now() + timeoutMs;
+    while (Date.now() < until && cs2Pids().some(p => pids.includes(p))) await sleep(Math.min(250, Math.max(0, until - Date.now())));
     // CS2 sometimes hangs while quitting; force-close the session we drove.
     for (const pid of cs2Pids().filter(p => pids.includes(p))) {
       try { execFileSync('taskkill', ['/PID', String(pid), '/F'], { windowsHide: true }); this.log('CS2 hung while quitting, force-closed it'); } catch {}

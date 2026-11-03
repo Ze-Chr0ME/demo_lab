@@ -104,15 +104,26 @@ async function concat(inputs, output) {
 
 // Montage with short fade between clips. Everything is normalised to the first clip's size/fps,
 // or to what fits in `mb` MB when a target size is given.
-async function montage(inputs, output, { fade = 0.25, mb = 0, onProgress } = {}) {
+async function montage(inputs, output, { fade = 0.25, mb = 0, onProgress, floor } = {}) {
   const infos = await Promise.all(inputs.map(probe));
   const total = infos.reduce((s, x) => s + x.duration, 0);
   const src = { width: infos[0].width || 1920, height: infos[0].height || 1080, fps: Math.min(infos[0].fps || 60, 240) };
-  if (!mb) {
-    await montageOnce(inputs, infos, output, src, fade, [...videoArgs(), ...audioArgs], onProgress, total);
-    return { duration: total };
+  // A target above the source size should use the same constant-quality path as Best quality.
+  if (!mb || inputs.reduce((sum, file) => sum + fs.statSync(file).size, 0) <= mb * MB) {
+    // With a target, the build fills 0-60 % of the bar so a fitting pass can follow without going backwards.
+    const share = mb && onProgress ? p => onProgress(p * 0.6) : onProgress;
+    await montageOnce(inputs, infos, output, src, fade, [...videoArgs(), ...audioArgs], share, total);
+    let plan;
+    if (mb && fs.statSync(output).size > mb * MB) {
+      const tmp = output + '.fit.mp4';
+      try {
+        plan = await fitToSize(output, tmp, mb, { onProgress: onProgress && (p => onProgress(0.6 + p * 0.4)), floor });
+        fs.renameSync(tmp, output);
+      } finally { fs.rmSync(tmp, { force: true }); }
+    }
+    return { duration: total, plan };
   }
-  const r = await encodeToSize(mb, sizePlan(mb, total, src), async p => {
+  const r = await encodeToSize(mb, sizePlan(mb, total, src, floor), async p => {
     await montageOnce(inputs, infos, output, p, fade,
       [...bitrateArgs(p.videoKbps), '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', `${p.audioKbps}k`, '-ar', '48000', '-ac', '2'], onProgress, total);
     return output;
@@ -144,23 +155,73 @@ const LADDER = [[0, 0], [1080, 0], [720, 0], [720, 30], [540, 30], [480, 30], [3
 const MIN_BPP = 0.045;  // bits per pixel per frame below which H.264 gets visibly blocky in CS2's fast motion
 const MAX_BPP = 0.3;    // above this more bits don't show: the file just ends up smaller than the target
 
-function sizePlan(mb, seconds, src = {}) {
+function sizePlan(mb, seconds, src = {}, floor = {}, fixed = {}) {
   const W = src.width || 1920, H = src.height || 1080, F = src.fps || 60;
   const totalKbps = mb * MB * 8 * 0.97 / Math.max(seconds, 0.5) / 1000; // ~3% container overhead
-  const audioKbps = totalKbps > 3000 ? 192 : totalKbps > 1000 ? 128 : 96;
+  const audioKbps = fixed.videoKbps > 0 ? 192 : totalKbps > 3000 ? 192 : totalKbps > 1000 ? 128 : 96;
   let videoKbps = Math.max(150, Math.floor(totalKbps - audioKbps));
   const steps = LADDER.map(([h, f]) => [Math.min(H, h || H), Math.min(F, f || F)])
-    .filter(([h, f], i, a) => a.findIndex(x => x[0] === h && x[1] === f) === i);
+    .filter(([h, f], i, a) => a.findIndex(x => x[0] === h && x[1] === f) === i)
+    .filter(([h, f], i) => i === 0 || (h >= Math.min(floor.minHeight || 0, H) && f >= Math.min(floor.minFps || 0, F)));
   let height = H, fps = F;
   for (const [h, f] of steps) {
     height = h; fps = f;
     if (videoKbps * 1000 / (Math.round(W * h / H) * h * f) >= MIN_BPP) break;
   }
-  const width = Math.round(W * height / H / 2) * 2;
+  if (fixed.height > 0 || fixed.fps > 0 || fixed.videoKbps > 0) {
+    height = fixed.height > 0 ? Math.min(H, Math.max(2, Math.round(fixed.height / 2) * 2)) : H;
+    fps = fixed.fps > 0 ? Math.min(F, fixed.fps) : F;
+  }
+  if (fixed.videoKbps > 0) videoKbps = fixed.videoKbps;
+  const width = Math.max(2, Math.round(W * height / H / 2) * 2);
   const bpp = videoKbps * 1000 / (width * height * fps);
-  if (bpp > MAX_BPP) videoKbps = Math.round(MAX_BPP * width * height * fps / 1000);
+  if (!(fixed.videoKbps > 0) && bpp > MAX_BPP) videoKbps = Math.round(MAX_BPP * width * height * fps / 1000);
   const quality = bpp >= 0.1 ? 'excellent' : bpp >= 0.06 ? 'good' : bpp >= MIN_BPP ? 'fair' : 'low';
   return { videoKbps, audioKbps, width, height, fps, quality, scaled: height !== H || fps !== F };
+}
+
+// Shared per-clip rules; best can carry the history-based estimate used by the picker.
+function clipPlan(mb, seconds, src = {}, floor = {}, video = {}, best) {
+  video = video || {};
+  mb = video.mb !== undefined ? video.mb : mb;
+  const source = { width: src.width || 1920, height: src.height || 1080, fps: src.fps || 60 };
+  const manual = video.height > 0 || video.fps > 0 || video.videoKbps > 0;
+  const custom = manual || video.mb !== undefined;
+  if (!best) {
+    const videoKbps = Math.round(0.12 * source.width * source.height * source.fps / 1000);
+    best = { seconds, ...source, videoKbps, audioKbps: 192,
+      bytes: (videoKbps + 192) * 1000 / 8 * seconds, quality: 'best', estimated: true };
+  }
+  let plan;
+  if (!manual) {
+    if (!mb) plan = best;
+    else {
+      const sized = sizePlan(mb, seconds, source, floor);
+      plan = preferBest({ seconds, ...sized,
+        bytes: Math.min(mb * MB, (sized.videoKbps + sized.audioKbps) * 1000 / 8 * seconds) }, best, mb);
+    }
+  } else {
+    plan = sizePlan(mb, seconds, source, floor, video);
+    const estimated = !(mb > 0) && !(video.videoKbps > 0);
+    if (estimated) {
+      plan.videoKbps = Math.round(best.videoKbps * plan.width * plan.height * plan.fps / (source.width * source.height * source.fps));
+      plan.audioKbps = best.audioKbps;
+      plan.quality = 'excellent';
+    }
+    plan = { seconds, ...plan, bytes: (plan.videoKbps + plan.audioKbps) * 1000 / 8 * seconds,
+      estimated, kept: false };
+  }
+  return { ...plan, src: source, ...(custom ? { custom: true } : {}) };
+}
+
+// A size target cannot improve on the best-quality source, or require fitting one that already fits.
+function preferBest(plan, best, mb) {
+  if (best.bytes <= mb * MB) return { ...best, quality: 'best', estimated: true, kept: true };
+  if (plan.videoKbps <= best.videoKbps) return plan;
+  const videoKbps = best.videoKbps;
+  const bpp = videoKbps * 1000 / (plan.width * plan.height * plan.fps);
+  const quality = bpp >= 0.1 ? 'excellent' : bpp >= 0.06 ? 'good' : bpp >= MIN_BPP ? 'fair' : 'low';
+  return { ...plan, videoKbps, bytes: (videoKbps + plan.audioKbps) * 1000 / 8 * plan.seconds, quality, kept: false };
 }
 
 function bitrateArgs(kbps) {
@@ -184,16 +245,36 @@ async function encodeToSize(mb, plan, encode) {
   }
 }
 
-// Re-encodes a finished clip to about `mb` MB. A clip already under the target is kept as it is.
-async function fitToSize(input, output, mb, { onProgress } = {}) {
+// Re-encodes a finished clip; manual dimensions always require an encoding pass.
+async function encodeClip(input, output, { mb = 0, height, fps, videoKbps, floor, onProgress } = {}) {
   const info = await probe(input);
-  if (fs.statSync(input).size <= mb * MB) { fs.copyFileSync(input, output); return { kept: true }; }
-  return encodeToSize(mb, sizePlan(mb, info.duration, info), async p => {
+  const bytes = fs.statSync(input).size;
+  const manual = height > 0 || fps > 0;
+  if (!(videoKbps > 0) && !manual && (!(mb > 0) || bytes <= mb * MB)) {
+    fs.copyFileSync(input, output);
+    return { width: info.width, height: info.height, fps: info.fps,
+      videoKbps: Math.max(0, bytes * 8 / Math.max(info.duration, 0.5) / 1000 - 192), bytes, kept: true };
+  }
+  const quality = !(mb > 0) && !(videoKbps > 0);
+  const plan = mb > 0 || videoKbps > 0
+    ? { ...sizePlan(mb, info.duration, info, floor, { height, fps, videoKbps }), kept: false }
+    : clipPlan(mb, info.duration, info, floor, { height, fps, videoKbps });
+  const encode = async p => {
     const vf = p.scaled ? ['-vf', `scale=${p.width}:${p.height}:flags=lanczos,fps=${p.fps}`] : [];
-    await run(ffmpegPath, ['-y', '-hide_banner', '-i', input, '-map', '0:v', '-map', '0:a?', ...vf, ...bitrateArgs(p.videoKbps), '-pix_fmt', 'yuv420p',
+    await run(ffmpegPath, ['-y', '-hide_banner', '-i', input, '-map', '0:v', '-map', '0:a?', ...vf,
+      ...(quality ? videoArgs() : [...bitrateArgs(p.videoKbps), '-pix_fmt', 'yuv420p']),
       '-c:a', 'aac', '-b:a', `${p.audioKbps}k`, '-ar', '48000', '-ac', '2', '-movflags', '+faststart', output], { onProgress, totalSeconds: info.duration });
     return output;
-  });
+  };
+  if (mb > 0 && !(videoKbps > 0)) return encodeToSize(mb, plan, encode);
+  await encode(plan);
+  const outputBytes = fs.statSync(output).size;
+  return { ...plan, bytes: outputBytes, kept: false,
+    ...(quality ? { videoKbps: Math.max(0, outputBytes * 8 / Math.max(info.duration, 0.5) / 1000 - plan.audioKbps) } : {}) };
+}
+
+function fitToSize(input, output, mb, { onProgress, floor } = {}) {
+  return encodeClip(input, output, { mb, onProgress, floor });
 }
 
 // Small JPEG thumbnail for the clip library.
@@ -201,4 +282,4 @@ function thumbnail(input, output, at = 1) {
   return run(ffmpegPath, ['-y', '-hide_banner', '-ss', String(at), '-i', input, '-frames:v', '1', '-vf', 'scale=320:-2', '-q:v', '4', output]);
 }
 
-module.exports = { resolve, probe, pickEncoder, mux, concat, montage, thumbnail, sizePlan, fitToSize, run, videoArgs, audioArgs, get encoder() { return chosenEncoder; }, get path() { return ffmpegPath; } };
+module.exports = { resolve, probe, pickEncoder, mux, concat, montage, thumbnail, sizePlan, clipPlan, preferBest, fitToSize, encodeClip, run, videoArgs, audioArgs, get encoder() { return chosenEncoder; }, get path() { return ffmpegPath; } };

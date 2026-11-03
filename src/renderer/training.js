@@ -210,11 +210,19 @@ function progressSection() {
 
 function sessionList(list) {
   if (!list.length) return h('div', { class: 'muted-note' }, 'No sessions yet');
-  return h('div', { class: 'tr-sessions' }, ...list.map(e => h('button', { class: 'tr-session', onclick: () => openSession(e.id) },
-    h('span', { class: 'tr-icon sm' }, icon(TR_ICONS[e.drill] || TR_ICONS.preaim)),
-    h('span', { class: 'tr-session-t' }, h('b', {}, e.scenario?.name || drillDef(e.drill)?.name || e.drill), h('small', {}, `${mapName(e.map)} · ${fmtDate(e.date)} · ${fmtDur(e.seconds || 0)}`)),
-    h('span', { class: 'tr-session-m' }, ...(KEY[e.drill] || KEY.preaim).slice(0, 2).map(([k, f]) => h('span', {}, h('small', {}, k), h('b', {}, f(e.metrics || {}))))),
-    h('span', { class: 'tr-score' }, e.score ?? (e.mapScore != null ? e.mapScore : '—')))));
+  return h('div', { class: 'tr-sessions' }, ...list.map(e => {
+    // the bots' level of the session (Workshop maps bring their own bots)
+    const lvl = TR_LOOK[e.drill]?.tag ? null : LEVELS.find(([v]) => v === e.options?.difficulty);
+    const score = e.score ?? e.mapScore;
+    return h('button', { class: 'tr-session', onclick: () => openSession(e.id) },
+      h('span', { class: 'tr-icon sm', style: { '--c': TR_LOOK[e.drill]?.c || TR_LOOK.scenario.c } }, icon(TR_ICONS[e.drill] || TR_ICONS.preaim)),
+      h('span', { class: 'tr-session-t' },
+        h('span', { class: 'tr-session-name' }, h('b', {}, e.scenario?.name || drillDef(e.drill)?.name || e.drill),
+          lvl ? h('span', { class: `tr-lvl lv${lvl[0]}`, title: 'Bot level' }, `${lvl[1]} bots`) : null),
+        h('small', {}, h('i', { class: 'tr-map-dot', style: { background: mapColor(e.map) } }), `${mapName(e.map)} · ${fmtDate(e.date)} · ${fmtDur(e.seconds || 0)}`)),
+      h('span', { class: 'tr-session-m' }, ...(KEY[e.drill] || KEY.preaim).slice(0, 2).map(([k, f]) => h('span', {}, h('small', {}, k), h('b', {}, f(e.metrics || {}))))),
+      h('span', { class: `tr-score ${e.score == null ? '' : e.score >= 70 ? 'good' : e.score >= 40 ? 'mid' : 'low'}`, title: 'Session score' }, score ?? '—'));
+  }));
 }
 
 // A small line of scores, oldest to newest.
@@ -365,6 +373,10 @@ async function openSession(id) {
       ['procedural', 'warmup'].includes(e.drill) ? null : h('div', { class: 'tr-tile' }, h('small', {}, 'Kills / deaths'), h('b', {}, `${m.kills ?? 0} / ${m.deaths ?? 0}`)),
       e.reps?.length ? h('div', { class: 'tr-tile', title: `${e.reps.filter(r => r.result === 'died').length} died · ${e.reps.filter(r => r.result === 'time').length} out of time` }, h('small', {}, 'Cleared'), h('b', {}, `${e.reps.filter(r => r.result === 'cleared').length} / ${e.reps.length}`)) : null,
       h('div', { class: 'tr-tile' }, h('small', {}, 'Shots · hits'), h('b', {}, `${m.shots ?? 0} · ${m.hits ?? 0}`))),
+    e.reps?.length ? h('div', { class: 'tr-block' }, h('h4', {}, 'Reps'), barList(e.reps.map((r, i) => ({
+      label: `Rep ${i + 1}`, note: `${r.scenario || e.scenario?.name || 'Scenario'}${r.bots != null ? ` · ${r.bots}v1` : ''}`,
+      value: r.result === 'cleared' ? 'Won' : r.result === 'died' ? 'Died' : 'Out of time', frac: r.result === 'cleared' ? 1 : 0, fillCls: r.result === 'cleared' ? '' : 'bad'
+    })))) : null,
     e.parts?.length > 1 ? h('div', { class: 'tr-block' }, h('h4', {}, 'Drills'), barList(e.parts.map(p => ({ label: drillDef(p.drill)?.name || p.drill, note: `${p.done}/${p.reps} reps · ${fmtDur(p.to - p.from)}`, value: p.score ?? '—', frac: (p.score || 0) / 100 })))) : null,
     e.runs?.length ? h('div', { class: 'tr-block' }, h('h4', {}, 'Runs'), barList(e.runs.map((r, i) => ({ label: `Run ${i + 1}`, note: `${r.rooms} rooms · after ${fmtDur(r.at)}`, value: r.score ?? '—', frac: (r.score || 0) / Math.max(1, ...e.runs.map(x => x.score || 0)) })))) : null,
     e.highscore?.length ? h('div', { class: 'tr-block' }, h('h4', {}, 'Map highscores'), kv(e.highscore.map((x, i) => [`${i + 1}. ${x.name}`, String(x.score)]))) : null,
@@ -386,14 +398,3 @@ async function openSession(id) {
 
 // ---------- Overview ----------
 // Training on the Overview: last sessions and the trend per drill (nothing until there is a session).
-function trainingCards() {
-  const tr = state.tr;
-  if (!tr.info) { loadTraining(); return []; }
-  const hist = tr.info.history || [];
-  if (!hist.length) return [];
-  const rows = DRILL_ORDER.map(id => [id, historyOf(id)]).filter(([, l]) => l.length);
-  return [card('Score per drill', h('div', { class: 'tr-prog' }, ...rows.map(([id, l]) => h('button', { class: 'tr-prog-row', onclick: () => { tr.drill = id; showView('training'); } },
-    h('span', { class: 'tr-icon sm' }, icon(TR_ICONS[id])), h('span', { class: 'tr-prog-name' }, drillDef(id).name), sparkline(l.map(e => e.score), 120, 24), h('b', {}, l.at(-1).score ?? '—')))),
-  { span: 2, extra: h('button', { class: 'link-btn', onclick: () => { tr.drill = null; showView('training'); } }, 'Training →') }),
-  card('Last training', sessionList(hist.slice(-4).reverse()), { span: 2 })];
-}

@@ -26,7 +26,7 @@ function galleryStats() {
   const r = (v, d = 2) => (v == null || !Number.isFinite(v) ? null : Math.round(v * 10 ** d) / 10 ** d);
   const rated = list.filter(m => m.rating != null).slice(0, 20).reverse();
   return {
-    n: t.played, r: t.rounds, rt: r(t.rating), r10: l10 ? r(l10.rating) : undefined,
+    tv: 3, n: t.played, r: t.rounds, rt: r(t.rating), r10: l10 ? r(l10.rating) : undefined,
     w: t.won, l: t.lost, d: t.tied, k: t.kills, de: t.deaths, kd: r(t.kd), adr: r(t.adr, 1),
     kast: r(per(100 * t.kastRounds, t.rounds), 1), hs: r(per(100 * t.hs, t.kills), 1),
     ti: TILES.map(d => r(d.t(t), d.d)), t10: l10 ? TILES.map(d => r(d.t(l10), d.d)) : undefined,

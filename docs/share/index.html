@@ -409,9 +409,10 @@
   // The Overview's stat tiles (src/renderer/app.js TILES), in the same order as the numbers in the link.
   const TILES = [
     ['K/D ratio', '', 2], ['ADR', '', 1], ['KAST', '%', 1], ['Headshot %', '%', 1], ['Kills / round', '', 2], ['Deaths / round', '', 2, true],
-    ['Opening duels won', '%', 0], ['Multi-kill rounds', '%', 1], ['Assists / round', '', 2], ['Trade kills / round', '', 2],
+    ['Opening duels won', '%', 0], ['Multi-kill rounds', '%', 1], ['Time to Damage', ' ms', 0, true], ['Reaction time', ' ms', 0, true],
     ['Utility damage / round', '', 1], ['Enemies flashed / round', '', 2],
   ];
+  const ORDERED_TILES = [0, 1, 4, 5, 2, 6, 7, 3, 9, 8, 10, 11].map(i => TILES[i]);
   const RATING_LEVELS = [[1.2, 'Excellent'], [1.08, 'Good'], [0.95, 'Average'], [0.85, 'Below average'], [-Infinity, 'Poor']];
   const ICON = {
     play: '<path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/>',
@@ -494,7 +495,7 @@
       w: Math.round(num(s.w, 0, 1e5)), l: Math.round(num(s.l, 0, 1e5)), d: Math.round(num(s.d, 0, 1e5)),
       k: Math.round(num(s.k, 0, 1e7)), de: Math.round(num(s.de, 0, 1e7)),
       kd: num(s.kd, 0, 100), adr: num(s.adr, 0, 1000), kast: num(s.kast, 0, 100), hs: num(s.hs, 0, 100),
-      ti: arr(s.ti, 12, 0, 1e4), t10: s.t10 ? arr(s.t10, 12, 0, 1e4) : null,
+      tv: s.tv === 3 ? 3 : s.tv === 2 ? 2 : 1, ti: arr(s.ti, 12, 0, 1e4), t10: s.t10 ? arr(s.t10, 12, 0, 1e4) : null,
       f: RES(s.f).slice(0, 10), tr: arr(s.tr, 40, 0, 500).filter(v => v != null), tw: RES(s.tw),
       mp: Array.isArray(s.mp) ? s.mp.slice(0, 8).filter(m => Array.isArray(m) && MAPNAME.test(m[0] || '')).map(m => [m[0], Math.round(num(m[1], 0, 1e5)), Math.round(num(m[2], 0, 1e5))]) : [],
       mk: arr(s.mk, 4, 0, 1e6).map(v => v || 0), tk: Math.round(num(s.tk, 0, 1e6)), fa: Math.round(num(s.fa, 0, 1e6)),
@@ -829,7 +830,12 @@
       h('div', { class: 'ov-stats' },
         h('div', { class: 'sec' }, h('h3', {}, 'Stats overview'),
           h('span', { class: 'hint legend-inline' }, h('i', { class: 'lg-avg' }), `all ${fmtNum(s.n)} matches`, s.t10 ? [h('i', { class: 'lg-rec' }), 'last 10'] : null)),
-        h('div', { class: 'tiles' }, ...TILES.map((d, i) => tile(d, s.ti[i] ?? null, s.t10?.[i] ?? null, s.hg[i]))))) : null;
+        h('div', { class: 'tiles' }, ...(s.tv === 3 ? ORDERED_TILES : TILES).map((d, i) => {
+          // Older shared snapshots still carry assists and trades in these positions.
+          if (s.tv === 1 && i === 8) d = ['Assists / round', '', 2];
+          if (s.tv === 1 && i === 9) d = ['Trade kills / round', '', 2];
+          return tile(d, s.ti[i] ?? null, s.t10?.[i] ?? null, s.hg[i]);
+        })))) : null;
 
     const maps = [...new Set(items.filter(x => x.map && !x.montage).map(x => x.map))];
     const shown = items.filter(x => state.map === 'all' || x.map === state.map)

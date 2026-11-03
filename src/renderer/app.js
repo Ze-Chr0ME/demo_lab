@@ -1,4 +1,4 @@
-/* global api */
+/* global api, OverviewLayout, OverviewEditor, OverviewModules, customizeOverview */
 'use strict';
 
 // ---------- Helpers ----------
@@ -67,10 +67,9 @@ const state = {
 };
 
 // ---------- Navigation ----------
-// The Aim page keeps showing the player on the overview when opened from there, else it shows me.
+// Page navigation keeps the selected player.
 document.querySelectorAll('.nav-btn, .brand').forEach(b => b.addEventListener('click', () => {
-  if (b.dataset.view === 'overview' || (b.dataset.view === 'aim' && state.view !== 'overview')) state.who = null;
-  if (b.dataset.view === 'inventory' && state.inv?.who) { state.inv.who = null; state.inv.data = null; state.inv.error = null; } // the top bar always opens mine
+  if (b.dataset.view === 'compare') state.cmp.a = state.who;
   showView(b.dataset.view);
 }));
 function showView(v) {
@@ -85,7 +84,7 @@ function showView(v) {
   if (v === 'maps') renderMaps();
   if (v === 'utility') renderUtility();
   if (v === 'training') renderTraining();
-  if (v === 'matches' && !state.demo && state.demos[0]) openDemo(state.demos[0]);
+  if (v === 'matches') { renderDemoList(); renderDetail(); }
   if (v === 'clips') loadClips();
   if (v === 'downloads') loadDownloads();
   if (v === 'themes') renderThemes();
@@ -214,12 +213,15 @@ function inkFor(hex) {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
   return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.3 ? '#0a0a0a' : '#ffffff';
 }
-function applyTheme(t) {
+function themeColors(t) {
   const st = document.documentElement.style;
   st.setProperty('--base', t.base);
   st.setProperty('--accent', t.accent);
   st.setProperty('--accent-ink', inkFor(t.accent));
   if (t.data) st.setProperty('--blue', t.data); else st.removeProperty('--blue');
+}
+function applyTheme(t) {
+  themeColors(t);
   const remember = x => { try { localStorage.setItem('theme', JSON.stringify(x)); } catch {} };
   // The picture URLs are cached with the theme so the next start shows them straight away.
   Scene.set(t, urls => { Object.assign(t, urls); remember(t); });
@@ -227,16 +229,34 @@ function applyTheme(t) {
   shownTheme = t; backdrop = '';
   windowIcon();
 }
-// Utility and My scenarios show their selected map behind the page, in the theme's colors.
+// Utility and My scenarios show their selected map behind the page, in the theme's colors. An open
+// match swaps the whole theme for that map's own map theme (its screenshot and colors).
 let shownTheme = null, backdrop = '';
 function pageBackdrop() {
-  const map = (state.view === 'utility' && state.ut.map !== 'all' ? state.ut.map
+  const match = state.view === 'matches' && state.demo ? state.analysis?.map || state.demo.summary?.map || state.demo.failure?.map || '' : '';
+  const map = match || (state.view === 'utility' && state.ut.map !== 'all' ? state.ut.map
     : state.view === 'training' && state.tr?.drill === 'scenario' ? state.sc?.edit?.map || state.sc?.map : '') || '';
-  if (map === backdrop || !shownTheme) return;
-  backdrop = map;
+  const key = match ? `match:${match}` : map;
+  if (key === backdrop || !shownTheme) return;
+  const wasMatch = backdrop.startsWith('match:');
+  backdrop = key;
+  if (match) return matchTheme(match);
+  if (wasMatch) themeColors(shownTheme);
   if (!map) return Scene.set(shownTheme);
   // No CS2 screenshot: the map name makes the scene fall back to its radar.
   mapShot(map).then(shot => { if (backdrop === map) Scene.set({ ...shownTheme, scene: 'map', map, shot: shot || map, photoUrl: '' }); });
+}
+// The map theme's colors (maps without one: a neutral base, the map's color as accent) and the
+// screenshot mapShot picks; no CS2 screenshot falls back to the radar, as for a map theme.
+function matchTheme(map) {
+  const own = THEMES.find(t => t.map === map);
+  const t = { ...(own || { base: '#0b0f13', accent: MAPS[map]?.[1] || shownTheme.accent }), scene: 'map', map, pattern: '', logo: '' };
+  const key = backdrop;
+  mapShot(map).then(shot => {
+    if (backdrop !== key) return;
+    themeColors(t);
+    Scene.set({ ...t, shot: shot || map, photoUrl: '' });
+  });
 }
 // The taskbar icon follows the theme: the top bar's logo, with its colors resolved, drawn at 256 px.
 // Debounced, as dragging a custom color applies the theme many times a second.
@@ -301,6 +321,7 @@ function renderMeCard() {
 const ME_MENU = [
   ['overview', 'My stats', ICONS.stats],
   ['themes', 'Theme', '<circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3.5a8.5 8.5 0 0 0 0 17z" fill="currentColor"/>'],
+  ['customize', 'Customize overview', '<rect x="3" y="3" width="8" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13" y="3" width="8" height="5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="3" y="16" width="8" height="5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13.5 20.5v-2.6l5.2-5.2a1.8 1.8 0 0 1 2.6 2.6l-5.2 5.2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>'],
   ['settings', 'Settings', '<circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" stroke="currentColor" stroke-width="1.8"/>'],
 ];
 function openMeMenu() {
@@ -308,9 +329,13 @@ function openMeMenu() {
   const mine = state.view === 'overview' && !state.who;
   $('#meMenu').replaceChildren(
     e?.mySteamId ? h('div', { class: 'me-menu-id' }, `SteamID ${e.mySteamId}`) : null,
-    ...ME_MENU.map(([v, label, d]) => h('button', {
-      class: `me-item ${(v === 'overview' ? mine : state.view === v) ? 'on' : ''}`,
-      onclick: () => { if (v === 'overview') state.who = null; showView(v === 'overview' && !e?.mySteamId ? 'settings' : v); },
+    ...ME_MENU.filter(([v]) => v !== 'customize' || e?.mySteamId).map(([v, label, d]) => h('button', {
+      class: `me-item ${(v === 'overview' ? mine && !state.ovEdit : v === 'customize' ? state.view === 'overview' && state.ovEdit : state.view === v) ? 'on' : ''}`,
+      onclick: () => {
+        if (v === 'customize') { if (state.view !== 'overview') showView('overview'); closeMeMenu(); return customizeOverview(); }
+        if (v === 'overview') selectPlayer(null);
+        showView(v === 'overview' && !e?.mySteamId ? 'settings' : v);
+      },
     }, icon(d), label)));
   $('#meMenu').classList.remove('hidden');
   $('#meCard').classList.add('open');
@@ -320,7 +345,9 @@ function closeMeMenu() {
   $('#meCard').classList.remove('open');
 }
 document.addEventListener('mousedown', e => { if (!e.target.closest('.me-wrap')) closeMeMenu(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#meMenu').classList.contains('hidden')) closeMeMenu(); });
+document.addEventListener('keydown', e => {
+  if (e.target.closest('.cmp-menu, .pick-btn, .pick-seg')) return;
+  if (e.key === 'Escape' && !$('#meMenu').classList.contains('hidden')) closeMeMenu(); });
 
 async function refreshEnv() {
   state.env = await api.env();
@@ -348,6 +375,7 @@ async function loadProfile() {
   const p = await api.profile().catch(e => ({ error: e.message, matches: [] }));
   state.profile = p;
   state.players = null; // the player search index is rebuilt on next use
+  if (state.cmp) state.cmp.playersStale = true; // retain the old picker list while refreshing
   renderMeCard();
   if (state.who) loadOther();
   else if (state.view === 'overview') renderOverview();
@@ -369,11 +397,28 @@ async function loadOther() {
   const p = await api.profile(who).catch(e => ({ error: e.message, steamid: who, matches: [] }));
   if (state.who !== who) return;
   state.other = p;
-  if (state.view === 'overview') renderOverview();
+  rerender();
+}
+function selectPlayer(steamid) {
+  const who = !steamid || steamid === state.env?.mySteamId ? null : steamid;
+  const changed = state.who !== who;
+  const povChanged = state.view === 'matches' && state.analysis &&
+    state.analysis.player?.steamid !== (who || state.env?.mySteamId);
+  if (changed) {
+    state.who = who;
+    state.other = null;
+    if (who) loadOther();
+  }
+  if (changed || povChanged) {
+    state.demoRequest = (state.demoRequest || 0) + 1;
+    state.analyzing = false;
+    state.analysis = null;
+    state.analysisError = null;
+  }
+  rerender();
 }
 function openPlayer(steamid) {
-  if (!steamid || steamid === state.env?.mySteamId) state.who = null;
-  else if (state.who !== steamid) { state.who = steamid; state.other = null; loadOther(); }
+  selectPlayer(steamid);
   showView('overview');
   $('#view-overview').scrollTop = 0;
 }
@@ -436,22 +481,31 @@ const PENCIL = '<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4" fill="none" stroke="c
 
 const isRush = d => /^rush/i.test(d?.failure?.map || '') || /Rush match/.test(d === state.demo ? state.analysisError || '' : '');
 
+function playerDemos() {
+  if (!state.who) return state.demos;
+  const ids = new Set((state.other?.matches || []).map(m => m.id));
+  return state.demos.filter(d => ids.has(d.id));
+}
+
 function renderDemoList() {
   const q = state.search;
-  const list = state.demos.filter(d => !q || d.name.toLowerCase().includes(q) || mapName(d.summary?.map).toLowerCase().includes(q) || (d.customName || '').toLowerCase().includes(q));
+  const demos = playerDemos();
+  const list = demos.filter(d => !q || d.name.toLowerCase().includes(q) || mapName(d.summary?.map).toLowerCase().includes(q) || (d.customName || '').toLowerCase().includes(q));
   const pending = state.demos.filter(d => !d.summary && !d.failed).length;
   $('#matchCount').textContent = state.demos.length || '';
   $('#demoListSub').replaceChildren(
-    `${state.demos.length} match${state.demos.length === 1 ? '' : 'es'}`,
+    `${demos.length} match${demos.length === 1 ? '' : 'es'}`,
+    state.who ? ` Matches with ${state.other?.name || 'this player'}` : '',
+    playerMenu(),
     pending ? h('span', {}, ' · ', h('span', { class: 'spinner', style: { width: '11px', height: '11px', borderWidth: '2px' } }), ` analyzing ${pending}…`) : '',
   );
-  const mine = new Map((state.profile?.matches || []).map(m => [m.id, m]));
+  const mine = new Map((shownProfile()?.matches || []).map(m => [m.id, m]));
   $('#demos').replaceChildren(...list.map(d => {
     const s = d.summary;
-    const sc = s?.score;
+    const me = mine.get(d.id);
+    const sc = state.who && me?.score ? { mine: me.score[0], enemy: me.score[1] } : s?.score;
     const res = sc ? resultOf(sc.mine, sc.enemy) : null;
     const isMM = /^match730_/.test(d.name);
-    const me = mine.get(d.id);
     const title = h('div', { class: 'demo-title', title: 'Double-click to rename', ondblclick: e => { e.stopPropagation(); editName(d, title); } }, demoTitle(d));
     const where = isRush(d) ? 'could not be read' : isMM ? 'Valve match' : d.name.replace(/\.dem$/i, '');
     return h('div', { class: `demo res-${res || 'none'} ${state.demo?.path === d.path ? 'active' : ''}`, onclick: () => openDemo(d) },
@@ -466,47 +520,62 @@ function renderDemoList() {
           : s?.stats ? h('div', { class: 'demo-kd' }, `${s.stats.kills}–${s.stats.deaths}`) : null,
       ));
   }));
+  if (state.view === 'matches' && (!state.who || state.other)) {
+    if (!demos.some(d => d.id === state.demo?.id)) {
+      if (demos[0]) openDemo(demos[0]);
+      else { state.demoRequest = (state.demoRequest || 0) + 1; state.demo = null; state.analysis = null; state.analyzing = false; renderDetail(); }
+    } else if (state.demoSelection !== state.who || (!state.analysis && !state.analyzing && !state.analysisError)) openDemo(state.demo);
+  }
 }
 
-// Small square map badge: the radar image when there is one, else the map's color.
+// Official emblem, with initials until the art is ready.
 function mapThumb(map, fallback) {
-  const info = map && radarMaps ? radarInfo(map) : null;
-  const src = info ? `radar/${radarName(info, map)}.png` : null;
-  return h('div', { class: 'map-thumb', style: { '--c': mapColor(map), backgroundImage: src ? `url("${src}")` : null } },
+  return h('div', { class: 'map-thumb', style: { '--c': mapColor(map) } },
+    map ? mapEmblem(map, 'map-thumb-emblem') : null,
     h('span', {}, map ? mapName(map).slice(0, 3).toUpperCase() : fallback));
 }
 
-async function openDemo(d, player, tab) {
+async function openDemo(d, player = state.who || undefined, tab) {
   if (state.demo?.id !== d.id) { state.stats = null; state.tab = tab || 'scoreboard'; resetZoom(state.heat.view); resetZoom(state.radar.view); }
   else if (tab) state.tab = tab;
   // Set before showing the page, which would otherwise open the newest match (on its scoreboard) first.
+  if (state.who && state.other && !playerDemos().some(x => x.id === d.id)) {
+    d = playerDemos()[0];
+    if (!d) return;
+  }
+  const request = state.demoRequest = (state.demoRequest || 0) + 1;
   state.demo = d;
-  if (state.view !== 'matches') showView('matches');
-  state.selected.clear();
+  state.demoSelection = state.who;
   state.analyzing = true;
   state.analysis = null;
+  state.analysisError = null;
+  if (state.view !== 'matches') showView('matches');
+  state.selected.clear();
   renderDemoList();
   renderDetail();
   try {
-    state.analysis = await api.analyze(d.path, player || undefined);
+    const analysis = await api.analyze(d.path, player || undefined);
+    if (state.demoRequest !== request) return;
+    state.analysis = analysis;
     state.player = state.analysis.player || null;
     // preselect strong highlights that weren't clipped yet
     for (const hl of state.analysis.highlights || []) if (hl.score >= 40 && !clipsOf(hl).length) state.selected.add(hl.id);
     state.analysisError = null;
-  } catch (e) { state.analysisError = e.message; }
+  } catch (e) { if (state.demoRequest !== request) return; state.analysisError = e.message; }
   state.analyzing = false;
   renderDetail();
   renderStatus();
 }
 
 function renderDetail() {
+  pageBackdrop();
   const el = $('#detail');
   if (!state.demo) {
     el.replaceChildren(h('div', { class: 'empty' }, icon(ICONS.demo, 'class="big"'), h('h2', {}, 'Pick a match'),
       h('div', {}, 'Your Premier & matchmaking demos are found automatically. Download them in CS2 from Watch → Your Matches.')));
     return;
   }
-  if (state.analyzing) {
+  if (state.analyzing || (state.who && !state.other)) {
     el.replaceChildren(h('div', { class: 'empty' }, h('span', { class: 'spinner', style: { width: '28px', height: '28px' } }), h('h2', {}, 'Reading demo…'), h('div', {}, 'Reading rounds, kills and stats. Each demo is only read once.')));
     return;
   }
@@ -521,16 +590,22 @@ function renderDetail() {
   }
 
   const d = state.demo;
-  const playerSelect = h('select', { onchange: e => openDemo(d, e.target.value) },
-    ...[...a.players].sort((x, y) => x.name.localeCompare(y.name)).map(p => h('option', { value: p.steamid, selected: a.player?.steamid === p.steamid }, p.name)));
-  if (!a.playerFound) playerSelect.prepend(h('option', { value: '', selected: true, disabled: true }, 'Choose a player…'));
+  const playerSelect = cmpMenu({
+    value: a.playerFound ? a.player?.steamid : '', search: true,
+    trigger: a.playerFound ? a.player?.name : 'Choose a player…',
+    items: [...a.players].sort((x, y) => x.name.localeCompare(y.name)).map(p => ({
+      value: p.steamid, label: p.name,
+      icon: () => avatar(p.name, p.steamid, 'sm'),
+    })),
+    onpick: steamid => selectPlayer(steamid),
+  });
+  playerSelect.setAttribute('aria-label', 'Point of view');
 
   const res = a.score ? resultOf(a.score.mine, a.score.enemy) : 'd';
   // Numbers of the point-of-view player: from the scoreboard once it's loaded (it has ADR and rating).
   const sb = matchStats()?.value?.teams.flatMap(t => t.players).find(p => p.steamid === a.player?.steamid);
-  const info = radarInfo(a.map);
   const stat = (k, v, cls = '') => h('div', { class: 'stat' }, h('div', { class: 'k' }, k), h('div', { class: `v ${cls}` }, v));
-  const hero = h('div', { class: 'hero', style: { '--hero-c': mapColor(a.map), '--hero-img': info ? `url("radar/${radarName(info, a.map)}.png")` : 'none' } },
+  const hero = h('div', { class: 'hero', style: { '--hero-c': mapColor(a.map) } },
     h('div', { class: 'hero-top' },
       h('div', { class: 'hero-title' },
         h('div', { class: 'hero-kicker' }, mapName(a.map), a.playerFound ? h('span', { class: `result-pill r-${res}` }, res === 'w' ? 'Win' : res === 'l' ? 'Loss' : 'Draw') : null),
@@ -547,7 +622,8 @@ function renderDetail() {
         sb ? stat('Rating', sb.rating == null ? '—' : sb.rating.toFixed(2), ratingClass(sb.rating)) : null,
       ) : null,
     ),
-    h('div', { class: 'player-pick' }, a.player ? avatar(a.player.name, a.player.steamid, 'sm') : icon('<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8"/>'), 'Point of view', playerSelect,
+    roundStrip(),
+    h('div', { class: 'player-pick' }, 'Point of view', playerSelect,
       h('span', { class: 'spacer' }),
       viewInCs2Button('View demo', 'btn', 'Opens this demo in CS2 (through HLAE) at the first round, in the eyes of the point-of-view player',
         () => ({ name: a.player?.name }), 'The demo is playing in the CS2 window.')),
@@ -569,7 +645,7 @@ function renderDetail() {
           : tab === 'integrity' ? integrityView()
             : highlightsView(a);
   el.replaceChildren(
-    h('div', { class: 'detail-scroll' }, hero, roundStrip(), tabs, ...[body].flat()),
+    h('div', { class: 'detail-scroll' }, hero, tabs, ...[body].flat()),
     ...(tab === 'highlights' ? [actionBar()] : []),
   );
 }
@@ -680,10 +756,9 @@ function scoreboardView() {
   };
   return [
     h('div', { class: 'section-head' }, h('h3', {}, 'Scoreboard'),
-      h('div', { class: 'tabs' }, ...[[false, 'Compact'], [true, 'Detailed']].map(([v, l]) =>
-        h('button', { class: detailed === v ? 'on' : '', onclick: () => { state.sbDetailed = v; renderDetail(); } }, l))),
-      st.sides ? h('div', { class: 'tabs', title: 'Count everything, or only the rounds each player spent on one side' }, ...[[null, 'Both sides'], ['CT', 'CT'], ['T', 'T']].map(([v, l]) =>
-        h('button', { class: `${side === v ? 'on' : ''} ${v ? 'side-' + v : ''}`, onclick: () => { state.sbSide = v; renderDetail(); } }, l))) : null,
+      h('button', { class: 'chip-toggle sb-mode', 'aria-pressed': String(detailed), title: 'Switch scoreboard detail', onclick: () => { state.sbDetailed = !detailed; renderDetail(); } }, pickSvg(PICK_ICONS[detailed ? 'layers' : 'list']), detailed ? 'Advanced' : 'Simple'),
+      st.sides ? h('div', { class: 'tabs', title: 'Count everything, or only the rounds each player spent on one side' }, ...[[null, 'Both sides'], ['CT', 'CT side'], ['T', 'T side']].map(([v, l]) =>
+        h('button', { class: `${side === v ? 'on' : ''} ${v ? 'side-' + v : ''}`, 'aria-pressed': String(side === v), title: l, 'aria-label': l, onclick: () => { state.sbSide = v; renderDetail(); } }, sideIcon(v || 'both')))) : null,
       h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Click a column to sort it, a player to view the match as them, the bars icon for their stats over all your demos.')),
     ...teams.map(t => h('div', { class: 'sb-wrap' }, table(t))),
   ];
@@ -893,7 +968,7 @@ const roomLabel = r => r === 'roomparty' ? 'Party room' : r === 'convoy' ? 'Conv
 function roomSelect(info, value, onchange, counts) {
   if (!info.rooms) return null;
   const rooms = Object.keys(info.rooms).filter(r => !counts || counts[r]).sort();
-  return select(value, [['auto', 'Room: automatic'], ['overview', 'Whole hotel'], ...rooms.map(r => [r, roomLabel(r) + (counts ? ` (${counts[r]})` : '')])], onchange);
+  return select(value, [['auto', 'Room: automatic'], ['overview', 'Whole hotel'], ...rooms.map(r => [r, roomLabel(r) + (counts ? ` (${counts[r]})` : '')])], onchange, { seg: false, icon: () => pickSvg(PICK_ICONS.layers), noun: 'rooms' });
 }
 const onLower = (info, z) => info.lowerBelow !== undefined && z < info.lowerBelow;
 
@@ -981,7 +1056,7 @@ const HEAT_LAYERS = [
 ];
 const GRENADE_KINDS = new Set(['smoke', 'flash', 'he', 'molotov']);
 const WEAPON_KINDS = new Set([0, 2, 3]); // kill, shot, dealt: the weapon filter means "your weapon"
-state.heat = { layers: new Set(['kill', 'death']), scope: 'match', weapon: 'all', floor: 'upper', room: 'auto', display: 'heat', lines: true, data: null, loading: null, view: newView() };
+state.heat = { layers: new Set(['kill', 'death']), scope: 'match', weapon: new Set(), floor: 'upper', room: 'auto', display: 'heat', lines: true, data: null, loading: null, view: newView() };
 
 function heatData() {
   const steamid = state.analysis?.player?.steamid;
@@ -996,6 +1071,27 @@ function heatData() {
       .finally(() => { if (hs.loading === key) hs.loading = null; if (state.tab === 'heatmap') renderDetail(); });
   }
   return null;
+}
+
+// Heat tuples store weaponName labels; damage can only identify a base weapon pair.
+function heatWeaponCodes(p) {
+  const name = String(p[2] || '').toLowerCase().replace(/^weapon_/, '');
+  let code = HEAT_WEAPON_NAMES.get(name);
+  if (/^(molotov|incgrenade|inferno)$/i.test(name)) code = 'inferno';
+  if (/^(knife|bayonet)/i.test(name)) code = 'knife';
+  if (!code) return [];
+  const alias = { m4a1: 'm4a1_silencer', hkp2000: 'usp_silencer', mp7: 'mp5sd', deagle: 'revolver' };
+  return p[0] === 3 && alias[code] ? [code, alias[code]] : [code];
+}
+function heatWeaponCounts(points, hs) {
+  const counts = new Map();
+  for (const p of points) if (WEAPON_KINDS.has(p[0])) for (const code of heatWeaponCodes(p)) counts.set(code, (counts.get(code) || 0) + 1);
+  for (const code of hs.weapon) if (!counts.has(code)) hs.weapon.delete(code);
+  return counts;
+}
+function heatWeaponButton(hs, counts, rerender) {
+  return counts.size > 1 ? weaponBuyButton(hs.weapon, () => weaponBuyMenu({ picked: hs.weapon, counts, unit: 'point',
+    subtitle: 'Kills, shots and damage dealt; base-name damage matches either weapon in its pair', onDone: rerender })) : null;
 }
 
 // Display controls shared by the match heatmap and the Maps page: blobs or dots, grenade throw lines.
@@ -1029,11 +1125,10 @@ function heatmapView() {
   if (data.error) return h('div', { class: 'empty' }, h('h2', {}, 'No heatmap for this demo'), h('div', { class: 'err-box' }, data.error));
 
   const hs = state.heat;
-  const weapons = [...new Set(data.points.filter(p => WEAPON_KINDS.has(p[0]) && p[2]).map(p => p[2]))].sort();
-  if (hs.weapon !== 'all' && !weapons.includes(hs.weapon)) hs.weapon = 'all';
+  const weaponCounts = heatWeaponCounts(data.points, hs);
   const floors = info.lowerBelow !== undefined;
   const pts = data.points.filter(p =>
-    (hs.weapon === 'all' || !WEAPON_KINDS.has(p[0]) || p[2] === hs.weapon) &&
+    (!hs.weapon.size || !WEAPON_KINDS.has(p[0]) || heatWeaponCodes(p).some(code => hs.weapon.has(code))) &&
     (!floors || onLower(info, p[5]) === (hs.floor === 'lower')));
   // Rush: show the room with the most points (or the one picked), points per room in the picker.
   let room = null, roomCounts = null;
@@ -1049,7 +1144,7 @@ function heatmapView() {
   const controls = h('div', { class: 'heat-controls' },
     h('div', { class: 'tabs' }, ...[['match', 'This match'], ['map', `All my ${mapName(a.map)} matches`]].map(([k, l]) =>
       h('button', { class: hs.scope === k ? 'on' : '', onclick: () => { hs.scope = k; renderDetail(); } }, l))),
-    select(hs.weapon, [['all', 'All weapons'], ...weapons.map(w => [w, w])], v => { hs.weapon = v; renderDetail(); }),
+    heatWeaponButton(hs, weaponCounts, renderDetail),
     floors ? h('div', { class: 'tabs' }, ...[['upper', 'Upper floor'], ['lower', 'Lower floor']].map(([k, l]) =>
       h('button', { class: hs.floor === k ? 'on' : '', onclick: () => { hs.floor = k; renderDetail(); } }, l))) : null,
     roomSelect(info, hs.room, v => { hs.room = v; renderDetail(); }, roomCounts),
@@ -1067,7 +1162,7 @@ function heatmapView() {
     const canvas = h('canvas', { width: 1280, height: 1280 });
     const prepared = prepareHeat(frame, pts.filter(p => p[1] === si), hs.layers);
     radarImage(frame.src).then(img => { painted[si] = { canvas, img, layers: prepared }; drawHeat(canvas, img, v, prepared, opts); });
-    return h('div', { class: 'heat-map' }, h('div', { class: `heat-side side-${side}` }, `${side} side`, h('span', {}, ` · ${a.player.name}`)), zoomable(canvas, v, redraw));
+    return h('div', { class: 'heat-map' }, h('div', { class: `heat-side side-${side}`, title: `${side} side` }, sideIcon(side), h('span', {}, a.player.name)), zoomable(canvas, v, redraw));
   }));
   return [h('div', { class: 'section-head' }, h('h3', {}, 'Heatmap'), h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Scroll to zoom · drag to move · double-click for the whole map')), controls, layers, maps];
 }
@@ -1437,7 +1532,7 @@ function radarView() {
     playBtn,
     h('button', { class: 'icon-btn', title: 'Next round (↓)', disabled: R.round >= data.rounds.length, onclick: () => { setRadarRound(R.round + 1); renderDetail(); } }, icon('<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2"/>')),
     timeline,
-    select(String(R.speed), [['0.25', '0.25×'], ['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }),
+    select(String(R.speed), [['0.25', '0.25×'], ['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }, { seg: true, icon: () => pickSvg(PICK_ICONS.speed) }),
   );
   const options = h('div', { class: 'radar-options' },
     toggle('Shots', R.shots, v => { R.shots = v; }, 'Bullet tracers, hits and damage numbers'),
@@ -1691,6 +1786,7 @@ function drawProfile(canvas, n) {
 }
 
 document.addEventListener('keydown', e => {
+  if (e.target.closest('.cmp-menu, .pick-btn, .pick-seg')) return;
   if (state.tab !== 'radar' || !state.radar.data?.rounds || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) && e.target.type !== 'range') return;
   const R = state.radar, tr = R.data.tickrate;
   const step = e.shiftKey ? 8 : 5 * tr;
@@ -2108,13 +2204,14 @@ function aggregate(list) {
     played: list.length, won: 0, lost: 0, tied: 0, rounds: 0, kills: 0, deaths: 0, assists: 0, hs: 0, damage: 0, kastRounds: 0,
     ratingSum: 0, ratingRounds: 0, fk: 0, fd: 0, side: { T: side(), CT: side() },
     clutch: { 1: [0, 0], 2: [0, 0], 3: [0, 0], 4: [0, 0], 5: [0, 0] }, multi: { 2: 0, 3: 0, 4: 0, 5: 0 },
-    trades: 0, utility: 0, flashed: 0, flashAssists: 0, weapons: {}, maps: {}, mates: {},
+    trades: 0, utility: 0, flashed: 0, flashAssists: 0, weapons: {}, maps: {}, mates: {}, aim: { reaction: [], ttd: [] },
   };
   for (const m of list) {
     t[m.result === 'W' ? 'won' : m.result === 'L' ? 'lost' : 'tied']++;
     t.rounds += m.rounds; t.kills += m.kills; t.deaths += m.deaths; t.assists += m.assists; t.hs += m.hsKills;
     t.damage += m.damage; t.kastRounds += m.kastRounds; t.fk += m.firstKills; t.fd += m.firstDeaths;
     t.trades += m.tradeKills; t.utility += m.utilityDamage; t.flashed += m.enemiesFlashed; t.flashAssists += m.flashAssists;
+    t.aim.reaction.push(...(m.aim?.reaction || [])); t.aim.ttd.push(...(m.aim?.ttd || []));
     if (m.rating != null) { t.ratingSum += m.rating * m.rounds; t.ratingRounds += m.rounds; }
     for (const s of ['T', 'CT']) for (const k of ['rounds', 'won', 'fk', 'fd']) t.side[s][k] += m.side?.[s]?.[k] || 0;
     for (const n of [1, 2, 3, 4, 5]) { t.clutch[n][0] += m.clutches.vs?.[n]?.[0] || 0; t.clutch[n][1] += m.clutches.vs?.[n]?.[1] || 0; }
@@ -2200,21 +2297,26 @@ api.onAvatars(gotAvatars);
 const big = (value, unit, note) => h('div', { class: 'big-line' }, h('span', { class: 'big' }, value, unit ? h('small', {}, unit) : null), note ? h('span', { class: 'big-note' }, note) : null);
 
 // The stat tiles: one value per match (null when it doesn't apply, e.g. no opening duel) for the
-// histogram, and the value of the whole selection (weighted by rounds, from aggregate()).
+// histogram, and the value of the whole selection (weighted by rounds, or pooled aim samples).
 const per = (a, b) => (b ? a / b : null);
+const overviewMedian = values => {
+  if (!values?.length) return null;
+  const sorted = [...values].sort((a, b) => a - b), mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+};
 const TILES = [
-  { k: 'K/D ratio', d: 2, m: m => (m.deaths ? m.kills / m.deaths : m.kills), t: t => t.kd },
-  { k: 'ADR', d: 1, m: m => per(m.damage, m.rounds), t: t => t.adr },
-  { k: 'KAST', u: '%', d: 1, m: m => per(100 * m.kastRounds, m.rounds), t: t => per(100 * t.kastRounds, t.rounds) },
-  { k: 'Headshot %', u: '%', d: 1, m: m => per(100 * m.hsKills, m.kills), t: t => per(100 * t.hs, t.kills) },
-  { k: 'Kills / round', d: 2, m: m => per(m.kills, m.rounds), t: t => per(t.kills, t.rounds) },
-  { k: 'Deaths / round', d: 2, low: true, m: m => per(m.deaths, m.rounds), t: t => per(t.deaths, t.rounds) },
-  { k: 'Opening duels won', u: '%', d: 0, m: m => per(100 * m.firstKills, m.firstKills + m.firstDeaths), t: t => per(100 * t.fk, t.fk + t.fd) },
-  { k: 'Multi-kill rounds', u: '%', d: 1, m: m => per(100 * Object.values(m.multi).reduce((a, b) => a + b, 0), m.rounds), t: t => per(100 * Object.values(t.multi).reduce((a, b) => a + b, 0), t.rounds) },
-  { k: 'Assists / round', d: 2, m: m => per(m.assists, m.rounds), t: t => per(t.assists, t.rounds) },
-  { k: 'Trade kills / round', d: 2, m: m => per(m.tradeKills, m.rounds), t: t => per(t.trades, t.rounds) },
-  { k: 'Utility damage / round', d: 1, m: m => per(m.utilityDamage, m.rounds), t: t => per(t.utility, t.rounds) },
-  { k: 'Enemies flashed / round', d: 2, m: m => per(m.enemiesFlashed, m.rounds), t: t => per(t.flashed, t.rounds) },
+  { id: 'kd', k: 'K/D ratio', d: 2, m: m => (m.deaths ? m.kills / m.deaths : m.kills), t: t => t.kd },
+  { id: 'adr', k: 'ADR', d: 1, m: m => per(m.damage, m.rounds), t: t => t.adr },
+  { id: 'kills', k: 'Kills / round', d: 2, m: m => per(m.kills, m.rounds), t: t => per(t.kills, t.rounds) },
+  { id: 'deaths', k: 'Deaths / round', d: 2, low: true, m: m => per(m.deaths, m.rounds), t: t => per(t.deaths, t.rounds) },
+  { id: 'kast', k: 'KAST', u: '%', d: 1, m: m => per(100 * m.kastRounds, m.rounds), t: t => per(100 * t.kastRounds, t.rounds) },
+  { id: 'opening', k: 'Opening duels won', u: '%', d: 0, m: m => per(100 * m.firstKills, m.firstKills + m.firstDeaths), t: t => per(100 * t.fk, t.fk + t.fd) },
+  { id: 'multi', k: 'Multi-kill rounds', u: '%', d: 1, m: m => per(100 * Object.values(m.multi).reduce((a, b) => a + b, 0), m.rounds), t: t => per(100 * Object.values(t.multi).reduce((a, b) => a + b, 0), t.rounds) },
+  { id: 'headshot', k: 'Headshot %', u: '%', d: 1, m: m => per(100 * m.hsKills, m.kills), t: t => per(100 * t.hs, t.kills) },
+  { id: 'reaction', k: 'Reaction time', u: ' ms', d: 0, low: true, tip: 'Estimated time from an enemy coming into view to your first fresh shot aimed at a visible enemy (within 1.5 s).', m: m => overviewMedian(m.aim?.reaction), t: t => overviewMedian(t.aim.reaction) },
+  { id: 'damageTime', k: 'Time to Damage', u: ' ms', d: 0, low: true, tip: 'Median time from an enemy coming into view to your first damage, when you hit first (within 1.5 s).', m: m => overviewMedian(m.aim?.ttd), t: t => overviewMedian(t.aim.ttd) },
+  { id: 'utility', k: 'Utility damage / round', d: 1, m: m => per(m.utilityDamage, m.rounds), t: t => per(t.utility, t.rounds) },
+  { id: 'flashed', k: 'Enemies flashed / round', d: 2, m: m => per(m.enemiesFlashed, m.rounds), t: t => per(t.flashed, t.rounds) },
 ];
 
 // Distribution of a stat over the selected matches ({ v, m } items), with the selection's average and the
@@ -2283,43 +2385,97 @@ function hideHistPop() {
 function hideHistPopSoon() { clearTimeout(histPop.timer); histPop.timer = setTimeout(hideHistPop, 180); }
 document.addEventListener('scroll', e => { if (!histPop.contains(e.target)) hideHistPop(); }, true);
 
-function statTile(def, list, t, last10) {
+// Fixed typical-player references, not live global averages or rank-specific percentiles.
+// K/D, ADR and HS use CStrike's FACEIT player medians (Nov 2026):
+// https://cstrike.gg/cs2-good-kd-ratio, /cs2-good-adr, /cs2-headshot-percentage.
+// Other centers are approximate app reference values. Bands are UI tolerances, not measured percentiles.
+const STAT_BENCHMARKS = {
+  kd: { average: 1.04, band: 0.10 },
+  adr: { average: 77.3, band: 5 },
+  kills: { average: 0.70, band: 0.05, estimated: true },
+  deaths: { average: 0.70, band: 0.05, estimated: true },
+  kast: { average: 70, band: 3, estimated: true },
+  opening: { average: 50, band: 5, estimated: true },
+  multi: { average: 15, band: 3, estimated: true },
+  headshot: { average: 46.5, band: 5 },
+  reaction: { average: 300, band: 30, estimated: true },
+  damageTime: { average: 500, band: 50, estimated: true },
+  utility: { average: 5, band: 1, estimated: true },
+  flashed: { average: 0.50, band: 0.10, estimated: true },
+};
+function statBenchmarkColor(def, value) {
+  const benchmark = STAT_BENCHMARKS[def.id];
+  if (!benchmark || value == null || !Number.isFinite(value)) return 'neutral';
+  // Inclusive neutral band; epsilon keeps decimal endpoints neutral despite binary rounding.
+  const difference = (value - benchmark.average) * (def.low ? -1 : 1);
+  return Math.abs(difference) <= benchmark.band + 1e-9 ? 'neutral' : difference > 0 ? 'up' : 'down';
+}
+
+function statTile(def, list, t, last10, showHistogram = true) {
   const items = list.map(m => ({ v: def.m(m), m })).filter(it => it.v != null && Number.isFinite(it.v));
   const vals = items.map(it => it.v);
   const avg = def.t(t), rec = list.length > 10 ? def.t(last10) : null;
   const fmt = v => (v == null ? '—' : v.toFixed(def.d));
   const better = rec == null || avg == null || Math.abs(rec - avg) < 10 ** -def.d ? null : (rec > avg) !== !!def.low;
-  return h('div', { class: 'tile' }, h('div', { class: 'tile-head', title: `${def.k}: distribution over ${vals.length} match${vals.length === 1 ? '' : 'es'}\nWhite line: the whole selection (${fmt(avg)}${def.u || ''})${rec != null ? `\nSolid line: your last 10 matches (${fmt(rec)}${def.u || ''})` : ''}\nHover a bar to see its matches.` },
+  const benchmark = STAT_BENCHMARKS[def.id];
+  const benchmarkTip = benchmark
+    ? `${benchmark.estimated ? 'Estimated average-player reference' : 'Typical FACEIT player (median)'}: ${fmt(benchmark.average)}${def.u || ''}. White within ±${fmt(benchmark.band)}${def.u || ''}; green is better, red is worse.${def.low ? ' Lower is better.' : ''}`
+    : 'No average-player reference available.';
+  return h('div', { class: 'tile' }, h('div', { class: 'tile-head', title: `${def.tip ? def.tip + '\n' : ''}${def.k}: distribution over ${vals.length} match${vals.length === 1 ? '' : 'es'}\nWhite line: the whole selection (${fmt(avg)}${def.u || ''})${rec != null ? `\nSolid line: your last 10 matches (${fmt(rec)}${def.u || ''})` : ''}\nHover a bar to see its matches.` },
       h('div', { class: 'tile-k' }, def.k),
       h('div', { class: 'tile-row' },
-        h('div', { class: 'tile-v' }, fmt(avg), def.u && avg != null ? h('small', {}, def.u) : null),
+        h('div', { class: `tile-v ${statBenchmarkColor(def, avg)}`, title: benchmarkTip }, fmt(avg), def.u && avg != null ? h('small', {}, def.u) : null),
         h('div', { class: `tile-sub ${better == null ? '' : better ? 'up' : 'down'}` }, rec == null ? '' : [better == null ? null : h('b', {}, rec > avg ? '▲ ' : '▼ '), `last 10: ${fmt(rec)}${def.u || ''}`]))),
-    vals.length >= 3 ? histogram(items, avg ?? 0, rec, v => `${fmt(v)}${def.u || ''}`) : null);
+    showHistogram && vals.length >= 3 ? histogram(items, avg ?? 0, rec, v => `${fmt(v)}${def.u || ''}`) : null);
 }
 
 const RATING_LEVELS = [[1.2, 'Excellent'], [1.08, 'Good'], [0.95, 'Average'], [0.85, 'Below average'], [-Infinity, 'Poor']];
 // Left panel: the rating as the headline number, with what it is made of.
-function scorePanel(t, last10, list) {
+function scorePanel(t, last10, list, layout = OverviewLayout.normalize(state.settings?.overviewLayout)) {
   const r = t.rating;
+  const editing = !!state.ovEdit;
   const level = r == null ? null : RATING_LEVELS.find(([min]) => r >= min)[1];
   const kast = per(100 * t.kastRounds, t.rounds) || 0, hs = per(100 * t.hs, t.kills) || 0, wr = pct(t.won, t.played);
-  const row = (label, value, frac, cls, title) => h('div', { class: 'sp-row', title },
-    h('div', { class: 'sp-row-top' }, h('span', { class: `sp-dot ${cls}` }), label, h('span', { class: 'spacer' }), h('b', { class: cls }, value)),
-    h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${cls}`, style: { width: `${clamp(frac, 0, 1) * 100}%` } })));
+  const row = (entry, label, value, frac, title) => h('div', { class: 'sp-row', title, 'data-rating-stat': entry.id,
+    style: { '--mspan': entry.span || 6, '--rh': entry.height ? `${entry.height}px` : null } },
+    h('div', { class: 'sp-row-top' }, h('span', { class: 'sp-dot' }), label, h('span', { class: 'spacer' }), h('b', {}, value),
+      editing ? OverviewEditor.hideRatingStat(entry) : null),
+    frac == null ? null : h('div', { class: 'bar-track' }, h('div', { class: 'bar-fill', style: { width: `${clamp(frac, 0, 1) * 100}%` } })));
+  const defaults = {
+    winRate: ['Win rate', `${wr}%`, wr / 100, `${t.won} won · ${t.lost} lost${t.tied ? ` · ${t.tied} tied` : ''}`],
+    kd: ['K/D', t.kd.toFixed(2), t.kd / 2, `${fmtNum(t.kills)} kills · ${fmtNum(t.deaths)} deaths`],
+    adr: ['ADR', t.adr.toFixed(0), t.adr / 120, `${fmtNum(t.damage)} damage in ${fmtNum(t.rounds)} rounds`],
+    kast: ['KAST', `${kast.toFixed(0)}%`, kast / 100, 'Rounds with a kill, assist, survival or trade'],
+    headshot: ['Headshot %', `${hs.toFixed(0)}%`, hs / 100, `${fmtNum(t.hs)} headshot kills`],
+  };
+  const scales = { kills: 1.2, deaths: 1.2, opening: 100, multi: 100, reaction: 1000, damageTime: 1000, utility: 30, flashed: 1 };
+  const rows = layout.ratingStats.filter(entry => !entry.hidden).map(entry => {
+    let node;
+    if (defaults[entry.id]) node = row(entry, ...defaults[entry.id]);
+    else {
+      const def = TILES.find(tile => tile.id === entry.id), value = def.t(t);
+      const available = value != null && Number.isFinite(value);
+      node = row(entry, def.k, available ? `${value.toFixed(def.d)}${def.u || ''}` : '—',
+        available ? value / scales[entry.id] : null, def.tip);
+    }
+    return editing ? OverviewEditor.editable(node, 'ratingStat', entry, layout.ratingStats) : node;
+  });
+  const breakdown = h('div', { class: 'sp-breakdown' }, ...rows);
+  if (editing) OverviewEditor.sortable(breakdown, layout.ratingStats);
   const last = list.slice(0, 10);
   return h('aside', { class: 'score-panel' },
-    h('div', { class: 'sp-k', title: 'Approximation of HLTV Rating 2.0 (HLTV does not publish its formula; usually within ±0.02)' }, 'Rating ≈ HLTV 2.0'),
-    h('div', { class: 'sp-v' }, r == null ? '—' : r.toFixed(2)),
-    level ? h('div', { class: 'sp-level' }, level) : null,
-    h('div', { class: 'bar-track sp-bar' }, h('div', { class: 'bar-fill', style: { width: `${clamp((r ?? 0) / 2, 0, 1) * 100}%` } })),
-    list.length > 10 && last10.rating != null && r != null ? h('div', { class: `sp-trend ${last10.rating > r + 0.005 ? 'up' : last10.rating < r - 0.005 ? 'down' : ''}` },
-      `${last10.rating > r + 0.005 ? '▲' : last10.rating < r - 0.005 ? '▼' : '='} ${last10.rating.toFixed(2)} over the last 10 matches`) : null,
-    h('div', { class: 'sp-label' }, 'Breakdown'),
-    row('Win rate', `${wr}%`, wr / 100, qualityClass(wr, 52, 45), `${t.won} won · ${t.lost} lost${t.tied ? ` · ${t.tied} tied` : ''}`),
-    row('K/D', t.kd.toFixed(2), t.kd / 2, qualityClass(t.kd, 1.05, 0.95), `${fmtNum(t.kills)} kills · ${fmtNum(t.deaths)} deaths`),
-    row('ADR', t.adr.toFixed(0), t.adr / 120, qualityClass(t.adr, 80, 65), `${fmtNum(t.damage)} damage in ${fmtNum(t.rounds)} rounds`),
-    row('KAST', `${kast.toFixed(0)}%`, kast / 100, qualityClass(kast, 72, 64), 'Rounds with a kill, assist, survival or trade'),
-    row('Headshot %', `${hs.toFixed(0)}%`, hs / 100, qualityClass(hs, 45, 33), `${fmtNum(t.hs)} headshot kills`),
+    h('div', { class: 'ov-score-head' },
+      h('div', { class: 'sp-k', title: 'Approximation of HLTV Rating 2.0 (HLTV does not publish its formula; usually within ±0.02)' }, 'Rating ≈ HLTV 2.0'),
+      h('div', { class: 'sp-v' }, r == null ? '—' : r.toFixed(2)),
+      level ? h('div', { class: 'sp-level' }, level) : null,
+      h('div', { class: 'bar-track sp-bar' }, h('div', { class: 'bar-fill', style: { width: `${clamp((r ?? 0) / 2, 0, 1) * 100}%` } })),
+      list.length > 10 && last10.rating != null && r != null ? h('div', { class: `sp-trend ${last10.rating > r + 0.005 ? 'up' : last10.rating < r - 0.005 ? 'down' : ''}` },
+        `${last10.rating > r + 0.005 ? '▲' : last10.rating < r - 0.005 ? '▼' : '='} ${last10.rating.toFixed(2)} over the last 10 matches`) : null,
+    ),
+    rows.length || editing ? h('div', { class: 'sp-label' }, 'Breakdown') : null,
+    editing ? OverviewEditor.chips('ratingStat', layout.ratingStats) : null,
+    rows.length ? breakdown : null,
+    editing && !rows.length ? h('div', { class: 'sp-breakdown-empty muted-note' }, 'No breakdown stats. Add them with the + buttons above.') : null,
     h('div', { class: 'sp-label' }, 'Form'),
     h('div', { class: 'form' }, ...last.map(m => h('button', { class: `form-m r-${m.result}`, onclick: () => openMatch(m),
       title: `${mapName(m.map)} · ${m.score[0]}:${m.score[1]} · ${fmtDate(m.date)}${m.rating != null ? `\nRating ${m.rating.toFixed(2)}` : ''}` }, m.result))),
@@ -2330,9 +2486,16 @@ function renderOverview() {
   const view = $('#view-overview');
   const p = shownProfile();
   const other = !!state.who;
-  const page = (...body) => view.replaceChildren(h('div', { class: 'page dash-page' }, ...body));
-  const back = other ? h('button', { class: 'btn', onclick: () => openPlayer(null) }, '← My stats') : null;
-  if (!p) return page(h('div', { class: 'empty' }, spinner(28), h('h2', {}, other ? 'Loading this player’s stats…' : 'Loading your stats…')));
+  const editing = state.ovEdit;
+  if (editing && OverviewEditor.paused()) return; // the drop re-renders
+  const layout = editing ? editing.draft : OverviewLayout.normalize(state.settings?.overviewLayout);
+  const page = (...body) => {
+    const node = h('div', { class: `page dash-page ov-page ov-density-${layout.density}${editing ? ' ov-editing' : ''}` }, ...body);
+    view.replaceChildren(node);
+    return node;
+  };
+  const back = playerMenu();
+  if (!p) return page(back, h('div', { class: 'empty' }, spinner(28), h('h2', {}, other ? 'Loading this player’s stats…' : 'Loading your stats…')));
   if (other && !p.matches.length) {
     return page(h('div', { class: 'empty' }, icon(ICONS.demo, 'class="big"'),
       h('h2', {}, p.error ? 'Could not read this player’s stats' : 'No matches with this player'),
@@ -2370,43 +2533,84 @@ function renderOverview() {
       both.length - withMe.length ? `${both.length - withMe.length} against you` : null,
     ].filter(Boolean).join(' · ');
   }
+  const filterMenu = (key, options) => cmpMenu({ value: f[key], search: key === 'map' && options.length > 10, noun: key === 'map' ? 'maps' : 'options', items: options.map(([value, label]) => ({ value, label, icon: () => cmpFilterIcon(key, value) })), onpick: v => { f[key] = v; rerender(); } });
   const head = h('div', { class: 'dash-head' },
     steamAvatar(p.name, p.steamid, 'large'),
     h('div', { class: 'dash-title' },
-      h('h2', {}, p.name || 'Your stats', other ? h('span', { class: 'dash-tag', title: `SteamID ${p.steamid}` }, 'Player') : null),
+      h('h2', {}, playerMenu({ trigger: p.name || 'Your stats' }), other ? h('span', { class: 'dash-tag', title: `SteamID ${p.steamid}` }, 'Player') : null),
       h('div', { class: 'sub' }, `${t.played} match${t.played === 1 ? '' : 'es'} · ${fmtNum(t.rounds)} rounds`,
         together ? ` · ${together}` : null,
         pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null)),
     h('span', { class: 'spacer' }),
-    back,
-    h('button', { class: 'btn', title: other ? 'What this player’s CS2 items are worth (public inventories only)' : 'What your CS2 items are worth', onclick: () => openInventory(other ? p.steamid : null, other ? p.name : null) }, 'Inventory'),
-    h('button', { class: 'btn', title: other ? 'This player and you side by side' : 'You against your lobbies or any player from your demos', onclick: () => compareWith(other ? p.steamid : 'lobby') }, other ? 'Compare with you' : 'Compare'),
-    h('div', { class: 'filters' },
-      modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], v => { f.mode = v; rerender(); }) : null,
-      select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], v => { f.map = v; rerender(); }),
-      select(f.period, PERIODS, v => { f.period = v; rerender(); })),
+    h('div', { class: 'cmp-filters' },
+      modes.length > 1 ? filterMenu('mode', [['all', 'All modes'], ...modes.map(m => [m, m])]) : null,
+      maps.length > 1 ? filterMenu('map', [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])]) : null,
+      filterMenu('period', PERIODS)),
   );
-  if (!list.length) return page(head, h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.')));
+  const editBar = editing ? OverviewEditor.bar() : null;
+  if (!list.length) return page(head, editBar, h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.')));
 
-  const section = (title, extra, ...cards) => h('section', { class: 'ov-sec' }, h('div', { class: 'sec' }, h('h3', {}, title), extra), h('div', { class: 'dash' }, ...cards));
-  page(head,
-    h('div', { class: 'ov-top' },
-      scorePanel(t, last10, list),
-      h('div', { class: 'ov-stats' },
-        h('div', { class: 'sec' }, h('h3', {}, 'Stats overview'),
-          h('span', { class: 'hint legend-inline' }, h('i', { class: 'lg-avg' }), 'selection', list.length > 10 ? [h('i', { class: 'lg-rec' }), 'last 10'] : null)),
-        h('div', { class: 'tiles' }, ...TILES.map(d => statTile(d, list, t, last10))))),
-    section('Recent form', null, trendCard(list), recentCard(list)),
-    section('Rounds & duels', null, clutchCard(t), entryCard(t), sidesCard(t), multiCard(t)),
-    section('Maps & weapons', null, mapsCard(t),
-      weaponCard('Most kills', Object.entries(t.weapons).sort((a, b) => b[1][0] - a[1][0]).slice(0, 6), ([, [k]], max) => [fmtNum(k), k / max]),
-      weaponCard('Headshot %', Object.entries(t.weapons).filter(([, [k]]) => k >= Math.max(10, t.kills * 0.02)).sort((a, b) => b[1][1] / b[1][0] - a[1][1] / a[1][0]).slice(0, 6),
-        ([, [k, hs]]) => [`${pct(hs, k)}%`, hs / k], 'Weapons with at least 10 kills')),
-    section('Aim', null, aimCard(list)),
-    section('Deaths', null, ...deathCards(list)),
-    (cards => (cards.length ? section('Training', null, ...cards) : null))(other || typeof trainingCards !== 'function' ? [] : trainingCards()),
-    section(other ? 'Their teammates' : 'Teammates', null, matesCard(t)),
-  );
+  const statTiles = layout.stats.filter(entry => !entry.hidden).map(entry => [entry, TILES.find(tile => tile.id === entry.id)]).filter(([, tile]) => tile);
+  const tilesGrid = () => {
+    const grid = h('div', { class: 'tiles' }, ...statTiles.map(([entry, d]) => {
+      const tile = statTile(d, list, t, last10, layout.histograms);
+      return editing ? OverviewEditor.editable(tile, 'stat', entry, layout.stats) : tile;
+    }));
+    return editing ? OverviewEditor.sortable(grid, layout.stats) : grid;
+  };
+  const modules = {
+    rating: () => scorePanel(t, last10, list, layout),
+    stats: () => h('div', { class: 'ov-stats' },
+      h('div', { class: 'sec' }, h('h3', {}, 'Stats overview'),
+        h('span', { class: 'hint legend-inline' }, h('i', { class: 'lg-avg' }), 'selection', list.length > 10 ? [h('i', { class: 'lg-rec' }), 'last 10'] : null),
+        editing ? OverviewEditor.chips('stat', layout.stats) : null),
+      statTiles.length ? tilesGrid()
+        : h('div', { class: 'muted-note' }, editing ? 'Every stat is hidden. Add tiles back with the + buttons above.' : 'No stats selected. Choose your tiles in Customize overview.')),
+    trend: () => trendCard(list), recent: () => recentCard(list),
+    clutches: () => clutchCard(t), opening: () => entryCard(t), sides: () => sidesCard(t), multi: () => multiCard(t),
+  };
+  const sections = layout.sections.filter(entry => !entry.hidden).map(entry => {
+    const own = layout.modules[entry.id];
+    const visible = own.filter(module => !module.hidden);
+    if (!visible.length) return editing ? OverviewEditor.section(entry, null) : null;
+    const slot = node => h('div', { class: `ov-slot${entry.span === 12 ? ' ov-full' : ''}`,
+      style: { '--span': entry.span, '--h': entry.height ? `${entry.height}px` : null } }, node);
+    const custom = visible.some(module => module.span) ? ' ov-mgrid' : '';
+    const cards = visible.map(module => {
+      const node = (modules[module.id] || (() => OverviewModules[module.id]({ t, list, last10 })))();
+      node.classList.add(`ov-module-${module.id}`);
+      if (custom) node.style?.setProperty('--mspan', module.span || OverviewLayout.defaultModuleSpan(module.id));
+      if (module.height) node.style?.setProperty('--mh', `${module.height}px`);
+      return editing ? OverviewEditor.editable(node, 'module', module, own, entry.id) : node;
+    });
+    // While dragging, the two-column sections swap their column widths as soon as the cards swap.
+    const firstClass = (grid, id, cls) => ids => grid.classList.toggle(cls, ids[0] === id);
+    let node, grid;
+    if (entry.id === 'performance') node = grid = h('section', {
+      class: `ov-top ${visible.length === 1 ? 'ov-single' : ''} ${visible[0].id === 'stats' ? 'ov-stats-first' : ''}${custom}`,
+    }, ...cards);
+    else if (entry.id === 'history') node = grid = h('section', {
+      class: `ov-history ${visible.length === 1 ? 'ov-single' : ''} ${visible[0].id === 'recent' ? 'ov-recent-first' : ''}${custom}`,
+    }, ...cards);
+    else node = h('section', { class: 'ov-sec' }, editing ? null : h('div', { class: 'sec' }, h('h3', {}, OverviewLayout.sections.find(s => s.id === entry.id).label)),
+      grid = h('div', { class: `dash ov-modules ov-modules-${entry.id}${custom}` }, ...cards));
+    if (!editing) return slot(node);
+    OverviewEditor.sortable(grid, own, entry.id === 'performance' ? firstClass(grid, 'stats', 'ov-stats-first')
+      : entry.id === 'history' ? firstClass(grid, 'recent', 'ov-recent-first') : null);
+    return OverviewEditor.section(entry, node);
+  }).filter(Boolean);
+  const emptyNote = editing
+    ? h('div', { class: 'empty' }, h('h2', {}, 'Everything is hidden'), h('div', {}, 'Add sections back from the Hidden tray above.'))
+    : h('div', { class: 'empty' },
+      h('h2', {}, 'Your Overview, your way'), h('div', {}, 'All modules are hidden. Customize overview brings them back.'),
+      h('button', { class: 'btn primary', onclick: customizeOverview }, 'Choose modules'));
+  // Sections sit on a 12-column grid by their saved width. When all are full width they stack in a column, so the
+  // match history can still take the window's spare height.
+  const stacked = !editing && layout.sections.every(entry => entry.hidden || entry.span === 12);
+  const grid = sections.length ? h('div', { class: `ov-sections${stacked ? ' ov-stack' : ''}` }, ...sections) : emptyNote;
+  page(head, editBar, grid);
+  if (editing && sections.length) OverviewEditor.sortable(grid, layout.sections);
+
 }
 
 function clutchCard(t) {
@@ -2419,17 +2623,6 @@ function clutchCard(t) {
   ]);
 }
 
-function recentCard(list) {
-  const last = list.slice(0, 8);
-  return card('Last matches', h('div', { class: 'recent' }, ...last.map(m => h('button', { class: `recent-m r-${m.result}`, onclick: () => openMatch(m), title: `${fmtDate(m.date)} · open the scoreboard` },
-    mapThumb(m.map),
-    h('span', { class: 'recent-t' }, h('b', {}, mapName(m.map)), h('small', {}, new Date(m.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))),
-    h('span', { class: `recent-sc score-${m.result === 'W' ? 'w' : m.result === 'L' ? 'l' : 'd'}` }, `${m.score[0]}:${m.score[1]}`),
-    h('span', { class: 'recent-kd' }, `${m.kills}–${m.deaths}`),
-    h('span', { class: `rtg ${ratingClass(m.rating)}` }, m.rating == null ? '—' : m.rating.toFixed(2))))),
-  { extra: h('button', { class: 'link-btn', onclick: () => showView('matches') }, 'All matches →') });
-}
-
 function entryCard(t) {
   const row = (label, s, cls) => ({ label, note: `${s.fk}–${s.fd}`, value: `${pct(s.fk, s.fk + s.fd)}%`, frac: (s.fk + s.fd) ? s.fk / (s.fk + s.fd) : 0, fillCls: cls,
     title: `${s.fk} opening kills, ${s.fd} opening deaths · in the opening duel in ${pct(s.fk + s.fd, s.rounds)}% of ${s.rounds} rounds` });
@@ -2439,47 +2632,58 @@ function entryCard(t) {
   ]);
 }
 
-function mapsCard(t) {
-  const most = Object.values(t.maps).sort((a, b) => b.played - a.played).slice(0, 6);
-  const go = m => () => { state.mp.map = m.map; resetZoom(state.mp.view); showView('maps'); };
-  // Most played maps; the bar is the win rate.
-  return card('Maps', h('div', { class: 'map-rows' }, ...most.map(m => {
-    const wr = pct(m.won, m.played);
-    return h('div', { class: 'map-row', onclick: go(m), title: `${m.won} won, ${m.lost} lost · open this map` },
-      mapThumb(m.map),
-      h('div', { class: 'map-row-main' },
-        h('div', { class: 'bar-top' }, h('span', { class: 'bar-label' }, mapName(m.map)), h('span', { class: 'spacer' }), h('span', { class: 'bar-note' }, `${m.played} played`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`)),
-        h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))));
-  })), { span: 2, extra: h('button', { class: 'link-btn', onclick: () => showView('maps') }, 'Maps →') });
-}
-
-function weaponCard(title, rows, val, note) {
-  const max = Math.max(1, ...rows.map(([, [k]]) => k));
-  return card(title, barList(rows.map(r => { const [v, frac] = val(r, max); return { label: r[0], value: v, frac }; }), { empty: note || 'No kills yet' }),
-    { extra: note ? h('span', { class: 'hint', title: note }, 'ⓘ') : null });
-}
-
 // Rating per match, oldest to newest, with the 1.00 line and a 5-match average.
+// Monotone cubic interpolation rounds the joins without inventing peaks between matches.
+function smoothRatingPath(points) {
+  if (!points.length) return '';
+  const fmt = point => point.map(v => v.toFixed(2)).join(',');
+  let path = `M${fmt(points[0])}`;
+  if (points.length === 1) return path;
+  const slopes = points.slice(1).map(([x, y], i) => (y - points[i][1]) / (x - points[i][0]));
+  const tangents = points.map((_, i) => {
+    if (!i) return slopes[0];
+    if (i === points.length - 1) return slopes[i - 1];
+    const a = slopes[i - 1], b = slopes[i];
+    return a * b <= 0 ? 0 : 2 * a * b / (a + b);
+  });
+  for (let i = 1; i < points.length; i++) {
+    const [x0, y0] = points[i - 1], [x1, y1] = points[i], third = (x1 - x0) / 3;
+    path += `C${fmt([x0 + third, y0 + tangents[i - 1] * third])} ${fmt([x1 - third, y1 - tangents[i] * third])} ${fmt(points[i])}`;
+  }
+  return path;
+}
+
 function trendCard(list) {
   const ms = list.filter(m => m.rating != null).slice(0, 40).reverse();
-  if (ms.length < 2) return card('Rating per match', h('div', { class: 'muted-note' }, 'Needs at least two matches.'), { span: 3 });
-  const W = 1200, H = 300, padL = 34, padR = 12, padT = 12, padB = 22;
-  const vals = ms.map(m => m.rating);
-  const lo = Math.min(0.4, Math.floor(Math.min(...vals) * 5) / 5), hi = Math.max(1.6, Math.ceil(Math.max(...vals) * 5) / 5);
-  const x = i => padL + (W - padL - padR) * (ms.length === 1 ? 0.5 : i / (ms.length - 1));
-  const y = v => padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo));
-  const avg = vals.map((_, i) => { const s = vals.slice(Math.max(0, i - 4), i + 1); return s.reduce((a, b) => a + b, 0) / s.length; });
-  const grid = [];
-  for (let v = Math.ceil(lo * 2) / 2; v <= hi + 1e-9; v += 0.5) grid.push(`<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" class="${Math.abs(v - 1) < 1e-9 ? 'g-one' : 'g'}"/><text x="${padL - 6}" y="${y(v) + 4}" class="g-t">${v.toFixed(1)}</text>`);
-  const line = pts => pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
-  const area = `${line(vals)}L${x(vals.length - 1)},${H - padB}L${x(0)},${H - padB}Z`;
-  const svg = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg"><defs><linearGradient id="tFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" class="t-stop-a"/><stop offset="1" class="t-stop-b"/></linearGradient></defs>${grid.join('')}
-    <path d="${area}" class="t-area"/><path d="${line(vals)}" class="t-line"/><path d="${line(avg)}" class="t-avg"/>
-    ${ms.map((m, i) => `<circle cx="${x(i)}" cy="${y(m.rating)}" r="4.5" class="t-pt r-${m.result}" data-i="${i}"><title>${mapName(m.map).replace(/[<&]/g, '')} ${m.score[0]}:${m.score[1]} · rating ${m.rating.toFixed(2)} · ${new Date(m.date).toLocaleDateString()}</title></circle>`).join('')}</svg>`;
-  const el = h('div', { class: 'trend-wrap', html: svg });
+  if (ms.length < 2) return card('Rating per match', h('div', { class: 'muted-note' }, 'Needs at least two matches.'));
+  const el = h('div', { class: 'trend-wrap' });
+  const draw = () => {
+    const W = Math.max(200, el.clientWidth), H = Math.max(70, el.clientHeight), padL = 34, padR = 12, padT = 12, padB = 22;
+    const vals = ms.map(m => m.rating);
+    const lo = Math.min(0.4, Math.floor(Math.min(...vals) * 5) / 5), hi = Math.max(1.6, Math.ceil(Math.max(...vals) * 5) / 5);
+    const x = i => padL + (W - padL - padR) * (ms.length === 1 ? 0.5 : i / (ms.length - 1));
+    const y = v => padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo));
+    const avg = vals.map((_, i) => { const s = vals.slice(Math.max(0, i - 4), i + 1); return s.reduce((a, b) => a + b, 0) / s.length; });
+    const grid = [];
+    const step = Math.max(.5, Math.ceil((hi - lo) / Math.max(1, (H - padT - padB) / 18) * 2) / 2);
+    for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) grid.push(`<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" class="${Math.abs(v - 1) < 1e-9 ? 'g-one' : 'g'}"/><text x="${padL - 6}" y="${y(v) + 4}" class="g-t">${v.toFixed(1)}</text>`);
+    if (Math.abs(1 / step - Math.round(1 / step)) > 1e-9) grid.push(`<line x1="${padL}" x2="${W - padR}" y1="${y(1)}" y2="${y(1)}" class="g-one"/>`);
+    const line = pts => smoothRatingPath(pts.map((v, i) => [x(i), y(v)]));
+    const ratingPath = line(vals);
+    const area = `${ratingPath}L${x(vals.length - 1)},${H - padB}L${x(0)},${H - padB}Z`;
+    const svg = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg"><defs><linearGradient id="tFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" class="t-stop-a"/><stop offset="1" class="t-stop-b"/></linearGradient></defs>${grid.join('')}
+      <path d="${area}" class="t-area"/><path d="${ratingPath}" class="t-line"/><path d="${line(avg)}" class="t-avg"/>
+      ${ms.map((m, i) => `<circle cx="${x(i)}" cy="${y(m.rating)}" r="4.5" class="t-pt r-${m.result}" data-i="${i}"><title>${mapName(m.map).replace(/[<&]/g, '')} ${m.score[0]}:${m.score[1]} · rating ${m.rating.toFixed(2)} · ${new Date(m.date).toLocaleDateString()}</title></circle>`).join('')}</svg>`;
+    el.innerHTML = svg;
+  };
+  const observer = new ResizeObserver(() => {
+    if (!el.isConnected) return observer.disconnect();
+    draw();
+  });
+  observer.observe(el);
   el.addEventListener('click', e => { const i = e.target.dataset?.i; if (i !== undefined) openMatch(ms[+i]); });
   return card('Rating per match', [el, h('div', { class: 'legend' }, h('span', { class: 'lg l-line' }, 'Rating'), h('span', { class: 'lg l-avg' }, '5-match average'), h('span', { class: 'lg l-w' }, 'Win'), h('span', { class: 'lg l-l' }, 'Loss'))],
-    { span: 3, extra: h('span', { class: 'hint' }, `last ${ms.length} matches · click a point to open it`) });
+    { extra: h('span', { class: 'hint' }, `last ${ms.length} matches · click a point to open it`) });
 }
 
 function multiCard(t) {
@@ -2502,26 +2706,23 @@ function sidesCard(t) {
   ]);
 }
 
-function matesCard(t) {
-  const mates = Object.values(t.mates).filter(m => m.played >= 2).sort((a, b) => b.played - a.played || b.won - a.won).slice(0, 10);
-  return card(null, mates.length
-    ? h('div', { class: 'mates' }, ...mates.map(m => {
-      const wr = pct(m.won, m.played);
-      return h('div', { class: 'mate clickable', title: `${m.won} won · ${m.lost} lost together · click for ${m.name}’s stats`, onclick: () => openPlayer(m.id) },
-        steamAvatar(m.name, m.id, 'sm'),
-        h('span', { class: 'mate-name' }, m.name),
-        h('span', { class: 'bar-note' }, `${m.played} matches`),
-        h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } })),
-        h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`));
-    }))
-    : h('div', { class: 'muted-note' }, 'Teammates you played at least two matches with show up here.'), { span: 4 });
+function recentCard(list) {
+  const last = list.slice(0, 8);
+  return card('Last matches', h('div', { class: 'recent' }, ...last.map(m => h('button', { class: `recent-m r-${m.result}`, onclick: () => openMatch(m), title: `${fmtDate(m.date)} · open the scoreboard` },
+    mapThumb(m.map),
+    h('span', { class: 'recent-t' }, h('b', {}, mapName(m.map)), h('small', {}, new Date(m.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))),
+    h('span', { class: `recent-sc score-${m.result === 'W' ? 'w' : m.result === 'L' ? 'l' : 'd'}` }, `${m.score[0]}:${m.score[1]}`),
+    h('span', { class: 'recent-kd' }, `${m.kills}–${m.deaths}`),
+    h('span', { class: `rtg ${ratingClass(m.rating)}` }, m.rating == null ? '—' : m.rating.toFixed(2))))),
+  { extra: h('button', { class: 'link-btn', onclick: () => showView('matches') }, 'All matches →') });
 }
+
 
 // Opens a match from the dashboard or the Maps page (on its scoreboard).
 function openMatch(m) {
   const d = state.demos.find(x => x.id === m.id) || state.demos.find(x => x.path === m.path);
   if (!d) return toast('This demo is no longer in your demo folders.', 'error');
-  const player = state.view === 'overview' ? state.who : null; // seen through the player shown on the overview
+  const player = state.who;
   showView('matches');
   openDemo(d, player || undefined, 'scoreboard');
 }
@@ -2606,18 +2807,19 @@ ps.input.addEventListener('keydown', e => {
   }
 });
 document.addEventListener('keydown', e => {
+  if (e.target.closest('.cmp-menu')) return;
   if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); ps.input.focus(); ps.input.select(); }
 });
 
 // ---------- Maps ----------
 // Every map with parsed demos; per map one big zoomable radar with kills, deaths, damage and grenades
 // from all its matches, for you or for everyone.
-state.mp = { map: null, who: 'me', side: 'both', layers: new Set(['kill', 'death']), display: 'heat', lines: true, weapon: 'all', floor: 'upper', room: 'auto', data: null, loading: null, view: newView() };
+state.mp = { map: null, who: 'me', side: 'both', layers: new Set(['kill', 'death']), display: 'heat', lines: true, weapon: new Set(), floor: 'upper', room: 'auto', data: null, loading: null, view: newView() };
 
 function mapsIndex() {
   const by = new Map();
   const seen = new Set();
-  for (const d of state.demos) {
+  for (const d of playerDemos()) {
     const m = d.summary?.map;
     if (!m || seen.has(d.id)) continue;
     seen.add(d.id);
@@ -2625,7 +2827,7 @@ function mapsIndex() {
     e.demos++;
     e.last = Math.max(e.last, d.date);
   }
-  const mine = aggregate(state.profile?.matches || []).maps;
+  const mine = aggregate(shownProfile()?.matches || []).maps;
   return [...by.values()].map(e => ({ ...e, me: mine[e.map] })).sort((a, b) => b.demos - a.demos || b.last - a.last);
 }
 
@@ -2635,7 +2837,7 @@ function renderMaps() {
   const maps = mapsIndex();
   const pending = state.demos.filter(d => !d.summary && !d.failed).length;
   view.replaceChildren(h('div', { class: 'page' },
-    h('div', { class: 'page-head' }, h('h2', {}, 'Maps'), h('span', { class: 'dl-head-info' }, 'Kills, deaths, damage and grenades of every match on a map, in one zoomable radar.'),
+    h('div', { class: 'page-head' }, h('h2', {}, 'Maps'), playerMenu(), h('span', { class: 'dl-head-info' }, 'Kills, deaths, damage and grenades of every match on a map, in one zoomable radar.'),
       h('span', { class: 'spacer' }), pending ? h('span', { class: 'hint' }, spinner(11), ` reading ${pending} demos…`) : null),
     maps.length ? h('div', { class: 'map-grid' }, ...maps.map(e => {
       const info = radarMaps ? radarInfo(e.map) : null;
@@ -2653,7 +2855,7 @@ function renderMaps() {
               h('div', { class: 'map-card-sub' }, `${e.demos} match${e.demos === 1 ? '' : 'es'} · last ${new Date(e.last).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`))),
           me ? h('div', { class: 'map-card-rec' },
             h('span', {}, `${me.won}W – ${me.lost}L`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`),
-            h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))) : h('div', { class: 'map-card-rec muted' }, 'You did not play here'),
+            h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))) : h('div', { class: 'map-card-rec muted' }, state.who ? 'This player did not play here' : 'You did not play here'),
           info ? null : h('div', { class: 'map-card-sub' }, 'No radar image for this map')));
     })) : h('div', { class: 'empty' }, pending ? spinner(28) : icon(ICONS.demo, 'class="big"'), h('h2', {}, pending ? 'Reading your demos…' : 'No maps yet'), h('div', {}, 'Maps appear once their demos have been read.')),
   ));
@@ -2662,13 +2864,13 @@ function renderMaps() {
 function mapHeatData() {
   const mp = state.mp;
   const n = state.demos.filter(d => d.summary?.map === mp.map).length;
-  const key = `${mp.map}|${mp.who}|${n}`;
+  const key = `${mp.map}|${mp.who}|${state.who}|${n}`;
   if (mp.data?.key === key) return mp.data;
   if (mp.loading !== key) {
     mp.loading = key;
-    api.mapHeat(mp.map, mp.who === 'all' ? 'all' : null)
-      .then(v => { mp.data = { key, ...v }; })
-      .catch(e => { mp.data = { key, error: e.message }; })
+    api.mapHeat(mp.map, mp.who === 'all' ? 'all' : state.who)
+      .then(v => { if (mp.loading === key) mp.data = { key, ...v }; })
+      .catch(e => { if (mp.loading === key) mp.data = { key, error: e.message }; })
       .finally(() => { if (mp.loading === key) mp.loading = null; if (state.view === 'maps') renderMaps(); });
   }
   return null;
@@ -2682,9 +2884,9 @@ function mapDetail() {
   const head = h('div', { class: 'page-head map-head' },
     h('button', { class: 'btn ghost', onclick: () => { mp.map = null; rerender(); } }, icon('<path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2"/>'), 'All maps'),
     h('h2', { class: 'map-title' }, mapEmblem(map, 'map-title-icon'), mapName(map)),
-    select(map, maps.map(e => [e.map, `${mapName(e.map)} (${e.demos})`]), v => { mp.map = v; resetZoom(mp.view); rerender(); }),
-    h('span', { class: 'spacer' }),
-    h('div', { class: 'tabs' }, ...[['me', 'Me'], ['all', 'Everyone']].map(([k, l]) =>
+    maps.length > 1 ? select(map, maps.map(e => [e.map, `${mapName(e.map)} (${e.demos})`]), v => { mp.map = v; resetZoom(mp.view); rerender(); }, { seg: false, icon: pickMap, noun: 'maps' }) : null,
+    h('span', { class: 'spacer' }), playerMenu(),
+    h('div', { class: 'tabs' }, ...[['me', state.who ? 'Player' : 'Me'], ['all', 'Everyone']].map(([k, l]) =>
       h('button', { class: mp.who === k ? 'on' : '', onclick: () => { mp.who = k; if (k === 'all') mp.layers.delete('shot'); rerender(); } }, l))),
   );
   const wrap = (...body) => h('div', { class: 'page map-page' }, head, ...body);
@@ -2693,12 +2895,11 @@ function mapDetail() {
   if (!data) return wrap(h('div', { class: 'empty' }, spinner(28), h('h2', {}, 'Collecting every match on this map…')));
   if (data.error) return wrap(h('div', { class: 'err-box' }, data.error));
 
-  const weapons = [...new Set(data.points.filter(p => WEAPON_KINDS.has(p[0]) && p[2]).map(p => p[2]))].sort();
-  if (mp.weapon !== 'all' && !weapons.includes(mp.weapon)) mp.weapon = 'all';
+  const weaponCounts = heatWeaponCounts(data.points, mp);
   const floors = info.lowerBelow !== undefined;
   const pts = data.points.filter(p =>
     (mp.side === 'both' || p[1] === (mp.side === 'T' ? 0 : 1)) &&
-    (mp.weapon === 'all' || !WEAPON_KINDS.has(p[0]) || p[2] === mp.weapon) &&
+    (!mp.weapon.size || !WEAPON_KINDS.has(p[0]) || heatWeaponCodes(p).some(code => mp.weapon.has(code))) &&
     (!floors || onLower(info, p[5]) === (mp.floor === 'lower')));
   let room = null, roomCounts = null;
   if (info.rooms) {
@@ -2718,20 +2919,20 @@ function mapDetail() {
 
   const controls = card('Show', [
     h('div', { class: 'ctl-row' }, h('label', {}, 'Side'), h('div', { class: 'tabs' }, ...[['both', 'Both'], ['T', 'T'], ['CT', 'CT']].map(([k, l]) =>
-      h('button', { class: `${mp.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, onclick: () => { mp.side = k; rerender(); } }, l)))),
+      h('button', { class: `${mp.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, 'aria-pressed': String(mp.side === k), title: k === 'both' ? 'Both sides' : `${k} side`, 'aria-label': k === 'both' ? 'Both sides' : `${k} side`, onclick: () => { mp.side = k; rerender(); } }, sideIcon(k))))),
     h('div', { class: 'ctl-row' }, h('label', {}, 'Display'), ...heatDisplayControls(mp, rerender)),
-    weapons.length ? h('div', { class: 'ctl-row' }, h('label', {}, 'Weapon'), select(mp.weapon, [['all', 'All weapons'], ...weapons.map(w => [w, w])], v => { mp.weapon = v; rerender(); })) : null,
+    weaponCounts.size > 1 ? h('div', { class: 'ctl-row' }, h('label', {}, 'Weapon'), heatWeaponButton(mp, weaponCounts, rerender)) : null,
     floors ? h('div', { class: 'ctl-row' }, h('label', {}, 'Floor'), h('div', { class: 'tabs' }, ...[['upper', 'Upper'], ['lower', 'Lower']].map(([k, l]) =>
       h('button', { class: mp.floor === k ? 'on' : '', onclick: () => { mp.floor = k; rerender(); } }, l)))) : null,
     info.rooms ? h('div', { class: 'ctl-row' }, h('label', {}, 'Room'), roomSelect(info, mp.room, v => { mp.room = v; rerender(); }, roomCounts)) : null,
     h('div', { class: 'sub-head' }, 'Layers'),
     heatLayerChips(mp, pts, rerender, k => !(mp.who === 'all' && k === 'shot')),
-    h('div', { class: 'hint' }, `${data.matches} match${data.matches === 1 ? '' : 'es'} · ${mp.who === 'all' ? 'all players' : 'only you'}${mp.display === 'dots' ? '' : ' · switch to Dots to see single positions'}`),
+    h('div', { class: 'hint' }, `${data.matches} match${data.matches === 1 ? '' : 'es'} · ${mp.who === 'all' ? 'all players' : state.who ? 'selected player' : 'only you'}${mp.display === 'dots' ? '' : ' · switch to Dots to see single positions'}`),
   ], { cls: 'map-controls' });
 
-  const me = aggregate((state.profile?.matches || []).filter(m => m.map === map));
-  const mine = (state.profile?.matches || []).filter(m => m.map === map).sort((a, b) => b.date - a.date);
-  const stats = me.played ? card('You on ' + mapName(map), [
+  const me = aggregate((shownProfile()?.matches || []).filter(m => m.map === map));
+  const mine = (shownProfile()?.matches || []).filter(m => m.map === map).sort((a, b) => b.date - a.date);
+  const stats = me.played ? card((state.who ? (state.other?.name || 'Player') : 'You') + ' on ' + mapName(map), [
     h('div', { class: 'mini-stats' },
       ...[['Win rate', `${pct(me.won, me.played)}%`, pct(me.won, me.played) >= 50 ? 'good' : 'bad'], ['Rating', me.rating == null ? '—' : me.rating.toFixed(2), me.rating == null ? '' : ratingClass(me.rating)],
         ['K/D', me.kd.toFixed(2), qualityClass(me.kd, 1.05, 0.95)], ['ADR', me.adr.toFixed(0)]].map(([k, v, cls]) => h('div', { class: 'mini-stat' }, h('div', { class: 'k' }, k), h('div', { class: `v ${cls || ''}` }, v)))),
@@ -2841,9 +3042,9 @@ function renderUtility() {
     h('div', { class: 'tabs' }, ...[['all', 'All'], ...UT_TYPES].map(([k, l]) =>
       h('button', { class: u.type === k ? 'on' : '', onclick: () => { u.type = k; renderUtility(); } }, k !== 'all' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, l))),
     h('div', { class: 'tabs' }, ...[['both', 'Both sides'], ['T', 'T'], ['CT', 'CT']].map(([k, l]) =>
-      h('button', { class: `${u.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, onclick: () => { u.side = k; renderUtility(); } }, l))),
+      h('button', { class: `${u.side === k ? 'on' : ''} ${k !== 'both' ? 'side-' + k : ''}`, 'aria-pressed': String(u.side === k), title: k === 'both' ? 'Both sides' : `${k} side`, 'aria-label': k === 'both' ? 'Both sides' : `${k} side`, onclick: () => { u.side = k; renderUtility(); } }, sideIcon(k)))),
     search,
-    select(u.sort, UT_SORTS, v => { u.sort = v; renderUtility(); }));
+    select(u.sort, UT_SORTS, v => { u.sort = v; renderUtility(); }, { seg: false, label: 'Sort', icon: v => pickSvg(PICK_ICONS[v === 'new' ? 'calendar' : v === 'name' ? 'list' : 'repeat']) }));
 
   function utBody() {
     const list = utFiltered();
@@ -3231,9 +3432,9 @@ function editLineup(seed = {}) {
 
   const seg = (list, key, onchange) => {
     const wrap = h('div', { class: 'tabs' });
-    const paint = () => wrap.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', list[i][0] === d[key]));
-    wrap.append(...list.map(([k, l]) => h('button', { class: key === 'side' && k !== 'both' ? `side-${k}` : '', onclick: () => { d[key] = k; paint(); onchange?.(); } },
-      key === 'type' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, l)));
+    const paint = () => wrap.querySelectorAll('button').forEach((b, i) => { b.classList.toggle('on', list[i][0] === d[key]); b.setAttribute('aria-pressed', String(list[i][0] === d[key])); });
+    wrap.append(...list.map(([k, l]) => h('button', { class: key === 'side' && k !== 'both' ? `side-${k}` : '', title: key === 'side' ? (k === 'both' ? 'Both sides' : `${k} side`) : l, 'aria-label': key === 'side' ? (k === 'both' ? 'Both sides' : `${k} side`) : l, onclick: () => { d[key] = k; paint(); onchange?.(); } },
+      key === 'side' ? sideIcon(k) : key === 'type' ? h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[k] } }) : null, key === 'side' ? null : l)));
     paint();
     return wrap;
   };
@@ -3357,14 +3558,14 @@ function editLineup(seed = {}) {
       h('div', { class: 'ut-editor-form' },
         field('Name', name),
         h('div', { class: 'ut-field-row' },
-          field('Map', select(d.map, [...new Set([d.map, ...knownMaps])].map(m => [m, mapName(m)]), v => { d.map = v; resetZoom(pick.view); radarBox.replaceChildren(pickRadar()); })),
+          field('Map', select(d.map, [...new Set([d.map, ...knownMaps])].map(m => [m, mapName(m)]), v => { d.map = v; resetZoom(pick.view); radarBox.replaceChildren(pickRadar()); }, { seg: false, icon: pickMap, noun: 'maps' })),
           field('Side', seg([['T', 'T'], ['CT', 'CT'], ['both', 'Both']], 'side'))),
         field('Grenade', seg(UT_TYPES, 'type', () => radarBox.replaceChildren(pickRadar()))),
         field('Position', getpos, h('span', {}, 'In CS2, stand on the spot and aim, type ', h('kbd', {}, 'getpos_exact'), ' in the console and paste the line here. Or click the radar.')),
         posStatus,
         h('div', { class: 'ut-field-row' },
-          field('Movement', select(d.move, UT_MOVES, v => { d.move = v; })),
-          field('Mouse', select(d.click, UT_CLICKS, v => { d.click = v; }))),
+          field('Movement', select(d.move, UT_MOVES, v => { d.move = v; }, { seg: false, icon: () => pickSvg(PICK_ICONS.speed), noun: 'movements' })),
+          field('Mouse', select(d.click, UT_CLICKS, v => { d.click = v; }, { seg: false, icon: () => pickSvg(PICK_ICONS.mouse) }))),
         field('Where to aim', h('input', { type: 'text', value: d.aim, maxlength: 500, placeholder: 'e.g. Crosshair on the left edge of the antenna, bottom of the cloud', oninput: e => { d.aim = e.target.value; } })),
         field('Notes', h('textarea', { rows: 3, maxlength: 4000, placeholder: 'Timing, what it blocks, who throws it…', oninput: e => { d.notes = e.target.value; } }, d.notes)),
         field('Pictures', h('div', {}, shots, fileInput), 'The spot you stand on and your crosshair are the two that help most. The first picture is the cover.'),
@@ -3382,6 +3583,7 @@ function editLineup(seed = {}) {
 }
 
 document.addEventListener('keydown', e => {
+  if (e.target.closest('.cmp-menu, .pick-btn, .pick-seg')) return;
   if (state.view !== 'utility' || e.key !== 'Escape' || !$('#overlay').classList.contains('hidden')) return;
   if (state.ut.closeMenu?.() || !state.ut.sel) return;
   state.ut.sel = null;
@@ -3464,17 +3666,24 @@ function closeModal(cb) { $('#overlay').classList.add('hidden'); $('#overlay').r
 // "Video size" window shown before recording clips or building a montage. kind: 'clip' | 'montage';
 // clips: [{ label, seconds }] (each recorded clip gets the target) or ids (the montage as a whole gets it).
 const SIZE_PRESETS = [50, 25, 10];
+const SIZE_ICONS = Object.fromEntries(Object.entries({
+  pulse: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6"/>',
+  undo: '<path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  chevron: '<path d="m7 10 5 5 5-5"/>',
+}).map(([k, svg]) => [k, `<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${svg}</g>`]));
 function sizeDialog({ kind, title, clips = [], ids, goLabel, goIcon, onBack, onGo }) {
   let mb = state.settings.videoSize?.[kind] || 0;
   let isCustom = mb > 0 && !SIZE_PRESETS.includes(mb);
   const custom = h('input', { type: 'number', min: 1, max: 4000, step: 1, placeholder: 'MB', class: 'size-custom',
     value: isCustom ? mb : '',
     oninput: e => { const v = Math.round(+e.target.value); if (v >= 1) { mb = v; refresh(); } } });
-  const customWrap = h('span', { class: 'size-custom-wrap' }, custom, ' MB');
+  const customWrap = h('span', { class: 'size-custom-wrap', style: { '--c': '#8da2c0' } }, custom, ' MB');
   // Built once (refresh only flips classes) so the custom field keeps focus while typing.
-  const pick = (v, label) => h('button', { class: 'chip-toggle', onclick: () => { mb = v; isCustom = false; refresh(); } }, label);
+  const tone = v => !v ? '#5fd38d' : v >= 50 ? '#e8c547' : v >= 25 ? '#f0a64a' : '#ff6b7a';
+  const pick = (v, label) => h('button', { class: 'chip-toggle', style: { '--c': tone(v) }, onclick: () => { mb = v; isCustom = false; refresh(); } }, label);
   const presets = [[0, pick(0, 'Best quality')], ...SIZE_PRESETS.map(v => [v, pick(v, `${v} MB`)])];
-  const customBtn = h('button', { class: 'chip-toggle', onclick: () => {
+  const customBtn = h('button', { class: 'chip-toggle', style: { '--c': '#8da2c0' }, onclick: () => {
     isCustom = true;
     mb = Math.round(+custom.value) || mb || 75;
     custom.value = mb;
@@ -3482,47 +3691,125 @@ function sizeDialog({ kind, title, clips = [], ids, goLabel, goIcon, onBack, onG
     custom.focus();
     custom.select();
   } }, 'Custom');
-  const chips = h('div', { class: 'chips' }, ...presets.map(p => p[1]), customBtn, customWrap);
+  const chips = h('div', { class: 'chips size-chips' }, ...presets.map(p => p[1]), customBtn, customWrap);
   const out = h('div', { class: 'size-plan' });
   const fmtRate = k => k >= 1000 ? `${(k / 1000).toFixed(1)} Mbps` : `${k} kbps`;
-  let seq = 0;
+  const fmtSize = bytes => { const mb = bytes / 1048576; return mb.toFixed(mb < 10 ? 1 : 0); };
+  let seq = 0, timer;
+  const overrides = clips.map(() => null);
+  const snapshot = () => overrides.map(v => v ? { ...v } : null);
+  const rows = kind === 'clip' ? clips.map((c, i) => {
+    const set = (key, value, delay = 0) => {
+      const v = { ...overrides[i] };
+      if (value === undefined) delete v[key]; else v[key] = value;
+      if (key === 'videoKbps') { delete v.mb; size.value = ''; }
+      if (key === 'mb') { delete v.videoKbps; rate.value = ''; }
+      overrides[i] = Object.keys(v).length ? v : null;
+      mark();
+      // Invalidate in-flight plans immediately, including during the debounce.
+      ++seq;
+      clearTimeout(timer);
+      if (delay) timer = setTimeout(refresh, delay); else refresh();
+    };
+    // The app's rounded menu, its button laid invisibly over the whole field so all of it is the hit box.
+    const picker = (key, name, suffix) => {
+      const shown = h('span', { class: 'size-field-v' }), hit = h('span', { class: 'size-field-hit' });
+      let value = '', items = [{ value: '', label: 'Auto' }], drawn = '';
+      const draw = () => {
+        const sig = `${value}|${items.map(o => o.label).join(',')}`;
+        if (sig === drawn) return; // keeps an open menu alive while other rows re-plan
+        drawn = sig;
+        shown.textContent = items.find(o => o.value === value)?.label || items[0].label;
+        const had = hit.contains(document.activeElement);
+        const btn = cmpMenu({ value, items, cls: 'size-pick', noun: name.toLowerCase(), onpick: v => { value = v; draw(); set(key, +v || undefined); } });
+        btn.setAttribute('aria-label', `${name}: ${shown.textContent}`);
+        hit.replaceChildren(btn);
+        if (had) btn.focus({ preventScroll: true });
+      };
+      draw();
+      return { shown, hit, get value() { return value; }, set value(v) { value = String(v); draw(); },
+        options(values, auto) {
+          items = [{ value: '', label: `Auto (${auto}${suffix})` }, ...values.map(v => ({ value: String(v), label: `${v}${suffix}` }))];
+          if (!items.some(o => o.value === value)) value = '';
+          draw();
+        } };
+    };
+    const height = picker('height', 'Resolution', 'p'), fps = picker('fps', 'Frame rate', ' fps');
+    const rate = h('input', { type: 'number', min: 0.1, step: 0.1, 'aria-label': 'Bitrate in Mbps', placeholder: 'Auto',
+      oninput: e => set('videoKbps', Number.isFinite(e.target.valueAsNumber) && e.target.valueAsNumber > 0 ? Math.round(e.target.valueAsNumber * 1000) : undefined, 250) });
+    const size = h('input', { type: 'number', min: 0, max: 4000, step: 1, 'aria-label': 'Size in MB', title: 'Empty follows global size; 0 = best quality', placeholder: 'Global',
+      oninput: e => set('mb', Number.isFinite(e.target.valueAsNumber) && e.target.valueAsNumber >= 0 ? e.target.valueAsNumber : undefined, 250) });
+    const reset = h('button', { class: 'icon-btn size-reset hidden', title: 'Reset clip to auto', 'aria-label': `Reset ${c.label} to auto`, onclick: () => {
+      overrides[i] = null;
+      height.value = fps.value = rate.value = size.value = '';
+      mark();
+      refresh();
+    } }, icon(SIZE_ICONS.undo));
+    const sz = h('span', { class: 'sz' }), quality = h('span', { class: 'q' });
+    const field = (ic, label, control, tail) => h(control.hit ? 'div' : 'label', { class: `size-field ${control.hit ? 'is-pick' : ''}` },
+      h('span', { class: 'size-field-ic' }, icon(ic)),
+      h('span', { class: 'size-field-body' }, h('span', { class: 'size-field-l' }, label), control.shown || control),
+      h('span', { class: 'size-field-x' }, tail || icon(SIZE_ICONS.chevron)), control.hit || null);
+    const fields = { height: field(PICK_ICONS.monitor, 'Resolution', height), fps: field(PICK_ICONS.speed, 'Frame rate', fps),
+      videoKbps: field(SIZE_ICONS.pulse, 'Bitrate', rate, 'Mbps'), mb: field(SIZE_ICONS.file, 'Size', size, 'MB') };
+    const mark = () => {
+      for (const [k, f] of Object.entries(fields)) f.classList.toggle('set', overrides[i]?.[k] !== undefined);
+      reset.classList.toggle('hidden', !overrides[i]);
+    };
+    const el = h('div', { class: 'size-row size-clip-row' },
+      h('div', { class: 'size-card-head' },
+        h('span', { class: 'size-card-ic' }, icon(ICONS.film)),
+        h('span', { class: 't', title: c.label }, c.label),
+        h('span', { class: 'size-card-dur' }, icon(PICK_ICONS.clock), `${Math.round(c.seconds)} s`),
+        sz, quality, reset),
+      h('div', { class: 'size-fields' }, ...Object.values(fields)));
+    return { el, update: p => {
+      el.className = `size-row size-clip-row q-${p.quality}`;
+      const src = p.src || state.settings.hlae || {};
+      height.options([2160, 1440, 1080, 720, 540, 480, 360].filter(v => v <= src.height), p.height);
+      fps.options([240, 144, 120, 60, 30].filter(v => v <= src.fps), p.fps);
+      rate.placeholder = `Auto (${(p.videoKbps / 1000).toFixed(1)})`;
+      size.placeholder = `Global (~${fmtSize(p.bytes)})`;
+      sz.textContent = `~${fmtSize(p.bytes)} MB`;
+      quality.textContent = p.quality === 'low' ? 'low quality — pick a bigger size' : `${p.quality} quality`;
+    } };
+  }) : [];
+  out.append(...rows.map(r => r.el));
   async function refresh() {
+    clearTimeout(timer);
     presets.forEach(([v, b]) => b.classList.toggle('on', !isCustom && mb === v));
     customBtn.classList.toggle('on', isCustom);
     customWrap.classList.toggle('hidden', !isCustom);
-    if (!mb) {
-      out.replaceChildren(h('div', { class: 'hint' }, kind === 'montage'
-        ? 'No size limit: the montage keeps the clips\' quality.'
-        : `No size limit: clips keep the full recording quality (${state.settings.hlae.width}×${state.settings.hlae.height}, ${state.settings.hlae.fps} fps).`));
+    const n = ++seq;
+    const plans = await guard(() => api.sizePlan({ mb, ids, seconds: clips.map(c => c.seconds), ...(kind === 'clip' ? { overrides: snapshot() } : {}) }));
+    if (n !== seq || !plans) return;
+    if (kind === 'clip') {
+      rows.forEach((r, i) => { if (plans[i]) r.update(plans[i].kept ? { ...plans[i], quality: 'best', estimated: true } : plans[i]); });
       return;
     }
-    const n = ++seq;
-    const plans = await guard(() => api.sizePlan({ mb, ids, seconds: clips.map(c => c.seconds) }));
-    if (n !== seq || !plans) return;
-    const line = (p, label) => h('div', { class: `size-row q-${p.quality}` },
-      label ? h('span', { class: 't' }, label) : null,
-      h('span', {}, `${p.width}×${p.height} · ${p.fps} fps · ${fmtRate(p.videoKbps)}`),
-      h('span', { class: 'q' }, p.quality === 'low' ? 'low quality — pick a bigger size' : `${p.quality} quality`));
-    const rows = kind === 'montage' ? [line(plans[0], `${fmtDur(plans[0].seconds)} montage`)]
-      : clips.slice(0, 8).map((c, i) => line(plans[i], `${c.label} · ${Math.round(c.seconds)} s`));
-    out.replaceChildren(...rows,
-      clips.length > 8 ? h('div', { class: 'hint' }, `…and ${clips.length - 8} more`) : null,
-      h('div', { class: 'hint' }, kind === 'montage'
-        ? 'The whole montage ends up close to this size. Resolution and fps drop only when the bitrate would get too low.'
-        : 'Each clip ends up close to this size. Clips already smaller stay untouched; resolution and fps drop only when the bitrate would get too low.'));
+    const line = (p, label) => {
+      if (p.kept) p = { ...p, quality: 'best', estimated: true };
+      return h('div', { class: `size-row q-${p.quality}` },
+        label ? h('span', { class: 't' }, label) : null,
+        h('span', {}, `${p.width}×${p.height} · ${p.fps} fps · ${p.estimated ? '~' : ''}${fmtRate(p.videoKbps)}`),
+        h('span', { class: 'sz' }, `~${fmtSize(p.bytes)} MB`),
+        h('span', { class: 'q' }, p.quality === 'low' ? 'low quality — pick a bigger size' : `${p.quality} quality`));
+    };
+    out.replaceChildren(line(plans[0], `${fmtDur(plans[0].seconds)} montage`));
   }
-  modal([
+  const dialog = modal([
     h('h2', {}, title),
-    h('p', {}, kind === 'montage' ? 'Pick a rough size for the montage file.' : 'Pick a rough size for each clip.', ' DemoLab adapts the bitrate (and if needed the resolution and fps) to fit.'),
     chips, out,
     h('div', { class: 'actions' },
       h('button', { class: 'btn', onclick: () => onBack ? onBack() : closeModal() }, onBack ? 'Back' : 'Cancel'),
       h('button', { class: 'btn primary', onclick: () => {
         if ((state.settings.videoSize?.[kind] || 0) !== mb) save({ videoSize: { [kind]: mb } });
-        onGo(mb);
+        clearTimeout(timer);
+        onGo(mb, kind === 'clip' ? snapshot() : undefined);
       } }, goIcon ? icon(goIcon) : null, goLabel),
     ),
   ]);
+  if (kind === 'clip') dialog.classList.add('size-dialog');
   refresh();
 }
 
@@ -3554,13 +3841,14 @@ function pickRecordSize(all, hls, context = {}) {
   sizeDialog({
     kind: 'clip', title: `Video size · ${hls.length} clip${hls.length > 1 ? 's' : ''}`,
     clips: hls.map(x => ({ label: `R${x.round} ${x.title}`, seconds: x.duration })),
-    goLabel: 'Start recording', goIcon: ICONS.rec, onBack: () => confirmRecord(all, context), onGo: mb => startRecord(hls, mb, context),
+    goLabel: 'Start recording', goIcon: ICONS.rec, onBack: () => confirmRecord(all, context), onGo: (mb, overrides) => startRecord(hls, mb, context, overrides),
   });
 }
 
-async function startRecord(hls, mb = state.settings.videoSize?.clip || 0, context = {}) {
+async function startRecord(hls, mb = state.settings.videoSize?.clip || 0, context = {}, overrides = []) {
   if (state.recording || state.recordStarting) return;
   const items = context.itemsFor ? context.itemsFor(hls) : hls.map(x => ({ demoPath: state.demo.path, highlightId: x.id }));
+  items.forEach((item, i) => { if (overrides[i]) item.video = { ...overrides[i] }; });
   const steamid = context.itemsFor ? undefined : state.analysis.player?.steamid;
   state.recordStarting = true;
   try {
@@ -3581,7 +3869,7 @@ async function startRecord(hls, mb = state.settings.videoSize?.clip || 0, contex
         toast(`HLAE ${r.version} installed`, 'ok');
         await refreshEnv();
         closeModal();
-        startRecord(hls, mb, context);
+        startRecord(hls, mb, context, overrides);
       } catch (err) { status.textContent = '✗ ' + err.message; btn.disabled = false; }
     } }, 'Install HLAE') : null;
     modal([h('h2', {}, 'Could not start'), h('div', { class: 'err-box' }, msg), status,
@@ -3624,18 +3912,18 @@ async function loadClipCount() {
 }
 async function loadClips() { await loadClipCount(); renderClips(); }
 
-// Weapon categories, in the order groups are shown. Names match highlights.js weaponName().
-const WEAPON_TYPES = [
-  ['Rifles', ['AK-47', 'M4A4', 'M4A1-S', 'FAMAS', 'Galil', 'AUG', 'SG 553']],
-  ['Snipers', ['AWP', 'Scout', 'G3SG1', 'SCAR-20']],
-  ['Pistols', ['Deagle', 'R8', 'USP-S', 'P2000', 'Glock', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75', 'Dualies']],
-  ['SMGs', ['MAC-10', 'MP9', 'MP7', 'MP5-SD', 'UMP-45', 'P90', 'PP-Bizon']],
-  ['Shotguns', ['Nova', 'XM1014', 'MAG-7', 'Sawed-Off']],
-  ['Heavy', ['M249', 'Negev']],
-  ['Knife & Zeus', ['Knife', 'Zeus']],
-  ['Grenades', ['HE', 'Molotov', 'Incendiary']],
-];
-const weaponType = w => WEAPON_TYPES.find(([, list]) => list.includes(w))?.[0] || 'Other';
+// Buy-menu codes map to the display names stored in clip records.
+const CLIP_WEAPON_NAMES = {
+  taser: ['Zeus'], hkp2000: ['P2000'], usp_silencer: ['USP-S'], m4a1_silencer: ['M4A1-S'], m4a1: ['M4A4'],
+  cz75a: ['CZ75'], deagle: ['Deagle'], revolver: ['R8'], mp5sd: ['MP5-SD'], ssg08: ['Scout'], awp: ['AWP'],
+  ak47: ['AK-47'], galilar: ['Galil'], famas: ['FAMAS'], aug: ['AUG'], sg556: ['SG 553'], glock: ['Glock'],
+  p250: ['P250'], fiveseven: ['Five-SeveN'], tec9: ['Tec-9'], elite: ['Dualies'], mac10: ['MAC-10'], mp9: ['MP9'],
+  mp7: ['MP7'], ump45: ['UMP-45'], p90: ['P90'], bizon: ['PP-Bizon'], nova: ['Nova'], xm1014: ['XM1014'],
+  mag7: ['MAG-7'], sawedoff: ['Sawed-Off'], m249: ['M249'], negev: ['Negev'], g3sg1: ['G3SG1'], scar20: ['SCAR-20'],
+  hegrenade: ['HE'], knife: ['Knife'], inferno: ['Molotov', 'Incendiary'],
+};
+
+const HEAT_WEAPON_NAMES = new Map(Object.entries(CLIP_WEAPON_NAMES).flatMap(([code, names]) => [code, ...names].map(name => [name.toLowerCase(), code])));
 
 // The weapon a clip is "about": the one with the most kills (older clips only know the weapon list).
 function mainWeapon(c) {
@@ -3670,28 +3958,25 @@ function clipDayLabel(day, now = new Date()) {
 
 function renderClips() {
   const view = $('#view-clips');
-  const wf = state.weaponFilter || 'all';
+  const picked = state.clipWeapons ||= new Set();
   const sf = state.starFilter || 0;
   let items = state.clips.filter(c => state.clipFilter === 'all' || c.kind === state.clipFilter);
-  items = items.filter(c => {
-    if (wf === 'all') return true;
-    const ws = c.weapons || [];
-    return wf.startsWith('type:') ? ws.some(w => weaponType(w) === wf.slice(5)) : ws.includes(wf);
-  });
+  const counts = new Map();
+  for (const [code, names] of Object.entries(CLIP_WEAPON_NAMES)) {
+    counts.set(code, items.filter(c => names.some(name => (c.weapons || []).includes(name))).length);
+  }
+  const names = new Set([...picked].flatMap(code => CLIP_WEAPON_NAMES[code] || []));
+  if (picked.size) items = items.filter(c => (c.weapons || []).some(w => names.has(w)));
   // Counted before the star filter so each star can say how many clips it would show.
   const perStar = [0, 0, 0, 0, 0, 0];
   for (const c of items) perStar[clipStars(c)]++;
   if (sf) items = items.filter(c => clipStars(c) === sf);
   items.sort((a, b) => clipTime(b) - clipTime(a));
 
-  // Weapon filter offers the categories and the individual weapons present in your clips.
-  const present = [...new Set(state.clips.flatMap(c => c.weapons || []))];
-  const types = WEAPON_TYPES.map(([t]) => t).filter(t => present.some(w => weaponType(w) === t));
-  const weaponSelect = select(wf, [
-    ['all', 'All weapons'],
-    ...types.map(t => [`type:${t}`, t]),
-    ...types.flatMap(t => present.filter(w => weaponType(w) === t).sort().map(w => [w, `   ${w}`])),
-  ], v => { state.weaponFilter = v; renderClips(); });
+  const weaponsBtn = weaponBuyButton(picked, () => weaponBuyMenu({
+    picked, counts, unit: 'clip',
+    subtitle: 'Shows clips with a kill from any picked weapon', onDone: renderClips,
+  }));
   // Click a star for the clips rated exactly that many stars; click it again to show them all.
   const starPicker = h('div', { class: `clip-stars-pick ${sf ? 'set' : ''}` }, ...[5, 4, 3, 2, 1].map(n =>
     h('button', { class: n <= sf ? 'on' : '', title: sf === n ? 'Show all ratings' : `${n}-star clips (${perStar[n]})`,
@@ -3702,7 +3987,7 @@ function renderClips() {
       h('span', { class: 'clips-stats' }, `${items.length} clip${items.length === 1 ? '' : 's'} · ${fmtDur(items.reduce((s, c) => s + (c.duration || 0), 0))}`)),
     h('div', { class: 'tabs' }, ...[['all', 'All'], ['clip', 'Clips'], ['montage', 'Montages'], ['share', 'Shared']].map(([k, l]) =>
       h('button', { class: state.clipFilter === k ? 'on' : '', onclick: () => { state.clipFilter = k; renderClips(); } }, l))),
-    weaponSelect, starPicker,
+    weaponsBtn, starPicker,
     h('span', { class: 'spacer' }),
     galleryHeadButton(),
     h('button', { class: 'btn clips-folder', title: 'Open folder', onclick: () => api.open(state.env.outputDir) }, icon(ICONS.folder), h('span', {}, 'Open folder')),
@@ -3878,8 +4163,67 @@ function text(value, onchange, attrs = {}) { return h('input', { type: 'text', v
 function toggle(label, on, onchange, title) {
   return h('button', { class: `chip-toggle ${on ? 'on' : ''}`, title, onclick: e => { on = !on; e.currentTarget.classList.toggle('on', on); onchange(on); } }, label);
 }
-function select(value, options, onchange) {
-  return h('select', { onchange: e => onchange(e.target.value) }, ...options.map(([v, l]) => h('option', { value: v, selected: v === value }, l)));
+// Shared icons and pickers; long lists use the body-portal menu from review.js.
+const PICK_ICONS = Object.fromEntries(Object.entries({
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  sort: '<path d="M4 6h16M4 12h11M4 18h6m8-8v11m-3-3 3 3 3-3"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18m-14 4h3m4 0h3"/>',
+  coin: '<circle cx="12" cy="12" r="9"/><path d="M15 8H10a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H9m3-10v12"/>',
+  sticker: '<path d="M21 12V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7l9-9Zm-9 9v-7a2 2 0 0 1 2-2h7"/>',
+  speed: '<path d="M4 17a9 9 0 1 1 16 0M12 13l5-6M6 13h1m10 0h1M8 7l1 1"/><circle cx="12" cy="13" r="2"/>',
+  film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16m10-16v16M3 9h4m-4 6h4m10-6h4m-4 6h4"/>',
+  monitor: '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M12 17v4m-4 0h8"/>',
+  chip: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 9h6v6H9zM9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4"/>',
+  star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/>',
+  list: '<path d="M9 6h12M9 12h12M9 18h12M3 6h1m-1 6h1m-1 6h1"/>',
+  hash: '<path d="M10 3 8 21M16 3l-2 18M4 8h17M3 16h17"/>',
+  layers: '<path d="m12 3 10 5-10 5L2 8Zm-10 9 10 5 10-5M2 16l10 5 10-5"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2"/>',
+  users: '<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v3m1-16a3 3 0 0 1 0 6m2 3a5 5 0 0 1 3 4v3"/>',
+  swords: '<path d="m4 3 3 1 13 15m-4 1 5-5M3 4l1 3 15 13M20 3l-3 1-5 6M21 4l-1 3-6 5M3 15l6 6m-5-1 5-5"/>',
+  flag: '<path d="M5 22V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0"/>',
+  timer: '<circle cx="12" cy="14" r="8"/><path d="M9 2h6m-3 0v4m0 4v5m6-9 2-2"/>',
+  trophy: '<path d="M7 3h10v6a5 5 0 0 1-10 0Zm0 2H3v3a4 4 0 0 0 5 4m9-7h4v3a4 4 0 0 1-5 4m-4 2v7m-4 0h8"/>',
+  repeat: '<path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4m14-1v2a3 3 0 0 1-3 3H3"/>',
+  map: '<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2Zm6-2v16m6-14v16"/>',
+  mouse: '<rect x="6" y="2" width="12" height="20" rx="6"/><path d="M12 2v8M6 10h12"/>',
+}).map(([k, svg]) => [k, `<g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${svg}</g>`]));
+function pickSvg(svg) { return h('span', { class: 'pick-ic', 'aria-hidden': 'true' }, icon(svg)); }
+function sideIcon(side) {
+  if (side === 'both' || side === 'all') return h('span', { class: 'pick-sides', 'aria-hidden': 'true' }, sideIcon('T'), sideIcon('CT'));
+  return h('img', { class: 'pick-side', src: `img/team-${String(side).toLowerCase()}.png`, alt: '', 'aria-hidden': 'true' });
+}
+function pickMap(m) { return !m || m === 'all' ? pickSvg(PICK_ICONS.map) : mapEmblem(m, 'pick-emblem'); }
+function pickWeapon(code) { return code === 'all' ? pickSvg(PICK_ICONS.grid) : h('span', { class: 'pick-wpn', 'aria-hidden': 'true' }, weaponIcon(code)); }
+function select(value, options, onchange, opts = {}) {
+  const same = (a, b) => String(a) === String(b);
+  const image = ([v, , factory]) => factory ? factory() : opts.icon ? opts.icon(v) : pickSvg(PICK_ICONS.grid);
+  const prefix = () => opts.label ? h('span', { class: 'pick-prefix' }, opts.label) : null;
+  if (opts.seg === true || (opts.seg !== false && options.length <= 4 && options.every(([, l]) => String(l).length <= 18))) {
+    const root = h('div', { class: `tabs pick-seg ${opts.cls || ''}`, title: opts.title, role: 'group', 'aria-label': opts.label || opts.title });
+    const buttons = options.map(o => h('button', { type: 'button', class: `${same(o[0], value) ? 'on' : ''} ${['T', 'CT'].includes(o[0]) ? 'side-' + o[0] : ''}`,
+      'aria-pressed': String(same(o[0], value)), onclick: () => {
+        buttons.forEach((b, i) => { const on = same(options[i][0], o[0]); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+        onchange(o[0]);
+      } }, image(o), h('span', { class: 'pick-label' }, o[1])));
+    root.append(...[prefix(), ...buttons].filter(Boolean));
+    return root;
+  }
+  const items = options.map(o => ({ value: String(o[0]), label: String(o[1]), icon: () => image(o) }));
+  const build = current => {
+    const btn = cmpMenu({ value: String(current), items, search: opts.search ?? options.length > 10, noun: opts.noun || 'options', right: opts.right,
+      cls: `pick-btn ${opts.cls || ''}`, onpick: v => {
+        const next = build(v), focused = document.activeElement === btn;
+        btn.replaceWith(next);
+        if (focused) next.focus({ preventScroll: true });
+        onchange(options.find(o => same(o[0], v))[0]);
+      } });
+    if (opts.label) btn.prepend(prefix());
+    if (opts.title) btn.title = opts.title;
+    return btn;
+  };
+  return build(value);
 }
 
 // ---------- HLAE updates ----------
@@ -4044,10 +4388,11 @@ function themeCard() {
   };
   const color = (key, label, value, fallback) => h('label', { class: 'theme-color' },
     h('input', { type: 'color', value: value || fallback, oninput: e => edit({ [key]: e.target.value }, true), onchange: e => edit({ [key]: e.target.value }, false) }), label);
-  const teamSelect = h('span', {}, select(c.logo || '', [['', 'No logo'], ...(c.logo ? [[c.logo, teamName(c.logo)]] : [])], () => {}));
+  const teamIcon = code => code ? artImg('pick-emblem', Scene.teamUrl(code)) : pickSvg(PICK_ICONS.users);
+  const teamSelect = h('span', {}, select(c.logo || '', [['', 'No logo'], ...(c.logo ? [[c.logo, teamName(c.logo)]] : [])], () => {}, { seg: false, search: true, icon: teamIcon, noun: 'teams' }));
   Scene.list().then(l => {
     const codes = (l?.teams || []).slice().sort((a, b) => teamName(a).localeCompare(teamName(b)));
-    teamSelect.replaceChildren(select(c.logo || '', [['', 'No logo'], ...codes.map(code => [code, teamName(code)])], v => edit({ logo: v, map: v ? '' : c.map, art: '' }, false)));
+    teamSelect.replaceChildren(select(c.logo || '', [['', 'No logo'], ...codes.map(code => [code, teamName(code)])], v => edit({ logo: v, map: v ? '' : c.map, art: '' }, false), { seg: false, search: true, icon: teamIcon, noun: 'teams' }));
   });
   const maps = Object.keys(MAPS);
   return h('div', { class: 'card' },
@@ -4066,9 +4411,9 @@ function themeCard() {
         color('data', 'Highlights', c.data, c.accent),
         c.data ? h('button', { class: 'link-btn', onclick: () => edit({ data: '' }, false) }, 'Highlights = accent') : null),
       h('div', { class: 'theme-custom-ctl' },
-        h('label', { class: 'theme-color' }, select(c.map || '', [['', 'No map'], ...maps.map(m => [m, mapName(m)])], v => edit({ map: v, shot: '', logo: v ? '' : c.logo, art: '' }, false)), 'Map picture'),
+        h('label', { class: 'theme-color' }, select(c.map || '', [['', 'No map'], ...maps.map(m => [m, mapName(m)])], v => edit({ map: v, shot: '', logo: v ? '' : c.logo, art: '' }, false), { seg: false, icon: pickMap, noun: 'maps' }), 'Map picture'),
         h('label', { class: 'theme-color' }, teamSelect, 'Team logo'),
-        h('label', { class: 'theme-color' }, select(c.pattern || '', PATTERN_NAMES, v => edit({ pattern: v }, false)), 'Pattern'))),
+        h('label', { class: 'theme-color' }, select(c.pattern || '', PATTERN_NAMES, v => edit({ pattern: v }, false), { seg: true, cls: 'pick-patterns', icon: v => { const tile = Scene.patternTile(v, c.accent); return tile ? h('span', { class: 'pick-pattern', style: { backgroundImage: tile.url }, 'aria-hidden': 'true' }) : pickSvg(PICK_ICONS.grid); } }), 'Pattern'))),
     ...(cur === 'custom' ? shotPicker : []),
   );
 }
@@ -4081,7 +4426,7 @@ function renderThemes() {
     h('div', { class: 'card' },
       h('h3', {}, 'Display'),
       row('Interface size', select(String(st.uiScale || 0), [['0', `Automatic (now ${Math.round((st.uiScale ? autoScale() : api.getZoom()) * 100)}%)`], ['0.9', '90%'], ['1', '100%'], ['1.1', '110%'], ['1.25', '125%'], ['1.4', '140%'], ['1.6', '160%'], ['1.8', '180%'], ['2', '200%']],
-        v => save({ uiScale: +v }).then(() => { applyScale(); renderThemes(); })), 'Automatic follows the window: everything is drawn bigger on large screens, about 30% at 2560 × 1440 and 80% at 3840 × 2160.'),
+        v => save({ uiScale: +v }).then(() => { applyScale(); renderThemes(); }), { seg: false, icon: () => pickSvg(PICK_ICONS.monitor) }), 'Automatic follows the window: everything is drawn bigger on large screens, about 30% at 2560 × 1440 and 80% at 3840 × 2160.'),
     )));
 }
 
@@ -4096,10 +4441,10 @@ function renderSettings() {
     h('div', { class: 'card' },
       h('h3', {}, 'Highlights'),
       h('div', { class: 'desc' }, 'What counts as a highlight. Each round becomes at most one clip.'),
-      row('Multi-kill from', select(String(d.minMultiKill), [['2', '2 kills'], ['3', '3 kills (3K)'], ['4', '4 kills (4K)'], ['5', 'Aces only']], v => save({ detection: { minMultiKill: +v } }, true))),
+      row('Multi-kill from', select(String(d.minMultiKill), [['2', '2 kills'], ['3', '3 kills (3K)'], ['4', '4 kills (4K)'], ['5', 'Aces only']], v => save({ detection: { minMultiKill: +v } }, true), { seg: true, icon: () => pickSvg(PICK_ICONS.trophy) })),
       row('Clutches', h('div', { class: 'ctl' },
         toggle('Include clutches', d.clutch, v => save({ detection: { clutch: v } }, true)),
-        select(String(d.minClutch), [['1', 'from 1v1'], ['2', 'from 1v2'], ['3', 'from 1v3'], ['4', 'from 1v4'], ['5', '1v5 only']], v => save({ detection: { minClutch: +v } }, true)))),
+        select(String(d.minClutch), [['1', 'from 1v1'], ['2', 'from 1v2'], ['3', 'from 1v3'], ['4', 'from 1v4'], ['5', '1v5 only']], v => save({ detection: { minClutch: +v } }, true), { seg: true, icon: () => pickSvg(PICK_ICONS.swords) }))),
       row('Special kills', h('div', { class: 'chips' }, ...Object.entries(SPECIAL_LABELS).map(([k, l]) => toggle(l, d.specials[k], v => save({ detection: { specials: { [k]: v } } }, true))))),
       row('Seconds before / after', h('div', { class: 'ctl' },
         num(t.padBefore, v => save({ timing: { padBefore: v } }, true), { max: 15, step: 0.5 }), ' / ',
@@ -4117,8 +4462,10 @@ function renderSettings() {
         'HLAE must match your CS2 version. After a CS2 update, recording can fail until HLAE is updated.'),
       row('HLAE updates', hlaeUpdateCtl()),
       row('Resolution', select(`${st.hlae.width}x${st.hlae.height}`, [['1280x720', '1280 × 720'], ['1920x1080', '1920 × 1080'], ['2560x1440', '2560 × 1440']],
-        v => { const [w, hh] = v.split('x').map(Number); save({ hlae: { width: w, height: hh } }); })),
-      row('Frame rate', select(String(st.hlae.fps), [['30', '30 fps'], ['60', '60 fps'], ['120', '120 fps']], v => save({ hlae: { fps: +v } }))),
+        v => { const [w, hh] = v.split('x').map(Number); save({ hlae: { width: w, height: hh } }); }, { seg: true, icon: () => pickSvg(PICK_ICONS.monitor) })),
+      row('Frame rate', select(String(st.hlae.fps), [['30', '30 fps'], ['60', '60 fps'], ['120', '120 fps']], v => save({ hlae: { fps: +v } }), { seg: true, icon: () => pickSvg(PICK_ICONS.film) })),
+      row('Lowest auto size', select(`${st.videoSize?.minHeight ?? 360}p${st.videoSize?.minFps ?? 30}`, [['1080p60', '1080p 60'], ['720p60', '720p 60'], ['720p30', '720p 30'], ['540p30', '540p 30'], ['360p30', '360p 30 (any)']],
+        v => { const [hh, f] = v.split('p').map(Number); save({ videoSize: { minHeight: hh, minFps: f } }); }, { seg: false, icon: () => pickSvg(PICK_ICONS.monitor) })),
     ),
 
     h('div', { class: 'card' },
@@ -4148,7 +4495,7 @@ function renderSettings() {
       h('h3', {}, 'Output'),
       row('Save clips to', h('div', { class: 'ctl' }, h('span', { class: 'mono', style: { flex: 1 } }, e.outputDir),
         h('button', { class: 'btn', onclick: async () => { const p = await api.pickFolder('Where to save clips'); if (p) { await save({ outputDir: p }); await refreshEnv(); renderSettings(); } } }, 'Change'))),
-      row('Video encoder', select(st.encoder, [['auto', `Auto (using ${e.encoder})`], ['libx264', 'CPU (x264)'], ['h264_nvenc', 'NVIDIA (NVENC)'], ['h264_amf', 'AMD (AMF)'], ['h264_qsv', 'Intel (QuickSync)']], v => save({ encoder: v }).then(refreshEnv))),
+      row('Video encoder', select(st.encoder, [['auto', `Auto (using ${e.encoder})`], ['libx264', 'CPU (x264)'], ['h264_nvenc', 'NVIDIA (NVENC)'], ['h264_amf', 'AMD (AMF)'], ['h264_qsv', 'Intel (QuickSync)']], v => save({ encoder: v }).then(refreshEnv), { seg: false, icon: () => pickSvg(PICK_ICONS.chip) })),
       row('Montage fade', h('div', { class: 'ctl' }, num(st.montage.fade, v => save({ montage: { fade: v } }), { max: 2, step: 0.05 }), 'seconds')),
       row('Keep raw recordings', toggle('Keep', st.keepRaw, v => save({ keepRaw: v })), "Keeps HLAE's separate video and audio files in a _raw folder."),
       row('ffmpeg', h('div', { class: 'ctl' }, h('span', { class: 'mono', style: { flex: 1 } }, e.ffmpeg || 'not found'),

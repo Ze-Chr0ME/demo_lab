@@ -1,4 +1,6 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net, nativeImage, Notification, session, globalShortcut } = require('electron');
+const { guardOutputPipes } = require('./lib/outputPipes');
+guardOutputPipes(error => log('output stream error', error.stack || error));
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, crashReporter, screen, net, nativeImage, Notification, session, globalShortcut, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Worker } = require('worker_threads');
@@ -35,6 +37,7 @@ const { ThemeArt } = require('./lib/themeArt');
 const { Updater } = require('./lib/updater');
 const { Gallery, quaxUpload, SHORT_URL: GALLERY_SHORT, isPageLink } = require('./lib/gallery');
 const { InventoryStore, localCurrency } = require('./lib/inventory');
+const { SteamClient } = require('./lib/steamClient');
 const { DRILLS, WARMUP, anglePairs, angles, buildReps } = require('./lib/drills');
 const { Gsi, runTraining, runRecorder, newToken } = require('./lib/training');
 const { scoreOf, SCORE_HOW } = require('./lib/drillStats');
@@ -50,6 +53,7 @@ let viewer = null;   // HLAE session left open by "Watch in CS2": { session, dem
 let watching = null; // the "Watch in CS2" request being opened
 let ffmpegFound = null;
 let encoderReady = Promise.resolve();
+const sizeProbeCache = new Map();
 let downloader;
 const community = new Community();
 let communityState = 'unknown'; // 'ok' | 'signedOut' | 'unknown' (not checked yet)
@@ -61,6 +65,7 @@ let avatars; // AvatarStore: Steam profile pictures
 let themeArt; // ThemeArt: map screenshots and team logos from the CS2 install, for the themes
 let updater; // Updater: new DemoLab releases from GitHub
 let gallery; // Gallery: the "My highlights" web page (clips on catbox.moe)
+let steamClient;
 let inventory; // InventoryStore: Steam inventories and their prices
 let updating = false; // "Restart to update" was clicked: the quit must not start a second installer
 
@@ -414,7 +419,7 @@ function summaryOf(id, steamid) {
 
 // Where I played each round (Maps page) and my aim counts (overview): also computed once per demo and
 // kept in derived.json, but only once the extra facts they come from exist.
-const POS_VERSION = 1, AIM_SUM_VERSION = 1;
+const POS_VERSION = 1, AIM_SUM_VERSION = 2;
 function positionsOf(id, steamid) {
   const key = `pos|${id}|${steamid}`;
   const cached = store.derived(key, POS_VERSION);
@@ -833,7 +838,7 @@ async function startTraining(req) {
     map = req.mixMap;
     list = scenarios().list().filter(x => x.map === map);
     if (!list.length) throw new Error(`No scenario on ${map} yet.`);
-    mix = { reps: Math.max(1, Math.min(50, Math.round(req.reps || 10))), firstTo: Math.max(0, Math.min(16, Math.round(req.firstTo || 0))) };
+    mix = { reps: Math.max(1, Math.min(50, Math.round(req.reps || 10))), firstTo: Math.max(0, Math.min(16, Math.round(req.firstTo || 0))), seconds: 45 };
     scenario = { id: `mix_${map}`, name: `${map.replace(/^de_/, '').replace(/^./, c => c.toUpperCase())} mix` };
   } else if (drill === 'scenario') {
     scenario = scenarios().get(req.scenarioId);
@@ -845,7 +850,8 @@ async function startTraining(req) {
     const geo = meshOf(map);
     for (const x of list || [scenario]) for (const b of x.bots) b.jiggleAt = jigglePoints(geo, b);
     // one rep per scenario for the demo's reading (a rep is found by the start spot I land on)
-    parts = [{ drill, reps: (list || [scenario]).map(x => ({ me: x.me.pos, bots: x.bots.map(b => b.pos), smokes: x.smokes })) }];
+    // Mix subsets vary at the same start spot: omit targets rather than score bots that weren't there.
+    parts = [{ drill, reps: (list || [scenario]).map(x => ({ me: x.me.pos, bots: list?.length > 1 ? [] : x.bots.map(b => b.pos), smokes: x.smokes })) }];
   } else if (def.free) {
     map = def.map;
     if (!workshopDir(def.workshop)) throw new Error(`WORKSHOP_MISSING: Subscribe to ${def.mapTitle} on the Steam Workshop first (Steam downloads it), then try again.`);
@@ -911,8 +917,9 @@ async function startRecorder(map) {
   run.update({});
   const bindsFile = trainingDir('binds.json');
   (async () => {
+    let session;
     try {
-      const session = await viewerSession();
+      session = await viewerSession();
       const res = await runRecorder(run.plan, {
         session, gsi: g, log, status: run.update, cancelled: () => run.cancelled, rec: run.rec,
         loadMap: (m, cmd) => loadMap(session, m, cmd, () => run.cancelled),
@@ -926,7 +933,7 @@ async function startRecorder(map) {
       viewer.demo = null;
       if (!res || run.discard) return run.update({ phase: 'cancelled' });
       if (!res.bots.length) return run.update({ phase: 'recorded', scenario: null });
-      const draft = { map, name: `Recorded ${new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, me: res.me, bots: res.bots, smokes: [], options: { reps: 10, seconds: 25 } };
+      const draft = { map, name: `Recorded ${new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, me: res.me, bots: res.bots, smokes: [], options: { reps: 10, seconds: 45 } };
       let scenario = draft, saved = false;
       if (res.me) { try { scenario = scenarios().save(draft); saved = true; } catch (e) { log('recorder: not saved', e.message); } }
       log(`recorder: ${res.bots.length} bots on ${map}${res.me ? '' : ', no start spot'}${saved ? ', saved' : ''}`);
@@ -935,8 +942,13 @@ async function startRecorder(map) {
       log('recorder: failed', e.message);
       run.update({ phase: 'error', error: e.message });
     } finally {
+      // runRecorder restores the binds first; save the scenario before closing its CS2 session.
+      if (session) {
+        try { await session.quit({ timeoutMs: 1000 }); } catch (e) { log('recorder: closing CS2 failed', e.message); }
+        if (viewer?.session === session) viewer = null;
+      }
       training = null;
-      send('training:update', run.status);
+      // The terminal update was already sent above. Replaying it would reopen the editor.
     }
   })();
   return true;
@@ -1109,7 +1121,16 @@ function registerIpc() {
   // Everyone in my parsed demos, for the player search: names they used, how many matches, and how many
   // of those were with me or against me.
   // A player's inventory (me unless another SteamID is given) with prices from the chosen source.
-  handle('inventory:get', (steamid, refresh) => inventory.get(steamid || mySteamId(), { source: s().inventory.source, stickerShare: s().inventory.stickerShare, refresh: !!refresh }));
+  handle('inventory:get', (steamid, refresh) => inventory.get(steamid || mySteamId(), { source: s().inventory.source, stickerShare: s().inventory.stickerShare, refresh: !!refresh, storageAccount: steamClient.status() }));
+  handle('storage:status', () => ({ ...steamClient.status(), cs2Running: hlae.cs2Pids().length > 0 }));
+  handle('storage:login', credentials => steamClient.login(credentials));
+  handle('storage:guard', code => steamClient.guardCode(code));
+  handle('storage:cancel', () => steamClient.cancel());
+  handle('storage:logout', () => steamClient.logout());
+  handle('storage:read', async () => {
+    const { steamid, t, units } = await steamClient.readStorage();
+    return { steamid, t, units: units.map(({ id, name, count }) => ({ id, name, count })) };
+  });
   handle('inventory:market', name => inventory.market(name));
   handle('inventory:defaults', () => ({ currency: localCurrency(app.getLocaleCountryCode()) }));
   handle('avatars:get', ids => avatars.get(Array.isArray(ids) ? ids : []));
@@ -1370,7 +1391,8 @@ function registerIpc() {
       const a = analysis(it.demoPath, data, it.steamid || steamid || mySteamId());
       const h = a.highlights?.find(x => x.id === it.highlightId);
       if (!h) throw new Error('A queued highlight changed or is no longer available. Refresh Highlights and select it again.');
-      jobs.push({ demoPath: it.demoPath, demoId: store.idOf(it.demoPath), demoDate: matchDate(it.demoPath, fs.statSync(it.demoPath)), map: data.map, player: a.player, highlight: h });
+      jobs.push({ demoPath: it.demoPath, demoId: store.idOf(it.demoPath), demoDate: matchDate(it.demoPath, fs.statSync(it.demoPath)), map: data.map, player: a.player, highlight: h,
+        ...(it.video && typeof it.video === 'object' && !Array.isArray(it.video) ? { video: { ...it.video } } : {}) });
     }
     if (!jobs.length) throw new Error('Nothing to record.');
 
@@ -1380,9 +1402,16 @@ function registerIpc() {
     });
     const r = recorder;
     send('record:update', { state: 'running', total: jobs.length, step: 'Starting…', progress: 0 });
-    r.run(jobs).then(clips => {
+    r.run(jobs).then(async clips => {
       const lib = library();
-      clips.forEach(c => lib.add(c));
+      const saved = await Promise.all(clips.map(async (c, i) => {
+        // A fitted clip may have been scaled; save its output size rather than the recording size.
+        const info = (r.s.targetMB > 0 || jobs[i]?.video) && (!c.width || !c.height || !c.fps)
+          ? await ffmpeg.probe(c.file).catch(() => null) : null;
+        return { ...c, width: c.width || info?.width || r.s.hlae.width,
+          height: c.height || info?.height || r.s.hlae.height, fps: c.fps || info?.fps || r.s.hlae.fps };
+      }));
+      saved.forEach(c => lib.add(c));
       send('record:update', { state: 'done', clips: clips.length, progress: 1, step: `Done – ${clips.length} clip${clips.length === 1 ? '' : 's'} saved` });
     }).catch(err => {
       send('record:update', err instanceof Cancelled ? { state: 'cancelled', step: 'Cancelled' } : { state: 'error', error: err.message, step: 'Failed' });
@@ -1817,16 +1846,60 @@ function registerIpc() {
 
   // What a target size gives: bitrate, resolution and fps for each length (seconds). For a montage (ids),
   // the length is the clips together and the source size is the first clip's.
-  handle('video:sizePlan', async ({ mb, seconds = [], ids }) => {
+  handle('video:sizePlan', async ({ mb, seconds = [], ids, overrides = [] }) => {
     let src = { width: s().hlae.width, height: s().hlae.height, fps: s().hlae.fps };
+    let montageBytes = 0;
     if (ids?.length) {
       const all = library().list();
       const clips = ids.map(id => all.find(c => c.id === id)).filter(Boolean);
       const first = clips[0] && await ffmpeg.probe(clips[0].file).catch(() => null);
       if (first?.width) src = first;
       seconds = [clips.reduce((t, c) => t + (c.duration || 0), 0)];
+      for (const c of clips) {
+        try { montageBytes += fs.statSync(c.file).size; } catch {}
+      }
     }
-    return seconds.map(t => ({ seconds: t, ...ffmpeg.sizePlan(mb, t, src) }));
+    const bestPlans = async () => {
+      const width = src.width || 1920, height = src.height || 1080, fps = src.fps || 60;
+      const samples = [];
+      // Normalise history by its own dimensions, which may differ from today's recording settings.
+      if (!ids?.length) await Promise.all(library().list()
+        .filter(c => c.kind === 'clip' && (!c.duration || c.duration >= 3)).slice(0, 8).map(async c => {
+          try {
+            const stat = fs.statSync(c.file);
+            let info;
+            if (!c.width || !c.height || !c.fps || !c.duration) {
+              const key = `${c.file}|${stat.mtimeMs}`;
+              if (!sizeProbeCache.has(key)) sizeProbeCache.set(key, ffmpeg.probe(c.file).catch(() => null));
+              info = await sizeProbeCache.get(key);
+            }
+            const w = c.width || info?.width, h = c.height || info?.height, f = c.fps || info?.fps;
+            const duration = c.duration || info?.duration;
+            if (!(w > 0 && h > 0 && f > 0 && duration >= 3)) return;
+            const bpp = (stat.size * 8 / duration - 192000) / (w * h * f);
+            if (Number.isFinite(bpp)) samples.push(bpp);
+          } catch {}
+        }));
+      samples.sort((a, b) => a - b);
+      const mid = Math.floor(samples.length / 2);
+      const median = samples.length ? (samples[mid] + samples[Math.floor((samples.length - 1) / 2)]) / 2 : 0.12;
+      const videoKbps = Math.round(Math.max(0.02, Math.min(0.4, median)) * width * height * fps / 1000);
+      return seconds.map(t => ({ seconds: t, width, height, fps,
+        videoKbps: ids?.length ? Math.max(0, Math.round((t > 0 ? montageBytes * 8 / t / 1000 : 192) - 192)) : videoKbps,
+        audioKbps: 192, bytes: ids?.length ? montageBytes : (videoKbps + 192) * 1000 / 8 * t,
+        quality: 'best', estimated: true }));
+    };
+    const best = await bestPlans();
+    return seconds.map((t, i) => {
+      const video = !ids?.length && overrides?.[i];
+      const source = { width: src.width || 1920, height: src.height || 1080, fps: src.fps || 60 };
+      const floor = { minHeight: s().videoSize?.minHeight, minFps: s().videoSize?.minFps };
+      if (video && typeof video === 'object') return ffmpeg.clipPlan(mb, t, source, floor, video, best[i]);
+      if (!mb) return { ...best[i], src: source };
+      const plan = ffmpeg.sizePlan(mb, t, src, floor);
+      return { ...ffmpeg.preferBest({ seconds: t, ...plan,
+        bytes: Math.min(mb * 1048576, (plan.videoKbps + plan.audioKbps) * 1000 / 8 * t) }, best[i], mb), src: source };
+    });
   });
 
   handle('montage:make', async (ids, name, opts = {}) => {
@@ -1843,6 +1916,7 @@ function registerIpc() {
     try {
       const { duration } = await ffmpeg.montage(clips.map(c => c.file), file, {
         fade: s().montage.fade, mb: +opts.mb || 0, onProgress: p => send('montage:update', { state: 'running', progress: p }),
+        floor: { minHeight: s().videoSize?.minHeight, minFps: s().videoSize?.minFps },
       });
       const thumb = path.join(outputDir(), '.thumbs', path.basename(file, '.mp4') + '.jpg');
       fs.mkdirSync(path.dirname(thumb), { recursive: true });
@@ -1999,6 +2073,16 @@ app.whenReady().then(() => {
   // The inventory request carries the Steam Community sign-in (Downloads tab), so a private inventory of your own still works.
   inventory = new InventoryStore(app.getPath('userData'), {
     fetch: net.fetch, steamFetch: (url, o) => session.fromPartition(PARTITION).fetch(url, o), onImages: v => send('inventory:images', v), onSales: v => send('inventory:sales', v), log,
+  });
+  steamClient = new SteamClient(app.getPath('userData'), {
+    log,
+    encrypt: value => {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure storage is unavailable. DemoLab cannot save your Steam sign-in.');
+      return safeStorage.encryptString(value);
+    },
+    decrypt: value => safeStorage.decryptString(value),
+    isGameRunning: () => hlae.cs2Pids().length > 0,
+    onGuard: value => send('storage:guard', value), onProgress: value => send('storage:progress', value),
   });
   themeArt = new ThemeArt(app.getPath('userData'), () => env?.csgoDir || null);
   // Dev aid: DEMOLAB_FAKE_UPLOAD=<folder> "uploads" the highlights page's files into that folder, not to catbox.
