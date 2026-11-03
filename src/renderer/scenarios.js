@@ -104,7 +104,7 @@ function scenarioList() {
 
 const newScenario = map => {
   const sc = state.sc;
-  sc.edit = { map, name: '', me: null, bots: [], options: { reps: 10, seconds: 25, firstTo: 0 } };
+  sc.edit = { map, name: '', me: null, bots: [], options: { reps: 10, seconds: 45, firstTo: 0 } };
   sc.sel = null; sc.tool = 'me'; sc.floor = 'upper'; resetZoom(sc.view);
   renderTraining();
 };
@@ -147,7 +147,7 @@ function scPlayPanel(map, list) {
     h('span', { class: 'sc-k' }, one ? 'Play' : 'Map mix'),
     h('h3', {}, one ? one.name || 'Untitled' : `All ${list.length} ${mapName(map)} scenarios`),
     h('p', {}, one ? `${plural(one.bots.length, 'bot')} · ${one.options.firstTo ? `first to ${one.options.firstTo}` : plural(one.options.reps, 'rep')} · ${one.options.seconds} s rounds`
-      : 'A random one every rep, each with its own timer.'),
+      : 'A random one every rep, with 45 s rounds.'),
     one ? null : h('div', { class: 'sc-play-opts' },
       select(String(mix.firstTo), [['0', 'Play every rep'], ...[3, 5, 7, 10, 13, 16].map(n => [String(n), `First team to ${n}`])], v => { mix.firstTo = +v; renderTraining(); }, { seg: false, icon: () => pickSvg(PICK_ICONS.trophy) }),
       mix.firstTo ? null : select(String(mix.reps), [5, 10, 15, 20, 30].map(n => [String(n), `${n} reps`]), v => { mix.reps = +v; })),
@@ -179,6 +179,34 @@ function scRating(map, hist) {
 }
 
 // A scenario: where its bots and you stand, what it is, how it went.
+function scVersionReps(s, hist) {
+  const groups = {};
+  for (const e of [...hist].sort((a, b) => new Date(a.date) - new Date(b.date))) {
+    for (const r of Array.isArray(e.reps) ? e.reps : []) {
+      if (!r) continue;
+      const legacy = r.scenarioId == null && e.scenario?.id === s.id && !e.scenario.id.startsWith('mix_');
+      if ((r.scenarioId ?? (legacy ? s.id : null)) !== s.id) continue;
+      const bots = r.bots ?? (legacy ? s.bots.length : null);
+      if (!Number.isInteger(bots) || bots < 1) continue;
+      (groups[bots] ||= []).push(legacy ? { ...r, scenarioId: s.id, bots, of: s.bots.length } : r);
+    }
+  }
+  return groups;
+}
+
+function scVersions(s, hist) {
+  const groups = scVersionReps(s, hist), counts = Object.keys(groups).map(Number).sort((a, b) => b - a).slice(0, 5);
+  const rate = reps => Math.round(reps.filter(r => r.result === 'cleared').length / reps.length * 100);
+  return counts.length ? h('div', { class: 'sc-versions', title: 'Win rate by bot count · up to 5 versions, highest first' }, ...counts.map(n => {
+    const reps = groups[n], won = reps.filter(r => r.result === 'cleared').length, pct = rate(reps);
+    const recent = reps.slice(-10), before = reps.slice(-20, -10);
+    const trend = recent.length >= 5 && before.length >= 5 ? rate(recent) - rate(before) : null;
+    return h('div', { class: 'sc-version' }, h('b', {}, `${n}v1`), h('span', {}, `${won}/${reps.length} won`),
+      h('span', { class: 'sc-version-bar' }, h('i', { style: { width: `${pct}%` } })), h('span', {}, `${pct}%`),
+      trend != null ? h('span', { class: trend >= 0 ? 'up' : 'down', title: 'Win percentage points vs the 10 reps before' }, `${trend >= 0 ? '▲' : '▼'} ${Math.abs(trend)}`) : null);
+  })) : null;
+}
+
 function scCard(s, hist) {
   const mine = hist.filter(e => e.scenario?.id === s.id), last = mine.at(-1);
   const jig = s.bots.filter(b => b.jiggle).length, still = s.bots.filter(b => !b.shoot).length;
@@ -192,6 +220,7 @@ function scCard(s, hist) {
         stat(s.bots.length, s.bots.length === 1 ? 'bot' : 'bots', 'bots'),
         jig ? stat(jig, 'jiggling') : null, still ? stat(still, 'not shooting') : null,
         s.options.firstTo ? stat(s.options.firstTo, 'to win') : stat(s.options.reps, 'reps'), stat(s.options.seconds, 's')),
+      scVersions(s, hist),
       h('small', { class: 'sc-card-meta' }, last ? `${plural(mine.length, 'session')} · ${ago(last.date)}` : 'Not played yet'),
       h('div', { class: 'sc-card-foot' },
         h('button', { class: 'btn primary', disabled: running(), onclick: () => buyMenu(s.name || 'Untitled', () => playScenario(s)) }, icon(ICONS.play), 'Play'),

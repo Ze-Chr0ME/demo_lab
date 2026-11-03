@@ -163,7 +163,7 @@ function analyzeSession(file, { me, geometry = null, parts = null } = {}) {
     for (const d of deaths) {
       if (d.t < s.from || d.t >= s.to) continue;
       const t = Math.max(s.from, d.t - 1);
-      if (!ok(t)) continue;
+      if (!ok(t) || !targets.length) continue; // no known bot spots (map mix): can't tell
       const cands = targets.filter(x => !(x.dead && x.dead.t < d.t) && sees(x.pos, t, s.rep.smokes));
       const killer = cands.sort((a, b) => aimAt(a.pos, t).err - aimAt(b.pos, t).err)[0];
       deathInfo.set(d, { eng: killer ? engs.find(e => e.pos === killer.pos && e.t <= d.t && e.part === s.part && e.t >= s.from) || null : null, unseen: !killer });

@@ -71,7 +71,7 @@ function clean(s) {
     me: { pos: s.me.pos.map(num), yaw: num(s.me.yaw || 0) },
     bots,
     smokes: [], // smokes were dropped (throwing them for real meant teleporting around before every rep)
-    options: { reps: Math.max(1, Math.min(50, Math.round(num(o.reps) || 10))), seconds: Math.max(8, Math.min(120, Math.round(num(o.seconds) || 25))),
+    options: { reps: Math.max(1, Math.min(50, Math.round(num(o.reps) || 10))), seconds: Math.max(8, Math.min(120, Math.round(num(o.seconds) || 45))),
       firstTo: Math.max(0, Math.min(16, Math.round(num(o.firstTo)))) }, // 0: every rep is played
     created: s.created || Date.now(),
     updated: Date.now(),

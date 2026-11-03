@@ -28,6 +28,12 @@ const REP_SECONDS = 20;       // a rep nobody finishes ends after this
 const TIMED_REP_SECONDS = 12; // without live kills: every rep lasts this long
 const RESPAWN_WAIT = 1800;    // ms for killed bots to respawn before the next rep moves them
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const pickBotIndices = n => {
+  const count = 1 + Math.floor(Math.random() * n), indices = Array.from({ length: n }, (_, k) => k);
+  for (let k = indices.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [indices[k], indices[j]] = [indices[j], indices[k]]; }
+  return indices.slice(0, count).sort((a, b) => a - b);
+};
 // every gun of the buy menu (My scenarios), and the grenades a session can start with: no smokes
 const WEAPONS = Object.fromEntries(['glock', 'usp_silencer', 'hkp2000', 'elite', 'p250', 'tec9', 'fiveseven', 'cz75a', 'deagle', 'revolver',
   'mac10', 'mp9', 'mp7', 'mp5sd', 'ump45', 'p90', 'bizon', 'nova', 'xm1014', 'mag7', 'sawedoff', 'negev', 'm249',
@@ -324,8 +330,8 @@ async function runTraining(plan, io) {
 
   // ---- a scenario: same layout every rep
   // list: one scenario, or a map's mix (a random one every rep: shuffled, shuffled again once all
-  // were played, never the same twice in a row). Each rep's timer is its scenario's.
-  const scenarioRun = async (list, { reps, firstTo = 0 }) => {
+  // were played, never the same twice in a row). Mixes override the individual scenario timers.
+  const scenarioRun = async (list, { reps, firstTo = 0, seconds }) => {
     // a tree per bot of every scenario at once (installing removes the trees installed before)
     const all = installScenarioBrains(io.csgoDir, o.difficulty ?? 2, list.flatMap(x => x.bots));
     const filesOf = new Map();
@@ -360,7 +366,7 @@ async function runTraining(plan, io) {
     // round starts). Out of time is T's round: I'm killed just before it ends (CT's when it runs out).
     let setupMs = 2500, roundMs = 0, roundAsked = Date.now();
     const roundTime = () => {
-      roundMs = setupMs + next.options.seconds * 1000;
+      roundMs = setupMs + (seconds ?? next.options.seconds) * 1000;
       const m = (roundMs / 60000).toFixed(3);
       return [`mp_roundtime ${m}`, `mp_roundtime_defuse ${m}`];
     };
@@ -395,17 +401,19 @@ async function runTraining(plan, io) {
       status({ phase: 'running', drill: 'scenario', rep: i + 1, reps: shown, message: 'Setting up the rep…', live: useGsi });
       await nextRound();
       sc = next;
-      files = filesOf.get(sc);
-      if (list.length > 1) log(`training: rep ${i + 1}: "${sc.name}"`);
+      const indices = list.length > 1 ? pickBotIndices(sc.bots.length) : sc.bots.map((_, k) => k), c = indices.length;
+      const selected = indices.map(k => sc.bots[k]);
+      files = indices.map(k => filesOf.get(sc)[k]);
+      if (list.length > 1) log(`training: rep ${i + 1}: "${sc.name}" ${c}v1`);
       const mine = await addBots();
-      if (mine.length !== files.length) log(`training: rep ${i + 1}: ${mine.length} bots instead of ${files.length}: ${mine.map(b => b.name).join(', ')}`);
-      const placeBots = () => session.send(mine.slice(0, sc.bots.length).map((b, k) => `setpos_player ${b.id + slotOffset} ${fmt([sc.bots[k].pos[0], sc.bots[k].pos[1], sc.bots[k].pos[2] + 24])}`));
+      if (mine.length !== c) log(`training: rep ${i + 1}: ${mine.length} bots instead of ${c}: ${mine.map(b => b.name).join(', ')}`);
+      const placeBots = () => session.send(mine.slice(0, c).map((b, k) => `setpos_player ${b.id + slotOffset} ${fmt([selected[k].pos[0], selected[k].pos[1], selected[k].pos[2] + 24])}`));
       await placeBots();
       await sleep(150);
       const tries = await teleport(session, log, sc.me.pos, sc.me.yaw, i === 0);
       if (!tries) log(`training: rep ${i + 1}: could not keep me on the start spot`);
       if (tries > 1) { await placeBots(); await sleep(150); }
-      if (i === 0) log(`training: rep 1: ${mine.length}/${sc.bots.length} bots ${mine.map(b => `${b.name}#${b.id}`).join(', ')}, me ${JSON.stringify(gsi.mine())}`);
+      if (i === 0) log(`training: rep 1: ${mine.length}/${c} bots ${mine.map(b => `${b.name}#${b.id}`).join(', ')}, me ${JSON.stringify(gsi.mine())}`);
       // Every fresh round equips the selected melee/special weapon after teleporting.
       if (o.weapon === 'taser') await session.send(['give weapon_taser', 'use weapon_taser']);
       else if (o.weapon === 'knife') await session.send(['use weapon_knife']);
@@ -415,7 +423,7 @@ async function runTraining(plan, io) {
       if (startedAt < t0) setupMs = Math.min(15000, t0 - startedAt);
       const deadline = Math.max(t0 + 3000, startedAt + roundMs - 300);
       part.reps++;
-      status({ phase: 'running', drill: 'scenario', rep: i + 1, reps: shown, message: [firstTo ? `${won}–${lost}` : null, list.length > 1 ? sc.name : null].filter(Boolean).join(' · ') || null, live: useGsi, done: part.done });
+      status({ phase: 'running', drill: 'scenario', rep: i + 1, reps: shown, message: [firstTo ? `${won}–${lost}` : null, list.length > 1 ? `${sc.name} · ${c}v1` : null].filter(Boolean).join(' · ') || null, live: useGsi, done: part.done });
       let result = 'time';
       while (Date.now() < deadline && !cancelled()) {
         await sleep(150);
@@ -423,7 +431,7 @@ async function runTraining(plan, io) {
         if (roundOver()) { result = gsi.state.round.win_team === 'CT' && Date.now() < deadline - 200 ? 'cleared' : 'died'; break; }
         const now = gsi.me();
         if (useGsi && now && before) {
-          if (now.kills - before.kills >= sc.bots.length) { result = 'cleared'; break; }
+          if (now.kills - before.kills >= c) { result = 'cleared'; break; }
           if (now.deaths > before.deaths) { result = 'died'; break; }
         }
       }
@@ -433,7 +441,7 @@ async function runTraining(plan, io) {
       await session.send(roundTime());
       if (result === 'cleared') won++; else lost++;
       const kills = useGsi && before ? Math.max(0, (gsi.me()?.kills ?? before.kills) - before.kills) : null;
-      out.reps.push({ result, ms: Date.now() - t0, kills, ...(list.length > 1 ? { scenario: sc.name } : {}) });
+      out.reps.push({ result, ms: Date.now() - t0, kills, scenarioId: sc.id, bots: c, of: sc.bots.length, ...(list.length > 1 ? { scenario: sc.name } : {}) });
       if (result === 'cleared') part.done++;
       log(`training: rep ${i + 1}: ${result}${kills != null ? `, ${kills} kills` : ''} (${won}-${lost})`);
     }
@@ -622,7 +630,8 @@ async function runRecorder(plan, io) {
     }
   } finally {
     if (session.sock) {
-      try { await session.send([...rebind(restore), ...RESET]); io.binds.save(null); } catch {}
+      // The caller closes CS2 next. Only restore the persisted key binds before quitting.
+      try { await session.send(rebind(restore)); io.binds.save(null); } catch {}
     }
   }
   return { me: rec.me, bots: rec.bots };
