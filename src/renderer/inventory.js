@@ -4,7 +4,8 @@
 // inventory and a price list for every item; this page converts the dollars to your currency, adds them up,
 // and shows the value over time (one point each time the inventory is read, at most one per hour).
 
-state.inv = { who: null, data: null, error: null, loading: false, q: '', type: 'all', sort: 'total', hideFree: false, currency: '' };
+state.inv = { who: null, data: null, error: null, loading: false, q: '', type: 'all', where: 'inv', sort: 'total', hideFree: false, currency: '',
+  su: { busy: false, progress: null, error: null } };
 const invImages = new Map(); // icon_url -> file
 // The main process prices the most valuable items from their Steam sales in the background: show the
 // progress, and read the inventory again (cached, no Steam request) every few items and at the end.
@@ -26,6 +27,14 @@ api.onInventoryImages(v => {
   }
 });
 api.inventoryDefaults().then(d => { state.inv.defaultCurrency = d.currency; }).catch(() => {});
+// Storage unit contents only come from CS2's Game Coordinator, so reading them needs a Steam client sign-in
+// (lib/steamClient.js in the main process). Read when asked, never while CS2 runs: it would kick the game.
+api.onStorageProgress(v => {
+  state.inv.su.progress = v;
+  const el = $('#invSuProgress');
+  if (el) el.textContent = `Reading storage unit ${v.done} of ${v.total}…`;
+});
+api.onStorageGuard(v => invSignIn?.code(v));
 
 // The types in the order people think of them; anything else goes after, alphabetically.
 const INV_TYPES = ['Knife', 'Gloves', 'Rifle', 'Sniper Rifle', 'Pistol', 'SMG', 'Shotgun', 'Machinegun', 'Agent', 'Sticker', 'Patch', 'Charm',
@@ -129,6 +138,7 @@ function renderInventory() {
     stat('Items', [fmtNum(d.priced), h('small', {}, `of ${fmtNum(d.count)}`)], unpriced > 0 ? h('span', { title: 'Medals, coins, badges and other items that cannot be sold' }, `${fmtNum(unpriced)} without a price`) : null),
     stat('Average per priced item', invMoney(d.priced ? d.total / d.priced : 0)),
     d.applied > 0.005 ? stat('Stickers & charms on items', `+${invMoney(d.applied)}`, 'Included in inventory value', `Included in the value: charms at their full price (they come off), applied stickers at ${Math.round(d.stickerShare * 100)}% of theirs, less when scraped`) : null,
+    d.storage?.count ? stat('In storage units', invMoney(d.storage.value), `${fmtNum(d.storage.count)} items in ${d.storage.units.length} unit${d.storage.units.length === 1 ? '' : 's'}`, 'Included in the inventory value') : null,
     d.sales?.items ? stat('Priced from Steam sales', invMoney(d.sales.value), `${fmtNum(d.sales.items)} items`, 'These items are priced from their own Steam Market sales over the last day (the last week for rarely sold items). The rest use the price list.') : null,
   ].filter(Boolean);
   const summary = h('div', { class: 'inv-summary', style: { '--inv-stats': stats.length } },
@@ -149,9 +159,10 @@ function renderInventory() {
     title: `Show only ${t}`, onclick: () => { st.type = st.type === t ? 'all' : t; renderInventory(); },
   })), { empty: 'No priced items' }), { span: 2, cls: 'inv-types' });
 
+  const units = isMe && d.storage ? invStorageCard(d) : null;
   page(head, notes, summary,
-    h('div', { class: 'hint inv-storage' }, 'Storage unit contents are not part of the Steam inventory and are not counted.'),
-    h('div', { class: 'dash inv-dash' }, invHistoryCard(d), typeCard),
+    units ? null : h('div', { class: 'hint inv-storage' }, isMe ? 'Storage unit contents are not part of the Steam inventory and are not counted.' : 'Storage unit contents are only visible to their owner and are not counted.'),
+    h('div', { class: 'dash inv-dash' }, invHistoryCard(d), typeCard, units),
     invItemsSection(d));
 }
 
@@ -234,6 +245,131 @@ function invHistoryCard(d) {
   return card('Value over time', el, { span: 2, cls: 'inv-history', extra: h('span', { class: 'hint' }, `${pts.length} points since ${new Date(first.t).toLocaleDateString()} · `, invChangeEl(invChange(pts[pts.length - 1].usd, first.usd), 'Since the first point')) });
 }
 
+// ---- Storage units (your own inventory only)
+const INV_BOX = '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M3 7.5 12 12l9-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>';
+function invStorageCard(d) {
+  const s = d.storage, su = state.inv.su;
+  const signOut = h('button', { class: 'btn ghost', disabled: su.busy, title: 'Forget the Steam sign-in DemoLab keeps for storage units', onclick: invSignOut }, 'Sign out');
+  const read = label => h('button', { class: 'btn primary', disabled: su.busy, onclick: invReadStorage }, icon(INV_BOX), label);
+  const busy = su.busy ? h('div', { class: 'inv-su-busy' }, spinner(12), h('span', { id: 'invSuProgress' },
+    su.progress ? `Reading storage unit ${su.progress.done} of ${su.progress.total}…` : 'Signing in to CS2…'),
+    h('button', { class: 'btn ghost', onclick: () => api.storageCancel().catch(() => {}) }, 'Stop')) : null;
+  const err = su.error ? h('div', { class: 'err-box' }, su.error) : null;
+  const what = [h('b', {}, 'Optional.'), ' Everything else on this page works without it: only storage unit contents need it. Steam shows what is inside storage units to CS2 alone, so signing in here is the only way to read them. DemoLab then reads them like a second PC, only when you ask. Close CS2 first: reading them would kick your game.'];
+  let body, extra;
+  if (!s.signedIn) {
+    extra = null;
+    body = h('div', { class: 'inv-su-empty' }, icon(INV_BOX, 'class="big"'),
+      h('div', {}, h('b', {}, 'Count your storage units too (optional)'), h('p', { class: 'hint' }, what)),
+      h('button', { class: 'btn primary', onclick: () => invSignInDialog() }, 'Sign in to Steam'));
+  } else if (!s.mine) {
+    extra = signOut;
+    body = h('div', { class: 'inv-su-empty' }, icon(INV_BOX, 'class="big"'),
+      h('div', {}, h('b', {}, `Signed in as ${s.account || 'another account'}`), h('p', { class: 'hint' }, 'That Steam account is not the one this inventory belongs to. Sign out and sign in with this one to count its storage units.')));
+  } else if (!s.t) {
+    extra = signOut;
+    body = h('div', { class: 'inv-su-empty' }, icon(INV_BOX, 'class="big"'),
+      h('div', {}, h('b', {}, `Signed in as ${s.account}`), h('p', { class: 'hint' }, 'Close CS2, then read your storage units. Their contents are added to the inventory value.')),
+      su.busy ? null : read('Read storage units'));
+  } else {
+    extra = [h('span', { class: 'hint' }, `${s.account} · read ${ago(s.t)}`), su.busy ? null : read('Read again'), signOut];
+    const max = Math.max(1e-9, ...s.units.map(u => u.value || 0));
+    body = s.units.length ? barList(s.units.map(u => ({
+      label: u.name, note: `${fmtNum(u.count)} item${u.count === 1 ? '' : 's'}${u.priced < u.count ? ` · ${fmtNum(u.count - u.priced)} without a price` : ''}`,
+      value: invMoney(u.value, { cents: false }), frac: (u.value || 0) / max,
+      title: `Open “${u.name}”`, onclick: () => invOpenUnit(u.id),
+    }))) : h('div', { class: 'muted-note' }, 'You have no storage units.');
+  }
+  return card('Storage units', [busy, err, body], { span: 4, cls: 'inv-units', extra });
+}
+
+async function invReadStorage() {
+  const su = state.inv.su;
+  if (su.busy) return;
+  Object.assign(su, { busy: true, progress: null, error: null });
+  renderInventory();
+  try {
+    const r = await api.storageRead();
+    toast(`Read ${r.units.length} storage unit${r.units.length === 1 ? '' : 's'}`);
+  } catch (e) { su.error = e.message === 'Cancelled' ? null : e.message; }
+  su.busy = false;
+  if (state.view === 'inventory') loadInventory(); // the main process signed in or out: show it either way
+}
+
+async function invSignOut() {
+  try { await api.storageLogout(); } catch (e) { toast(e.message, 'error'); }
+  state.inv.su.error = null;
+  loadInventory();
+}
+
+// The sign-in dialog: account name and password, then a Steam Guard step when Steam asks for one (the main
+// process sends storage:guard and waits for the code; a phone approval finishes the sign-in on its own).
+let invSignIn = null;
+function invSignInDialog() {
+  const body = h('div', { class: 'inv-signin' });
+  const err = h('div', { class: 'err-box hidden' });
+  const showErr = m => { err.textContent = m || ''; err.classList.toggle('hidden', !m); };
+  const user = h('input', { type: 'text', autocomplete: 'username', spellcheck: 'false', placeholder: 'Steam account name (not your profile name)' });
+  const pass = h('input', { type: 'password', autocomplete: 'current-password', placeholder: 'Password' });
+  const waiting = text => body.replaceChildren(h('div', { class: 'inv-signin-wait' }, spinner(18), h('span', {}, text)),
+    h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: () => cancel() }, 'Cancel')));
+  const credentials = () => {
+    body.replaceChildren(h('form', { class: 'inv-signin-form', onsubmit: e => { e.preventDefault(); submit(); } },
+      h('label', {}, 'Account name', user), h('label', {}, 'Password', pass),
+      h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: () => cancel() }, 'Cancel'), h('button', { class: 'btn primary', type: 'submit' }, 'Sign in'))));
+    (user.value ? pass : user).focus();
+  };
+  const me = {
+    code(v) {
+      if (invSignIn !== me) return;
+      showErr(v.wrong ? 'That code was not right. Try again with a new one.' : '');
+      const input = h('input', { type: 'text', class: 'inv-code', maxlength: 5, autocomplete: 'one-time-code', spellcheck: 'false', placeholder: 'XXXXX',
+        oninput: e => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); } });
+      body.replaceChildren(h('form', { class: 'inv-signin-form', onsubmit: e => {
+        e.preventDefault();
+        if (input.value.length < 5) return;
+        api.storageGuard(input.value).catch(x => showErr(x.message));
+        waiting('Checking the code…');
+      } },
+      h('p', {}, v.kind === 'email' ? `Steam sent a code to your email${v.domain ? ` at ${v.domain}` : ''}.` : 'Enter the code from the Steam Mobile app, or approve the sign-in in the app.'),
+      h('label', {}, 'Steam Guard code', input),
+      h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: () => cancel() }, 'Cancel'), h('button', { class: 'btn primary', type: 'submit' }, 'Continue'))));
+      input.focus();
+    },
+  };
+  const close = () => { invSignIn = null; closeModal(); };
+  const cancel = () => { if (busy) api.storageCancel().catch(() => {}); close(); };
+  let busy = false;
+  async function submit() {
+    if (!user.value.trim() || !pass.value) return showErr('Enter your account name and password.');
+    showErr('');
+    waiting('Signing in to Steam…');
+    busy = true;
+    try {
+      const r = await api.storageLogin(user.value.trim(), pass.value).finally(() => { busy = false; });
+      pass.value = '';
+      if (invSignIn === me) close();
+      toast(`Signed in to Steam as ${r.account}`);
+      if (state.view === 'inventory') invReadStorage();
+    } catch (e) {
+      if (invSignIn !== me) return e.message === 'Cancelled' ? null : toast(e.message, 'error');
+      credentials();
+      showErr(e.message);
+    }
+  }
+  invSignIn = me;
+  modal([
+    h('h2', {}, 'Sign in to Steam'),
+    h('p', {}, 'Steam shows what is inside storage units to CS2 alone, so this sign-in is the only way to count them. DemoLab reads them like a second PC would.'),
+    h('div', { class: 'info-box inv-signin-optional' }, h('b', {}, 'This is optional.'), ' Your inventory, its value and everything else on the Inventory page work without signing in. Only the contents of your storage units need it.'),
+    h('ul', { class: 'inv-signin-notes' },
+      h('li', {}, 'Your password goes to Steam only and is never saved. DemoLab keeps a sign-in token, encrypted by Windows, until you sign out.'),
+      h('li', {}, 'Storage units are only read when you ask, and never while CS2 is running (it would kick your game).')),
+    err, body,
+  ], { onClose: false });
+  credentials();
+}
+
 // ---- Steam Market price graph of one item (item popup)
 const INV_RANGES = [['7', '1W'], ['30', '1M'], ['90', '3M'], ['365', '1Y'], ['all', 'All']];
 const invMarket = new Map(); // market name -> Promise of { currency, prices: [[ms, price, sold]] }
@@ -287,10 +423,21 @@ function invPriceGraph(r) {
 function invItemsSection(d) {
   const st = state.inv;
   const q = st.q.trim().toLowerCase();
-  const types = [...new Set(d.items.map(r => r.type))].sort((a, b) => invTypeRank(a) - invTypeRank(b) || a.localeCompare(b));
+  // Stored items stay inside their storage unit: the inventory shows one card per unit (its value and name),
+  // and opening a unit lists what is inside. A search also finds stored items, tagged with their unit.
+  const units = d.storage?.units?.length && d.items.some(r => r.storage) ? d.storage.units : [];
+  const unit = units.find(u => `su:${u.id}` === st.where) || null;
+  if (!unit) st.where = 'inv';
+  // The storage unit items themselves are replaced by the unit cards (their picture is reused there).
+  const isUnitItem = r => !r.storage && units.length && /^Storage Unit$/i.test(r.hash || r.name);
+  const base = d.items.filter(r => (unit ? r.storage?.id === unit.id : !r.storage && !isUnitItem(r)));
+  const types = [...new Set(base.map(r => r.type))].sort((a, b) => invTypeRank(a) - invTypeRank(b) || a.localeCompare(b));
   if (st.type !== 'all' && !types.includes(st.type)) st.type = 'all';
-  let list = d.items.filter(r => (st.type === 'all' || r.type === st.type) && (!st.hideFree || r.value != null)
-    && (!q || `${r.hash || r.name} ${r.type} ${r.collection || ''} ${r.nameTag || ''} ${r.stickers.join(' ')}`.toLowerCase().includes(q)));
+  const pool = !unit && q ? [...base, ...d.items.filter(r => r.storage)] : base;
+  let list = pool.filter(r => (st.type === 'all' || r.type === st.type) && (!st.hideFree || r.value != null)
+    && (!q || `${r.hash || r.name} ${r.type} ${r.collection || ''} ${r.nameTag || ''} ${r.stickers.join(' ')} ${r.storage?.name || ''}`.toLowerCase().includes(q)));
+  const unitCards = !unit && !q && st.type === 'all' ? [...units].sort((a, b) => (b.value || 0) - (a.value || 0)) : [];
+  const unitPic = d.items.find(isUnitItem)?.icon || null;
   const by = {
     total: (a, b) => (b.value || 0) * b.count - (a.value || 0) * a.count,
     price: (a, b) => (b.value ?? -1) - (a.value ?? -1),
@@ -301,8 +448,8 @@ function invItemsSection(d) {
     float: (a, b) => (a.copies[0]?.float ?? 9) - (b.copies[0]?.float ?? 9),
   }[st.sort] || (() => 0);
   list = [...list].sort((a, b) => by(a, b) || (a.hash || a.name).localeCompare(b.hash || b.name));
-  const shownValue = list.reduce((n, r) => n + (r.value || 0) * r.count, 0);
-  const shownCount = list.reduce((n, r) => n + r.count, 0);
+  const shownValue = list.reduce((n, r) => n + (r.value || 0) * r.count, 0) + unitCards.reduce((n, u) => n + (u.value || 0), 0);
+  const shownCount = list.reduce((n, r) => n + r.count, 0) + unitCards.reduce((n, u) => n + u.count, 0);
 
   const search = h('input', { type: 'search', class: 'inv-search', placeholder: 'Search items, collections, stickers…', value: st.q, oninput: e => {
     st.q = e.target.value;
@@ -321,9 +468,35 @@ function invItemsSection(d) {
     h('span', { class: 'spacer' }),
     h('span', { class: 'hint' }, `${fmtNum(shownCount)} item${shownCount === 1 ? '' : 's'} · ${invMoney(shownValue)}`));
 
-  return h('section', { class: 'ov-sec' }, h('div', { class: 'sec' }, h('h3', {}, 'Items')), filters,
-    list.length ? h('div', { class: 'inv-grid' }, ...list.map(invItemCard))
-      : h('div', { class: 'empty' }, h('h2', {}, 'No items match'), h('div', {}, 'Try another search or type.')));
+  const head = unit
+    ? h('div', { class: 'sec inv-crumbs' },
+      h('button', { class: 'btn ghost', title: 'Back to the inventory', onclick: () => invOpenUnit(null) },
+        icon('<path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2"/>'), 'Items'),
+      h('span', { class: 'inv-crumb-unit' }, icon(INV_BOX), h('b', {}, unit.name)),
+      h('span', { class: 'hint' }, `${fmtNum(unit.count)} item${unit.count === 1 ? '' : 's'} · ${invMoney(unit.value)}`))
+    : h('div', { class: 'sec' }, h('h3', {}, 'Items'));
+  const empty = unit && !base.length ? ['This storage unit is empty', ''] : ['No items match', 'Try another search or type.'];
+  return h('section', { class: 'ov-sec', id: 'invItems' }, head, filters,
+    list.length || unitCards.length ? h('div', { class: 'inv-grid' }, ...unitCards.map(u => invUnitCard(u, unitPic)), ...list.map(invItemCard))
+      : h('div', { class: 'empty' }, h('h2', {}, empty[0]), empty[1] ? h('div', {}, empty[1]) : null));
+}
+
+// Open a storage unit's contents in the item grid (null: back to the inventory), keeping the grid in view.
+function invOpenUnit(id) {
+  Object.assign(state.inv, { where: id == null ? 'inv' : `su:${id}`, q: '', type: 'all' });
+  renderInventory();
+  $('#invItems')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+function invUnitCard(u, pic) {
+  const unpriced = u.count - (u.priced ?? u.count);
+  return h('button', { class: 'inv-item inv-unit', style: { '--rar': 'var(--accent)' }, onclick: () => invOpenUnit(u.id), title: `Open “${u.name}” to see what is inside` },
+    h('div', { class: 'inv-art' }, pic ? invPic({ icon: pic }) : icon(INV_BOX, 'class="inv-unit-ic"'),
+      h('span', { class: 'inv-count' }, fmtNum(u.count))),
+    h('div', { class: 'inv-name' }, h('small', {}, 'Storage unit'), h('b', {}, u.name)),
+    h('div', { class: 'inv-meta' }, `${fmtNum(u.count)} item${u.count === 1 ? '' : 's'}`, unpriced > 0 ? h('span', { class: 'inv-float' }, `${fmtNum(unpriced)} without a price`) : null),
+    h('div', { class: 'inv-price' }, h('div', { class: 'inv-price-value' }, h('b', {}, invMoney(u.value)))),
+    h('div', { class: 'inv-extra inv-unit-open' }, 'Open ›'));
 }
 
 function invPic(r, cls = '', key = r.icon) {
@@ -345,7 +518,8 @@ function invItemCard(r) {
   return h('button', { class: 'inv-item', style: { '--rar': r.rarity?.color || 'var(--line-2)' }, onclick: () => invItemModal(r),
     title: [r.hash || r.name, r.collection, r.stickers.length ? r.stickers.join('\n') : null].filter(Boolean).join('\n') },
   h('div', { class: 'inv-art' }, invPic(r), r.count > 1 ? h('span', { class: 'inv-count' }, `×${r.count}`) : null, badge,
-    r.tradable < r.count ? h('span', { class: 'inv-lock', title: `${r.count - r.tradable} not tradable yet (trade hold) or never tradable` }, icon('<rect x="5" y="11" width="14" height="9" rx="2" fill="currentColor"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/>')) : null,
+    r.storage && state.inv.where === 'inv' ? h('span', { class: 'inv-su', title: `In storage unit “${r.storage.name}”` }, icon(INV_BOX), h('span', {}, r.storage.name)) : null,
+    !r.storage && r.tradable < r.count ? h('span', { class: 'inv-lock', title: `${r.count - r.tradable} not tradable yet (trade hold) or never tradable` }, icon('<rect x="5" y="11" width="14" height="9" rx="2" fill="currentColor"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/>')) : null,
     r.applied.length ? h('span', { class: 'inv-stk', title: r.applied.map(invAppliedLine).join('\n') }, ...r.applied.map(x => invPic(r, 'stk', x.img))) : null),
   h('div', { class: 'inv-name' }, h('small', {}, top), h('b', { style: { color: r.nameColor && !/^#d2d2d2$/i.test(r.nameColor) ? r.nameColor : null } }, main)),
   h('div', { class: 'inv-meta' }, r.exterior || r.rarity?.name || r.type, c?.float != null ? h('span', { class: 'inv-float' }, fmtFloat(c.float)) : null),
@@ -389,7 +563,8 @@ function invItemModal(r) {
           kv('7-day average', r.avg7 == null ? null : invMoney(r.avg7)),
           kv('30-day average', r.avg30 == null ? null : invMoney(r.avg30)),
           kv('You have', r.count > 1 ? `${r.count} · ${invMoney(r.value == null ? null : r.value * r.count)}` : null),
-          kv('Tradable now', r.tradable < r.count ? `${r.tradable} of ${r.count}` : null, 'New items have a 7-day trade hold'),
+          kv('Stored in', r.storage ? `“${r.storage.name}”` : null, 'Take it out of the storage unit in CS2 to trade or sell it'),
+          kv('Tradable now', !r.storage && r.tradable < r.count ? `${r.tradable} of ${r.count}` : null, 'New items have a 7-day trade hold'),
           kv('Name tag', r.nameTag ? `“${r.nameTag}”` : null)),
         r.applied.length ? h('div', {},
           h('div', { class: 'sub-head', title: 'Charms come off and keep their full price; applied stickers only add a part of theirs (set at the top of the page), less when scraped.' },

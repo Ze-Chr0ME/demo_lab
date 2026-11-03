@@ -8,10 +8,11 @@
 // Prices are kept in US dollars and converted with the exchange rates from prices.csgotrader.app.
 // Everything lives in <userData>/inventory: the last inventory per player, price lists (6 h), item
 // pictures (once) and a value history per player (one point per hour at most).
-// Items in storage units are not part of the Steam inventory and are not counted.
+// Storage contents read from the Game Coordinator are named with a cached catalogue and priced too.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { loadCatalogue, itemDescription } = require('./itemNames');
 
 const PRICE_TTL = 6 * 3600e3;
 const INV_TTL = 10 * 60e3;       // a fresh inventory is reused for 10 min unless a refresh is asked for
@@ -132,7 +133,7 @@ function buildItems(inv) {
     const d = desc.get(`${a.classid}_${a.instanceid}`);
     if (!d) continue;
     const ap = props.get(a.assetid);
-    const app = applied(d);
+    const app = d.applied || applied(d);
     // Each accessory's wear (property 4: 0 = like new, up to 1 = scraped off), same order as the pictures.
     const acc = ap?.asset_accessories || [];
     if (acc.length === app.length) {
@@ -142,7 +143,7 @@ function buildItems(inv) {
       });
     }
     const tagLine = (d.fraudwarnings || []).map(plain).find(w => /Name Tag/i.test(w));
-    const nameTag = tagLine ? tagLine.replace(/^Name Tag:\s*/i, '').replace(/^''|''$/g, '') : null;
+    const nameTag = d.custom_name || (tagLine ? tagLine.replace(/^Name Tag:\s*/i, '').replace(/^''|''$/g, '') : null);
     const key = [d.market_hash_name || d.name, ...app.map(x => `${x.name}@${(x.wear || 0).toFixed(2)}`), nameTag || ''].join('|');
     let r = rows.get(key);
     if (!r) {
@@ -201,7 +202,7 @@ class InventoryStore {
 
   // The inventory with prices. refresh: read it again from Steam even when the last copy is recent.
   // stickerShare: the part of an applied sticker's price added to the item (charms come off and count in full).
-  async get(steamid, { source = 'steam', refresh = false, stickerShare = 0.1 } = {}) {
+  async get(steamid, { source = 'steam', refresh = false, stickerShare = 0.1, storageAccount = null } = {}) {
     if (!isSteamId(steamid)) throw new Error('No SteamID: set yours in Settings → Counter-Strike 2.');
     if (!SOURCES[source]) source = 'steam';
     const notes = [];
@@ -219,6 +220,31 @@ class InventoryStore {
     try { fx = await this.rates(); } catch (err) { notes.push(`No exchange rates (${err.message}): prices are in US dollars.`); }
 
     const items = buildItems(inv);
+    const stored = readJson(this.file(`storage-${steamid}.json`));
+    const storage = {
+      signedIn: !!storageAccount?.signedIn, account: storageAccount?.account ?? null, busy: !!storageAccount?.busy,
+      mine: storageAccount?.steamid === steamid, t: stored?.t || null, units: [], value: 0, count: 0,
+    };
+    if (stored?.units?.length) {
+      let catalogue = null;
+      try { catalogue = await this.once('catalogue', () => loadCatalogue(this.file('catalogue.json'), this.fetch)); }
+      catch (err) { notes.push(`Could not name storage items (${err.message}): their prices are unavailable.`); }
+      for (const unit of stored.units) {
+        const raw = unit.items || [];
+        const descriptions = raw.map((a, i) => ({ ...itemDescription(a, catalogue), classid: String(i), instanceid: '0' }));
+        const assets = raw.map((a, i) => ({ assetid: a.id, classid: String(i), instanceid: '0', amount: 1 }));
+        const props = raw.map(a => ({ assetid: a.id, asset_properties: [
+          { propertyid: 2, float_value: a.paint_wear }, { propertyid: 1, int_value: a.paint_seed },
+        ] }));
+        for (const r of buildItems({ assets, descriptions, props })) {
+          r.storage = { id: unit.id, name: unit.name };
+          r.key = `su:${unit.id}|${r.key}`;
+          items.push(r);
+        }
+        storage.units.push({ id: unit.id, name: unit.name, count: unit.count ?? raw.length, value: 0, priced: 0 });
+      }
+    }
+    if (stored?.t && Date.now() - stored.t > 30 * 864e5) notes.push(`Storage units were last read ${new Date(stored.t).toLocaleDateString()}.`);
     const rates = fx?.r || { USD: 1 };
     const useSales = source === 'steam';
     // [price, avg7, avg30] in dollars: the item's own Steam sales when we have them, else the price list.
@@ -265,6 +291,13 @@ class InventoryStore {
       if (r.priceFrom === 'sales') { fromSales += r.count; salesValue += r.price * r.count; }
     }
     const job = useSales ? this.checkSales(steamid, items) : null;
+    for (const r of items) if (r.storage) {
+      const unit = storage.units.find(u => u.id === r.storage.id);
+      storage.count += r.count;
+      storage.value += (r.value || 0) * r.count;
+      unit.value += (r.value || 0) * r.count;
+      if (r.value != null) unit.priced += r.count;
+    }
     const history = this.record(steamid, inv, total, items.reduce((n, r) => n + r.count, 0), useSales ? 'steam-sales' : source);
     const icons = [...items.map(r => r.icon), ...items.flatMap(r => r.applied.map(x => x.img))];
     this.queueImages(icons);
@@ -272,7 +305,7 @@ class InventoryStore {
       steamid, t: inv.t, total, applied, stickerShare: clampShare(stickerShare), priced, count: items.reduce((n, r) => n + r.count, 0), inventoryCount: inv.total ?? null,
       // the value of the priced items at their 30-day average price, against the same items now
       trend30: avg30Base ? { now: avg30Base, then: avg30 } : null,
-      items, history, notes,
+      items, history, notes, storage,
       source, sources: Object.fromEntries(Object.entries(SOURCES).map(([k, v]) => [k, v.label])), pricesAt: list?.t || null,
       rates: fx?.r || { USD: 1 },
       images: this.knownImages(icons),
