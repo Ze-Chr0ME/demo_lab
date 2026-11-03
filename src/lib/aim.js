@@ -144,7 +144,7 @@ const ratio = (a, b) => (b ? a / b : null);
 // One player's numbers in one match (plus the raw counts, so matches can be added up). With roundOf
 // (tick -> round number), the same counts per round too: the Aim tab's progression over the match.
 function aimNumbers(f, weapons, tr, roundOf = null) {
-  const blank = () => ({ stop: [0, 0], first: [0, 0], spray: [0, 0], hits: 0, head: 0, shots: 0, ttd: [], xhair: [] });
+  const blank = () => ({ stop: [0, 0], first: [0, 0], spray: [0, 0], hits: 0, head: 0, shots: 0, ttd: [], reaction: [], xhair: [] });
   const c = { ...blank(), byClass: {} };
   const cls = k => (c.byClass[k] ||= { stop: [0, 0], first: [0, 0], shots: 0, hits: 0 });
   const perRound = new Map();
@@ -170,6 +170,9 @@ function aimNumbers(f, weapons, tr, roundOf = null) {
   for (const [tick, , err, , ttd, first] of f.eng) {
     const r = inRound(tick);
     c.xhair.push(err); r.xhair.push(err);
+    // Estimate reaction from a fresh, aimed shot after the enemy appears. Exclude ongoing sprays.
+    const shot = f.shots.find(s => s[0] >= tick && s[0] <= tick + 1.5 * tr && (s[3] & 8) && s[4] >= FRESH);
+    if (shot) { const ms = Math.round((shot[0] - tick) * 1000 / tr); c.reaction.push(ms); r.reaction.push(ms); }
     if (ttd >= 0 && ttd <= 1.5 * tr && first !== 2) { const ms = Math.round(ttd * 1000 / tr); c.ttd.push(ms); r.ttd.push(ms); }
   }
   return { counts: c, moving, perRound };
@@ -217,7 +220,7 @@ function aimTotals(facts, steamid) {
   const f = facts.players[steamid];
   if (!f) return null;
   const { counts } = aimNumbers(f, facts.weapons, facts.tickrate || 64);
-  return { stop: counts.stop, first: counts.first, spray: counts.spray, hits: counts.hits, head: counts.head, shots: counts.shots, ttd: counts.ttd, xhair: counts.xhair.map(v => Math.round(v * 10) / 10) };
+  return { stop: counts.stop, first: counts.first, spray: counts.spray, hits: counts.hits, head: counts.head, shots: counts.shots, ttd: counts.ttd, reaction: counts.reaction, xhair: counts.xhair.map(v => Math.round(v * 10) / 10) };
 }
 
 module.exports = { AimCollector, AIM_VERSION, summarizeAim, aimTotals, accurateSpeed };

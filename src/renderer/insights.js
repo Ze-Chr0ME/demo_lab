@@ -366,38 +366,6 @@ api.onAimBatch(s => {
 });
 api.onProfileChanged(() => reloadProfileSoon());
 
-function aimCard(list) {
-  const p = shownProfile();
-  const withAim = list.filter(m => m.aim);
-  const batch = state.aimBatch?.running ? state.aimBatch : p?.aimBatch?.running ? p.aimBatch : null;
-  const missing = p?.aimMissing || 0;
-  const batchCall = async action => { state.aimBatch = await guard(() => api.aimBatch(action, state.who || undefined)) || state.aimBatch; renderOverview(); };
-  const n = batch && Math.min(batch.done + 1, batch.total);
-  const last = state.aimBatch?.stopped ? state.aimBatch : null;
-  const action = batch
-    ? h('div', { class: `aim-batch ${batch.stopping ? 'stopping' : ''}` }, spinner(12), batch.stopping
-      ? [` Stopping once match ${n} of ${batch.total} is measured…`, h('button', { class: 'link-btn', onclick: () => batchCall('resume') }, 'Keep going')]
-      : [` Measuring match ${n} of ${batch.total}…`, h('button', { class: 'link-btn', onclick: () => batchCall('cancel') }, 'Stop after this one')])
-    : missing ? h('div', { class: 'aim-batch' },
-      h('button', { class: 'btn', title: 'Goes through every tick of each match once (about 10 seconds per match, in the background). The Integrity tab of those matches is ready afterwards too.',
-        onclick: () => batchCall('start') },
-      `Measure ${missing} more match${missing === 1 ? '' : 'es'} (~${Math.max(1, Math.round(missing / 6))} min)`),
-      last ? h('span', {}, `Stopped: ${last.done} of ${last.total} measured.`) : null) : null;
-  if (!withAim.length) {
-    return card(null, [h('div', { class: 'muted-note' }, 'Counter-strafing, first-bullet and spray accuracy, crosshair placement and time to damage need one pass over every tick of a match. Open a match’s Aim tab, or measure all your matches at once.'), action], { span: 4 });
-  }
-  const vals = aimValues(withAim.map(m => m.aim));
-  const tiles = h('div', { class: 'aim-tiles' }, ...AIM_STATS.map(s => {
-    const [v, n] = vals[s.k];
-    const ok = v != null && n >= s.min;
-    return h('div', { class: `aim-tile ${ok ? aimLevel(s, v) : ''}`, title: `${s.tip}\n\n${n} samples over ${withAim.length} match${withAim.length === 1 ? '' : 'es'}` },
-      h('div', { class: 'k' }, s.label), h('div', { class: 'v' }, ok ? s.fmt(v) : '—'),
-      h('div', { class: 'aim-bench' }, `good ${s.low ? '≤' : '≥'} ${s.fmt(s.good)} · needs work ${s.low ? '>' : '<'} ${s.fmt(s.bad)}`));
-  }));
-  return card(null, [tiles, h('div', { class: 'aim-foot' },
-    h('span', { class: 'hint' }, `From ${withAim.length} of ${list.length} matches · green: better than three players in four of your lobbies, red: worse`), h('span', { class: 'spacer' }), action)], { span: 4 });
-}
-
 // ---------- Positions (Maps page) ----------
 state.posSide = 'T';
 function positionsCard(map) {

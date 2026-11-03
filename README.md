@@ -147,12 +147,28 @@ The page opens in a browser, and individual clip links can be shared in Discord.
 <br>
 
 - **Left:** your ≈ HLTV 2.0 rating with a breakdown (win rate, K/D, ADR, KAST, HS%) and your last 10 results.
-- **Right:** twelve stat tiles (K/D, ADR, KAST, HS%, kills/deaths/assists per round, opening duels,
-  multi-kill rounds, trades, utility damage, enemies flashed). Each has a histogram over your matches: the
+- **Right:** twelve stat tiles (K/D, ADR, KAST, HS%, kills/deaths per round, opening duels,
+  multi-kill rounds, reaction time, time to damage, utility damage, enemies flashed). Each has a histogram over your matches: the
   dashed line is the whole selection, the solid one your last 10 matches.
+  The main number is green above a typical-player benchmark, white near it, and red below it
+  (lower is better for deaths and timing). Hover the number for its benchmark and neutral band.
+  K/D, ADR and headshot references use published FACEIT player medians from
+  [CStrike](https://cstrike.gg/cs2-stats); other references are app estimates, not measured global averages.
+  These fixed references do not depend on your last 10 matches or adjust to rank or mode.
 - **Below:** rating per match, recent matches, clutches (1v1…1v5), opening duels and rounds won per side,
   multi-kills, maps, weapons and the teammates you play with most.
 - Filter by mode (5v5, Wingman, Rush), map and period. Click a result or a point on the chart to open the match.
+- **Customize overview** (in the menu under your player card) turns the Overview into an editor. Drag
+  sections, the modules inside them and individual stat tiles to reorder them (or focus a grip and use
+  the arrow keys). The eye button hides an item. Hidden sections wait in the **Hidden** tray; hidden
+  modules and stats appear as **+** chips beside their section or beside Stats overview. Twenty extra
+  modules can be added this way: aim timing, headshots, utility, impact per round, four **Maps** modules
+  (map pool, rating by map, best side per map, best and worst map), three **Weapons** modules, two
+  **Squad** modules (frequent teammates, best duos) and seven **Habits & records** modules (streaks,
+  personal bests, rating spread, close games, time of day, weekdays, game modes). Spacing and stat
+  histograms preview live. **Save layout** keeps your choices on this computer for every player's
+  Overview; **Cancel** (or Escape) discards edits and **Reset to default** restores the original layout
+  when saved.
 
 **Compare** puts you next to any player from your demos, or next to **your lobbies** (the median of every
 player in every demo you have). Each stat shows how many of your lobbies' player-matches it beats, so a
