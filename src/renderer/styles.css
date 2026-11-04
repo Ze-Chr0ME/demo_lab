@@ -1238,6 +1238,9 @@ kbd { display: inline-block; min-width: 18px; text-align: center; font: 700 11px
 .dl .mode-name { color: var(--text); font-weight: 600; }
 .dl .hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .dl .sc { font-weight: 700; font-size: 16px; text-align: center; }
+.dl .sc.none { color: var(--dim); font-weight: 400; }
+.info-box .info-title { display: block; margin-bottom: 4px; color: var(--text); }
+.page-head .chip-toggle { padding: 8px 14px; font-size: 13px; }
 .dl .act { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .mini-progress { width: 120px; height: 6px; background: var(--bg); border-radius: 4px; overflow: hidden; }
 .mini-progress div { height: 100%; background: var(--blue); transition: width .3s; }
@@ -1829,7 +1832,9 @@ table.sb.sb-score th.wide { width: 118px; }
 .inv-title > .cmp-pick { font-size: 22px; }
 /* The long freshness line wraps instead of pushing Refresh onto its own row */
 .inv-page .dash-head > .dash-title { flex: 1 1 340px; min-width: 0; }
-.inv-hero .inv-total { font-size: 40px; letter-spacing: -1px; }
+.inv-hero .inv-total { font-size: 48px; letter-spacing: -1px; }
+.hl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr)); gap: 10px; }
+.hl-grid > .hl { margin-bottom: 0; }
 .inv-storage { margin: 10px 2px 18px; }
 .inv-dash { margin-bottom: 26px; }
 .inv-dash .dcard-head { flex-wrap: wrap; gap: 6px 10px; margin-bottom: 12px; }

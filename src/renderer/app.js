@@ -666,7 +666,7 @@ function highlightsView(a) {
     ? [h('div', { class: 'empty' }, h('h2', {}, 'You are not in this demo'), h('div', {}, 'Pick the player whose highlights you want above.'))]
     : !hls.length
       ? [h('div', { class: 'empty' }, h('h2', {}, 'No highlights in this match'), h('div', {}, 'No multi-kills, clutches or special kills with the current rules. You can loosen them in Settings.'))]
-      : hls.map(hl => highlightCard(hl));
+      : [h('div', { class: 'hl-grid' }, ...hls.map(hl => highlightCard(hl)))]; // two per row on wide windows: a row is mostly empty otherwise
   const allOn = hls.length && hls.every(x => state.selected.has(x.id));
   return [
     hls.length ? h('div', { class: 'section-head' },
@@ -4632,7 +4632,7 @@ function renderDownloads() {
       : h('button', { class: 'btn primary', onclick: faceitSignIn }, 'Sign in to FACEIT'),
   );
   const info = h('div', { class: 'info-box' },
-    'Also asks Valve for your latest matches through your Steam client (like CS2’s ', h('b', {}, 'Watch → Your Matches'), ') when CS2 is closed. ',
+    h('b', { class: 'info-title' }, 'Valve match list'), 'Also asks Valve for your latest matches through your Steam client (like CS2’s ', h('b', {}, 'Watch → Your Matches'), ') when CS2 is closed. ',
     state.settings.downloads.auto ? `Checks automatically every ${state.settings.downloads.intervalMin} minutes and downloads new demos to your replays folder.` : 'Automatic checking is off.');
 
   const items = d.matches.map(m => {
@@ -4654,7 +4654,7 @@ function renderDownloads() {
       h('div', { class: 'mode' },
         h('span', { class: 'mode-name' }, m.mode), m.mapLabel ? ` · ${m.mapLabel}` : '', m.durationMin ? ` · ${m.durationMin} min` : '',
         renamed ? h('div', { class: 'hint' }, `Already on your PC as ${m.file.split(/[\\/]/).pop()}`) : null),
-      h('div', { class: 'sc' }, m.score?.length === 2 ? `${m.score[0]} – ${m.score[1]}` : ''),
+      h('div', { class: `sc ${m.score?.length === 2 ? '' : 'none'}` }, m.score?.length === 2 ? `${m.score[0]} – ${m.score[1]}` : '—'),
       h('div', { class: 'act' }, h('span', { class: `pill ${cls}` }, label), action),
     );
   });
