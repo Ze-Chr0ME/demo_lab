@@ -1833,7 +1833,7 @@ table.sb.sb-score th.wide { width: 118px; }
 /* The long freshness line wraps instead of pushing Refresh onto its own row */
 .inv-page .dash-head > .dash-title { flex: 1 1 340px; min-width: 0; }
 .inv-hero .inv-total { font-size: 48px; letter-spacing: -1px; }
-.hl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr)); gap: 10px; }
+.hl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 640px), 1fr)); gap: 10px; }
 .hl-grid > .hl { margin-bottom: 0; }
 .inv-storage { margin: 10px 2px 18px; }
 .inv-dash { margin-bottom: 26px; }
