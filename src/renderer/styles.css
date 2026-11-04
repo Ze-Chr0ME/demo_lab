@@ -1527,7 +1527,7 @@ textarea:focus { border-color: color-mix(in srgb, var(--blue) 67%, transparent);
 .eco-chart .en { fill: var(--text); font-size: 11px; font-weight: 600; text-anchor: middle; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
 .eco-chart .et { fill: var(--muted); font-size: 11px; font-weight: 600; }
 .eco-legend { margin: 8px 0 4px; }
-.eco-legend .lg i { display: inline-block; width: 14px; height: 11px; border-radius: 3px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 45%, transparent); background: linear-gradient(90deg, var(--t) 50%, var(--ct) 50%); margin-right: 6px; vertical-align: -1px; }
+.eco-legend .lg i { display: inline-block; width: 14px; height: 11px; border-radius: 3px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 30%, transparent); background: linear-gradient(90deg, var(--t) 50%, var(--ct) 50%); margin-right: 6px; vertical-align: -1px; }
 .eco-legend .lg::before { display: none; }
 .eco-legend .lg.buy-eco i { opacity: .3; } .eco-legend .lg.buy-force i { opacity: .55; } .eco-legend .lg.buy-pistol i { opacity: .78; }
 .eco-legend .lg.side-T i { background: var(--t); } .eco-legend .lg.side-CT i { background: var(--ct); }
