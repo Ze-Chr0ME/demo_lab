@@ -267,6 +267,9 @@ finishes recording so you can edit and save. Crouching and the weapon in your ha
 
 The 2D editor lets you place and adjust the same spots on the radar. Heights come from downloaded map
 geometry or your parsed matches; opening a match's **Integrity** tab downloads the geometry if needed.
+The app includes **100 built-in scenarios across 10 maps**, available individually or in map mixes.
+Built-in scenarios cannot be edited or deleted; custom scenarios remain editable.
+
 Use **Share** and **Import** to exchange scenarios as `DLS2-` codes (or a longer `DLS1-` fallback).
 
 </details>

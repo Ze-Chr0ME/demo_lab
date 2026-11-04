@@ -1,6 +1,7 @@
 // Training scenarios the player builds on the 2D map (renderer/scenarios.js): where they start, bots
 // holding angles (spot + the point they look at, shooting or not, crouched or not) and smokes, played
-// in CS2 by lib/training.js. Stored in <userData>/training/scenarios.json.
+// in CS2 by lib/training.js. Custom scenarios live in <userData>/training/scenarios.json;
+// the built-in collection ships in src/data/scenarios.json and cannot be edited.
 //
 // The radar is flat: the height of a spot comes from the map's collision mesh (lib/geometry.js), the
 // floors under a point being every surface a ray straight down hits with room to stand above it. When
@@ -8,6 +9,8 @@
 // in the user's demos around it wins, else the one the editor asks for.
 const fs = require('fs');
 const path = require('path');
+const builtins = require('../data/scenarios.json');
+const builtinIds = new Set(builtins.map(s => s.id));
 
 const MAX_BOTS = 10, MAX_SMOKES = 8;
 const STAND = 72;   // room a player needs above a floor
@@ -80,18 +83,32 @@ function clean(s) {
 
 class Scenarios {
   constructor(dir) { this.file = path.join(dir, 'scenarios.json'); }
-  list() { try { return JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { return []; } }
+  custom() {
+    try {
+      const list = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      return Array.isArray(list) ? list.filter(s => !builtinIds.has(s.id)) : [];
+    } catch { return []; }
+  }
+  list() {
+    // Fresh copies: training adds runtime fields and overrides reps on the returned scenarios.
+    // Ignore old local copies by ID so existing installs see the same collection just once.
+    return [...structuredClone(builtins).map(s => ({ ...s, builtin: true })), ...this.custom().map(s => ({ ...s, builtin: false }))];
+  }
   get(id) { return this.list().find(s => s.id === id) || null; }
   write(list) { fs.mkdirSync(path.dirname(this.file), { recursive: true }); fs.writeFileSync(this.file, JSON.stringify(list)); }
   save(s) {
+    if (builtinIds.has(s?.id)) throw new Error('Built-in scenarios cannot be edited.');
     const sc = clean(s);
-    const list = this.list();
+    const list = this.custom();
     const i = list.findIndex(x => x.id === sc.id);
     if (i >= 0) list[i] = { ...sc, created: list[i].created }; else list.push(sc);
     this.write(list);
     return sc;
   }
-  remove(id) { this.write(this.list().filter(s => s.id !== id)); }
+  remove(id) {
+    if (builtinIds.has(id)) throw new Error('Built-in scenarios cannot be deleted.');
+    this.write(this.custom().filter(s => s.id !== id));
+  }
 }
 
 // How far a bot jiggles, in world units (0: it stands still). Older scenarios saved 1 / 2 (48 / 96).
