@@ -106,9 +106,9 @@ const accuracyOf = r => (r.shots && r.type !== 'grenades' && r.type !== 'other' 
 const WP_METRICS = {
   general: [
     ['kills', 'Kills', 'Enemies killed', r => r.kills],
-    ['hsp', 'HS %', 'Share of the kills that were headshots', r => (r.kills ? r.hs / r.kills : -1), r => pctTxt(r.hs, r.kills, 0)],
+    ['hsp', 'HS kills %', 'Share of the kills that were headshots', r => (r.kills ? r.hs / r.kills : -1), r => pctTxt(r.hs, r.kills, 0)],
     ['dmg', 'Damage', 'Damage dealt to enemies (capped at the health they had left)', r => r.dmg, r => fmtNum(r.dmg)],
-    ['head', 'Head hit %', 'Share of the bullets that hit someone that hit the head', r => (r.bodyHits ? r.headHits / r.bodyHits : -1),
+    ['head', 'Head hits %', 'Share of the bullets that hit someone that hit the head', r => (r.bodyHits ? r.headHits / r.bodyHits : -1),
       r => pctTxt(r.headHits, r.bodyHits), r => (r.bodyHits >= 10 ? aimLevel(AIM_STATS[3], r.headHits / r.bodyHits) : '')],
     ['dist', 'Avg dist', 'Average distance of the kills', r => (r.distN ? r.distSum / r.distN : -1), r => (r.distN ? `${(r.distSum / r.distN).toFixed(1)}m` : '—')],
   ],

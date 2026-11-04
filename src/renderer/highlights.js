@@ -261,7 +261,7 @@ function renderHighlights(check = true) {
       const input = $('#hlSearch'); input.focus(); input.setSelectionRange(start, end);
     } });
   const picker = h('div', { class: `clip-stars-pick ${st.stars ? 'set' : ''}`, role: 'group', 'aria-label': 'Exact star rating' },
-    ...[5, 4, 3, 2, 1].map(n => h('button', { type: 'button', class: n <= st.stars ? 'on' : '', 'aria-pressed': String(st.stars === n),
+    ...[5, 4, 3, 2, 1].map(n => h('button', { type: 'button', class: n === st.stars ? 'on' : '', 'aria-pressed': String(st.stars === n),
       title: `${n}-star highlights (${counts[n]}). Click again to clear.`, 'aria-label': `${n} stars, ${counts[n]} highlights`,
       onclick: () => change({ stars: st.stars === n ? 0 : n }) }, `${n}★`, h('small', {}, counts[n]))));
   const weaponsBtn = weaponBuyButton(st.weapons, hlWeaponMenu);

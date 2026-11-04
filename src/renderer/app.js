@@ -865,7 +865,7 @@ function integrityView() {
       h('th', { title: 'Kills and headshot percentage, for context' }, 'K · HS%'))),
     h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''} ${p.team == null ? '' : p.team === st.value.myTeam ? 'ally' : 'foe'}`, title: 'Show this player’s moments', onclick: () => { state.integPlayer = p.steamid; renderDetail(); } },
       h('td', { class: 'name', title: teamName(p) }, steamAvatar(p.name, p.steamid, 'sm'), p.name),
-      h('td', {}, p.level === 'normal' ? h('span', { class: 'integ-normal' }, 'Normal') : h('span', { class: `pill ${INTEG_LEVEL[p.level][1]}` }, INTEG_LEVEL[p.level][0])),
+      h('td', {}, p.level === 'normal' ? h('span', { class: 'integ-ok-text' }, 'Normal') : h('span', { class: `pill ${INTEG_LEVEL[p.level][1]}` }, INTEG_LEVEL[p.level][0])),
       ...p.signals.map(s => { const m = /^(.*) · ([\d.]+×)$/.exec(s.display || '');
         return h('td', { class: `integ-${s.level}`, title: `Normal: ${s.normal}` }, m ? [m[1], h('small', { class: 'integ-x' }, `${m[2]} normal`)] : s.display); }),
       h('td', {}, `${p.context.kills} · ${p.context.hsPct}%`)))));

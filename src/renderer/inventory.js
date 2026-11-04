@@ -134,7 +134,7 @@ function renderInventory() {
     h('div', { class: 'tile-k' }, label), h('div', { class: 'tile-v' }, value), detail ? h('div', { class: 'tile-sub' }, detail) : null);
   const stats = [
     stat('Tradable now', invMoney(tradableValue), `${fmtNum(tradable)} of ${fmtNum(d.count)} items`, 'Items you can trade or sell right now (new items have a 7-day trade hold)'),
-    stat('Items', [fmtNum(d.priced), h('small', {}, `of ${fmtNum(d.count)}`)], unpriced > 0 ? h('span', { title: 'Medals, coins, badges and other items that cannot be sold' }, `${fmtNum(unpriced)} without a price`) : null),
+    stat('Priced items', [fmtNum(d.priced), h('small', {}, `of ${fmtNum(d.count)}`)], unpriced > 0 ? h('span', { title: 'Medals, coins, badges and other items that cannot be sold' }, `${fmtNum(unpriced)} without a price`) : null),
     stat('Average per priced item', invMoney(d.priced ? d.total / d.priced : 0)),
     d.applied > 0.005 ? stat('Stickers & charms on items', `+${invMoney(d.applied)}`, 'Included in inventory value', `Included in the value: charms at their full price (they come off), applied stickers at ${Math.round(d.stickerShare * 100)}% of theirs, less when scraped`) : null,
     d.storage?.count ? stat('In storage units', invMoney(d.storage.value), `${fmtNum(d.storage.count)} items in ${d.storage.units.length} unit${d.storage.units.length === 1 ? '' : 's'}`, 'Included in the inventory value') : null,
