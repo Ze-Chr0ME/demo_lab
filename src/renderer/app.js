@@ -505,9 +505,9 @@ function renderDemoList() {
   const pending = state.demos.filter(d => !d.summary && !d.failed).length;
   $('#matchCount').textContent = state.demos.length || '';
   $('#demoListSub').replaceChildren(
-    `${demos.length} match${demos.length === 1 ? '' : 'es'}`,
-    state.who ? ` Matches with ${state.other?.name || 'this player'}` : '',
     playerMenu(),
+    h('span', {}, `${demos.length} match${demos.length === 1 ? '' : 'es'}`),
+    state.who ? ` Matches with ${state.other?.name || 'this player'}` : '',
     pending ? h('span', {}, ' · ', h('span', { class: 'spinner', style: { width: '11px', height: '11px', borderWidth: '2px' } }), ` analyzing ${pending}…`) : '',
   );
   const mine = new Map((shownProfile()?.matches || []).map(m => [m.id, m]));
@@ -805,7 +805,7 @@ function duelsView() {
       h('span', { class: 'hint' }, `Row player's kills on the column player – deaths to them${mode === 'opening' ? ', first kill of each round only' : ''}.`)),
     h('div', { class: 'sb-wrap' }, h('table', { class: 'sb duels' },
       h('thead', {}, h('tr', {},
-        h('th', { class: 'team' }, `${teamLabel(rowsT)} ↓  vs  ${teamLabel(colsT)} →`),
+        h('th', { class: 'team lead' }, `${teamLabel(rowsT)} ↓  vs  ${teamLabel(colsT)} →`),
         ...colsT.players.map(b => h('th', { class: `duel-head ${b.steamid === me ? 'me' : ''}`, title: b.name },
           steamAvatar(b.name, b.steamid), h('span', { class: 'duel-name' }, b.name))),
         h('th', { class: 'duel-total', title: 'Kills–deaths in player duels (world and self damage are not duels)' }, 'Vs opponents', h('small', {}, 'kills–deaths')))),
@@ -1558,7 +1558,7 @@ function radarView() {
     roomSelect(info, R.room, v => { R.room = v; renderDetail(); }),
     h('span', { class: 'spacer' }),
     h('span', { class: 'hint', title: 'Space: play/pause · ←/→: 5 s (Shift: ⅛ s) · ↑/↓: round · Esc: close grenade' }, 'Click a grenade to see its throw · Space play/pause · ←/→ 5 s · ↑/↓ round'),
-    viewInCs2Button('View in CS2', 'btn', 'Opens this demo in CS2 (through HLAE) 2 s before this moment, in the eyes of the point-of-view player',
+    viewInCs2Button('View from here', 'btn', 'Opens this demo in CS2 (through HLAE) 2 s before this moment, in the eyes of the point-of-view player',
       () => ({ tick: R.tick, lead: 2, name: state.analysis?.player?.name }), 'The demo is playing in the CS2 window.'),
   );
 
@@ -2499,7 +2499,7 @@ function scorePanel(t, last10, list, layout = OverviewLayout.normalize(state.set
       level ? h('div', { class: 'sp-level' }, level) : null,
       h('div', { class: 'bar-track sp-bar' }, h('div', { class: 'bar-fill', style: { width: `${clamp((r ?? 0) / 2, 0, 1) * 100}%` } })),
       list.length > 10 && last10.rating != null && r != null ? h('div', { class: `sp-trend ${last10.rating > r + 0.005 ? 'up' : last10.rating < r - 0.005 ? 'down' : ''}` },
-        `${last10.rating > r + 0.005 ? '▲' : last10.rating < r - 0.005 ? '▼' : '='} ${last10.rating.toFixed(2)} over the last 10 matches`) : null,
+        `${last10.rating > r + 0.005 ? '▲' : last10.rating < r - 0.005 ? '▼' : '='} last 10: ${last10.rating.toFixed(2)}`) : null,
     ),
     rows.length || editing ? h('div', { class: 'sp-label' }, 'Breakdown') : null,
     editing ? OverviewEditor.chips('ratingStat', layout.ratingStats) : null,
@@ -2690,12 +2690,13 @@ function trendCard(list) {
   const draw = () => {
     const W = Math.max(200, el.clientWidth), H = Math.max(70, el.clientHeight), padL = 34, padR = 12, padT = 12, padB = 22;
     const vals = ms.map(m => m.rating);
-    const lo = Math.min(0.4, Math.floor(Math.min(...vals) * 5) / 5), hi = Math.max(1.6, Math.ceil(Math.max(...vals) * 5) / 5);
+    const rawLo = Math.min(0.4, Math.min(...vals)), rawHi = Math.max(1.6, Math.max(...vals));
+    const step = Math.max(.5, Math.ceil((rawHi - rawLo) / Math.max(1, (H - padT - padB) / 18) * 2) / 2);
+    const lo = Math.floor(rawLo / step) * step, hi = Math.ceil(rawHi / step) * step; // grid snapped to the data so no point sits past the last line
     const x = i => padL + (W - padL - padR) * (ms.length === 1 ? 0.5 : i / (ms.length - 1));
     const y = v => padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo));
     const avg = vals.map((_, i) => { const s = vals.slice(Math.max(0, i - 4), i + 1); return s.reduce((a, b) => a + b, 0) / s.length; });
     const grid = [];
-    const step = Math.max(.5, Math.ceil((hi - lo) / Math.max(1, (H - padT - padB) / 18) * 2) / 2);
     for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) grid.push(`<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" class="${Math.abs(v - 1) < 1e-9 ? 'g-one' : 'g'}"/><text x="${padL - 6}" y="${y(v) + 4}" class="g-t">${v.toFixed(1)}</text>`);
     if (Math.abs(1 / step - Math.round(1 / step)) > 1e-9) grid.push(`<line x1="${padL}" x2="${W - padR}" y1="${y(1)}" y2="${y(1)}" class="g-one"/>`);
     const line = pts => smoothRatingPath(pts.map((v, i) => [x(i), y(v)]));
@@ -4243,10 +4244,10 @@ function select(value, options, onchange, opts = {}) {
   if (seg) {
     const root = h('div', { class: `tabs pick-seg ${opts.cls || ''}`, title: opts.title, role: 'group', 'aria-label': opts.label || opts.title });
     const buttons = options.map(o => h('button', { type: 'button', class: `${same(o[0], value) ? 'on' : ''} ${['T', 'CT'].includes(o[0]) ? 'side-' + o[0] : ''}`,
-      'aria-pressed': String(same(o[0], value)), onclick: () => {
+      'aria-pressed': String(same(o[0], value)), ...(opts.iconOnly ? { title: o[1], 'aria-label': o[1] } : {}), onclick: () => {
         buttons.forEach((b, i) => { const on = same(options[i][0], o[0]); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
         onchange(o[0]);
-      } }, image(o), h('span', { class: 'pick-label' }, o[1])));
+      } }, image(o), opts.iconOnly ? null : h('span', { class: 'pick-label' }, o[1])));
     root.append(...[prefix(), ...buttons].filter(Boolean));
     return root;
   }
@@ -4486,9 +4487,9 @@ function renderSettings() {
         select(String(d.minClutch), [['1', 'from 1v1'], ['2', 'from 1v2'], ['3', 'from 1v3'], ['4', 'from 1v4'], ['5', '1v5 only']], v => save({ detection: { minClutch: +v } }, true), { seg: true, icon: false }))),
       row('Special kills', h('div', { class: 'chips' }, ...Object.entries(SPECIAL_LABELS).map(([k, l]) => toggle(l, d.specials[k], v => save({ detection: { specials: { [k]: v } } }, true))))),
       row('Seconds before / after', h('div', { class: 'ctl' },
-        h('span', { class: 'ctl-k' }, 'Before'), num(t.padBefore, v => save({ timing: { padBefore: v } }, true), { max: 15, step: 0.5 }), 's',
-        h('span', { class: 'ctl-k' }, 'After'), num(t.padAfter, v => save({ timing: { padAfter: v } }, true), { max: 15, step: 0.5 }), 's'), 'Footage kept around each kill.'),
-      row('Cut gaps longer than', h('div', { class: 'ctl' }, num(t.mergeGap, v => save({ timing: { mergeGap: v } }, true), { max: 120, step: 1 }), 's'), 'Long waits between kills are cut out. Set high (e.g. 60) to keep full sequences.'),
+        h('span', { class: 'ctl-k' }, 'Before'), num(t.padBefore, v => save({ timing: { padBefore: v } }, true), { max: 15, step: 0.5 }), h('span', { class: 'unit' }, 's'),
+        h('span', { class: 'ctl-k' }, 'After'), num(t.padAfter, v => save({ timing: { padAfter: v } }, true), { max: 15, step: 0.5 }), h('span', { class: 'unit' }, 's')), 'Footage kept around each kill.'),
+      row('Cut gaps longer than', h('div', { class: 'ctl' }, num(t.mergeGap, v => save({ timing: { mergeGap: v } }, true), { max: 120, step: 1 }), h('span', { class: 'unit' }, 's')), 'Long waits between kills are cut out. Set high (e.g. 60) to keep full sequences.'),
     ),
 
     h('div', { class: 'card' },
@@ -4535,7 +4536,7 @@ function renderSettings() {
       row('Save clips to', h('div', { class: 'ctl' }, h('span', { class: 'mono', style: { flex: 1 } }, e.outputDir),
         h('button', { class: 'btn', onclick: async () => { const p = await api.pickFolder('Where to save clips'); if (p) { await save({ outputDir: p }); await refreshEnv(); renderSettings(); } } }, 'Change'))),
       row('Video encoder', select(st.encoder, [['auto', `Auto (using ${e.encoder})`], ['libx264', 'CPU (x264)'], ['h264_nvenc', 'NVIDIA (NVENC)'], ['h264_amf', 'AMD (AMF)'], ['h264_qsv', 'Intel (QuickSync)']], v => save({ encoder: v }).then(refreshEnv), { seg: false, icon: () => pickSvg(PICK_ICONS.chip) })),
-      row('Montage fade', h('div', { class: 'ctl' }, num(st.montage.fade, v => save({ montage: { fade: v } }), { max: 2, step: 0.05 }), 's')),
+      row('Montage fade', h('div', { class: 'ctl' }, num(st.montage.fade, v => save({ montage: { fade: v } }), { max: 2, step: 0.05 }), h('span', { class: 'unit' }, 's'))),
       row('Keep raw recordings', toggle('Keep', st.keepRaw, v => save({ keepRaw: v })), "Keeps HLAE's separate video and audio files in a _raw folder."),
       row('ffmpeg', h('div', { class: 'ctl' }, h('span', { class: 'mono', style: { flex: 1 } }, e.ffmpeg || 'not found'),
         h('button', { class: 'btn', onclick: async () => { const p = await api.pickFile('ffmpeg.exe', [{ name: 'ffmpeg', extensions: ['exe'] }]); if (p) { await save({ ffmpegPath: p }); await refreshEnv(); renderSettings(); } } }, 'Browse'))),
@@ -4550,7 +4551,7 @@ function renderSettings() {
     h('div', { class: 'card' },
       h('h3', {}, 'Advanced timing & commands'),
       h('div', { class: 'desc' }, 'Increase the startup wait if the first clip fails right after CS2 opens. Setup commands run once when CS2 starts, separated by ";".'),
-      row('CS2 startup wait', h('div', { class: 'ctl' }, num(t.startupWait, v => save({ timing: { startupWait: v } }), { max: 300 }), 's')),
+      row('CS2 startup wait', h('div', { class: 'ctl' }, num(t.startupWait, v => save({ timing: { startupWait: v } }), { max: 300 }), h('span', { class: 'unit' }, 's'))),
       row('Setup commands', text(st.commands.setup, v => save({ commands: { setup: v } }), { class: 'mono' })),
     ),
   ];

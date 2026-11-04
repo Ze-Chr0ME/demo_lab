@@ -111,7 +111,7 @@ function deathsView() {
   }
   return [
     h('div', { class: 'section-head' }, h('h3', { class: 'with-avatar' }, avatar(name, povId(), 'sm'), `Deaths · ${name}`), h('span', { class: 'spacer' }),
-      h('span', { class: 'hint' }, `${bad} of ${v.deaths.length} deaths had something to fix. Hover a tag for what it means.`)),
+      h('span', { class: 'hint' }, `${bad} of ${v.deaths.length} deaths had something to fix. Red: something to fix · grey: context. Hover a tag for what it means.`)),
     measure,
     deathChips(v.deaths, f, k => { state.dv.filter = k; renderDetail(); }),
     list.length ? h('div', { class: 'integ-moments' }, ...list.map(x => deathRow(x, { name, steamid: povId() }))) : h('div', { class: 'integ-none' }, 'No death with this tag.'),

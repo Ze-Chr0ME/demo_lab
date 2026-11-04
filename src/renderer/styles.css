@@ -958,7 +958,7 @@ canvas.zoomable.dragging { cursor: grabbing; }
 .heat-chip .n { color: color-mix(in srgb, currentColor 72%, transparent); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .heat-maps { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
 .heat-map { background: var(--card-bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; }
-.heat-map .zoom-wrap { width: min(100%, max(340px, calc(100vh - 540px))); min-width: 300px; margin: 0 auto; }
+.heat-map .zoom-wrap { width: min(100%, 760px); min-width: 300px; margin: 0 auto; } /* the map fills its side panel; the page scrolls for the rest */
 .heat-side { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; margin: 2px 4px 8px; }
 .heat-side span { color: var(--muted); font-weight: 500; }
 
@@ -1244,7 +1244,7 @@ kbd { display: inline-block; min-width: 18px; text-align: center; font: 700 11px
 .dl .sc.none { color: var(--dim); font-weight: 400; }
 .dl.stale { background: color-mix(in srgb, var(--card-bg) 70%, transparent); }
 .dl.stale :is(.when, .mode-name, .sc) { color: var(--muted); }
-.sb th.team.lead { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+.sb th.team.lead, th.team.lead { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
 .settings .tabs, .card .tabs { background: var(--panel-3); box-shadow: inset 0 0 0 1px var(--line); }
 input[type=number] { height: 36px; }
 .ut-search { height: 36px; }
@@ -1616,7 +1616,7 @@ table.sb.sb-score th.wide { width: 118px; }
 .wp-kpi .v { font: 750 26px/1.2 var(--display); margin-top: 4px; white-space: nowrap; }
 .wp-kpi .v small { font: 500 12px/1 "Segoe UI", sans-serif; color: var(--muted); margin-left: 7px; }
 .wp-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
-.wp-metrics { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.wp-metrics { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; background: var(--card-bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px 8px 18px; } /* the label sits inside a bar, like Hit distribution inside its card */
 .wp-row { display: grid; grid-template-columns: 92px minmax(170px, 1fr) repeat(var(--wp-cols), minmax(80px, 104px)); align-items: center; gap: 0 12px;
   background: var(--card-bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 14px 7px 10px; margin-bottom: 6px; cursor: pointer; transition: opacity .12s, border-color .12s; }
 .wp-row:hover { border-color: var(--line-2); }
@@ -1649,7 +1649,7 @@ table.sb.sb-score th.wide { width: 118px; }
 .wp-body svg { width: 100%; height: 220px; display: block; margin: 4px 0; }
 .wp-body .rg { stroke: var(--bg); stroke-width: 1.5; transition: fill .2s, stroke .12s; cursor: default; }
 .wp-body .rg.hl { stroke: var(--text); stroke-width: 2.5; }
-.wp-side { fill: var(--dim); font: 700 11px "Segoe UI", sans-serif; text-anchor: middle; }
+.wp-side { fill: var(--muted); font: 700 20px "Segoe UI", sans-serif; text-anchor: middle; } /* svg units: the body is drawn at about half size, so this reads near 10px */
 .wp-regions { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .wp-regions th { font: var(--label); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); text-align: right; padding: 6px 4px; }
 .wp-regions th:first-child, .wp-regions td:first-child { text-align: left; }
@@ -1694,7 +1694,7 @@ table.sb.sb-score th.wide { width: 118px; }
 .death-line { color: var(--text); }
 .death-line .side-T { color: var(--t); font-weight: 700; } .death-line .side-CT { color: var(--ct); font-weight: 700; }
 .death-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.death-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.death-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; max-width: 980px; } /* wraps into two even rows instead of one orphan chip */
 .dchip { display: inline-flex; align-items: center; gap: 6px; }
 .dchip.bad:not(.on) .tab-count { background: color-mix(in srgb, var(--loss) 15%, transparent); color: color-mix(in oklab, var(--loss), #fff 35%); }
 .death-note { display: flex; align-items: center; gap: 14px; justify-content: space-between; }
@@ -2578,7 +2578,8 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 /* Shared player names and Overview filters use Compare's open controls. */
 .dash-title h2 > .cmp-pick { font: inherit; letter-spacing: inherit; line-height: inherit; }
 .dash-head > .cmp-filters { justify-self: auto; background: transparent; padding: 0; }
-#demoListSub { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+#demoListSub { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+#demoListSub .cmp-name { font-size: 18px; } /* the owner name sits at match-title size, the count after it */
 #demoListSub > .cmp-pick { font: inherit; }
 
 /* ---------- Pickers ---------- */
@@ -2633,7 +2634,8 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 .clip-rating { display: inline-flex; align-items: center; gap: 8px; }
 .clip-rating-k { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .ctl-k { font-size: 12px; color: var(--muted); }
-.ctl-k + * { margin-right: 8px; }
+.row .ctl .unit { margin-left: -3px; font-size: 13px; color: var(--muted); } /* the unit hugs its input */
+.row .ctl .unit + .ctl-k { margin-left: 14px; }
 #view-highlights .clip-stars-pick button { font-size: 15px; font-weight: 650; color: var(--dim); }
 /* 2D Replay: the round buttons share the round title row, so the map starts higher */
 .radar-head { flex-wrap: wrap; margin-top: 18px; }
@@ -2715,7 +2717,13 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 .sb.integ tr.on.foe td.name { box-shadow: inset 3px 0 0 var(--line-2); }
 :root[data-scene=map] .radar-options .hint { background: none; padding: 0; color: var(--muted); text-shadow: 0 1px 3px #000d; }
 .cmp-group .cmp-row + .cmp-row { border-top: 1px solid var(--line-soft); }
-.inv-vs { margin-left: 6px; font-size: 12px; color: var(--muted); }
+.inv-delta { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; } /* the change and what it is measured against read as one item */
+.inv-vs { font-size: 12px; color: var(--muted); }
 #view-highlights .clip-stars-pick button { color: var(--muted); }
 .hl-queue { padding-top: 8px; padding-bottom: 8px; }
 .tr-card .map-card-body { background: linear-gradient(0deg, #000000c8, #00000090 55%, transparent); }
+/* Pass 19 */
+.dl-side .info-box { font-size: 12.5px; line-height: 1.55; } /* side notes read smaller than the list they explain */
+.map-card-sub .side-tag { vertical-align: -.12em; color: inherit; gap: 4px; } /* counts sit on the text baseline, the icon carries the side */
+.map-card-sub .side-tag .pick-side { width: .95em; height: .95em; }
+.hl-chip-word { font-weight: 600; margin-left: -1px; }

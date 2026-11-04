@@ -157,7 +157,7 @@ function paintWeapons(root, v) {
       ['pistol', 'Pistol rounds'], ...v.rounds.map(r => [`r${r.num}`, `Round ${r.num}`])], x => setF('rounds', x), { seg: false, icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'clock' : 'timer']) }),
     select(f.player, [['all', 'All players', () => pickSvg(PICK_ICONS.users)], ...players.map(p => [p.steamid, `${p.name}${p.steamid === pov ? ' (point of view)' : ''}`, () => avatar(p.name, p.steamid, 'xs')])], x => setF('player', x), { seg: false, search: true, noun: 'players' }),
     select(f.team, [['all', 'Both teams'], ['mine', myTeam ? 'Your team' : 'Team of the point of view'], ['theirs', 'Opponents']], x => setF('team', x), { seg: true, icon: v => pickSvg(PICK_ICONS[v === 'theirs' ? 'swords' : 'users']) }),
-    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon }),
+    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon, iconOnly: true }) /* side pickers are icon-only everywhere */,
     types.size > 1 ? select(f.type, [['all', 'All types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x), { seg: false, icon: wpTypeIcon }) : null,
     h('span', { class: 'spacer' }),
     Object.keys(wp.f).length ? h('button', { class: 'link-btn', onclick: () => { wp.f = {}; repaint(); } }, 'Reset filters') : null);
@@ -191,8 +191,9 @@ function weaponBoard(rows, wp, repaint, { kills: killsSub } = {}) {
   const grid = { style: { '--wp-cols': cols.length } };
   const share = r => (all.kills ? r.kills / all.kills : all.dmg ? r.dmg / all.dmg : 0);
   const toggle = w => { wp.sel.has(w) ? wp.sel.delete(w) : wp.sel.add(w); repaint(); };
-  const head = h('div', { class: 'wp-row wp-cols', ...grid }, h('span'), h('span', { class: 'wp-sel-info', title: 'The bar under each weapon is its share of the kills' },
-    sel.length ? [`${sel.length} selected · `, h('button', { class: 'link-btn', onclick: () => { wp.sel.clear(); repaint(); } }, 'clear')] : 'Click weapons to compare'),
+  const selInfo = h('span', { class: 'wp-sel-info', title: 'The bar under each weapon is its share of the kills' },
+    sel.length ? [`${sel.length} selected · `, h('button', { class: 'link-btn', onclick: () => { wp.sel.clear(); repaint(); } }, 'clear')] : 'Click weapons to compare');
+  const head = h('div', { class: 'wp-row wp-cols', ...grid }, h('span'), h('span'),
   ...cols.map(([k, label, tip]) => h('button', { class: `wp-th ${sort.col === k ? 'on' : ''}`, title: tip,
     onclick: () => { wp.sort = { metric, col: k, dir: sort.col === k ? -sort.dir : -1 }; repaint(); } }, label, sort.col === k ? (sort.dir < 0 ? ' ▾' : ' ▴') : '')));
   const list = rows.map(r => h('div', { class: `wp-row ${wp.sel.has(r.w) ? 'on' : sel.length ? 'dim' : ''}`, ...grid, onclick: () => toggle(r.w), title: wp.sel.has(r.w) ? 'Click to unselect' : 'Click to select' },
@@ -203,7 +204,7 @@ function weaponBoard(rows, wp, repaint, { kills: killsSub } = {}) {
     ...cols.map(([, , , val, fmt, cls]) => h('span', { class: `wp-td ${cls ? cls(r) : ''}` }, fmt ? fmt(r) : val(r)))));
 
   const left = h('div', { class: 'wp-main' },
-    h('div', { class: 'wp-metrics' }, h('span', { class: 'wp-label' }, 'Metrics'), h('span', { class: 'spacer' }),
+    h('div', { class: 'wp-metrics' }, h('span', { class: 'wp-label' }, 'Metrics'), selInfo, h('span', { class: 'spacer' }),
       h('div', { class: 'tabs' }, ...WP_METRIC_TABS.map(([k, l]) => h('button', { class: metric === k ? 'on' : '', onclick: () => { wp.metric = k; repaint(); } }, l)))),
     head,
     ...(list.length ? list : [h('div', { class: 'muted-note' }, 'No kills, damage or shots with these filters.')]));
@@ -330,7 +331,7 @@ function renderAimPage() {
     modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], x => setF('mode', x), { seg: false, icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'grid' : 'swords']) }) : null,
     maps.length > 1 ? select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], x => setF('map', x), { seg: false, icon: pickMap, noun: 'maps' }) : null,
     select(f.period, PERIODS, x => setF('period', x), { seg: false, icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'clock' : 'calendar']) }),
-    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon }),
+    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon, iconOnly: true }) /* side pickers are icon-only everywhere */,
     types.size > 1 ? select(f.type, [['all', 'All types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x), { seg: false, icon: wpTypeIcon }) : null,
     h('span', { class: 'spacer' }),
     Object.keys(ap.f).length ? h('button', { class: 'link-btn', onclick: () => { ap.f = {}; repaint(); } }, 'Reset filters') : null);

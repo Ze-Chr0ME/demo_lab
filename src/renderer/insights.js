@@ -116,7 +116,7 @@ function economyView() {
   const types = Object.keys(v.labels);
   const winRow = t => types.map(k => { const [w, p] = v.summary[t][k]; return { label: v.labels[k], note: `${w}/${p}`, value: p ? `${pct(w, p)}%` : '—', frac: p ? w / p : 0, fillCls: w / p >= 0.5 ? 'good' : 'bad' }; });
   const matrix = h('table', { class: 'sb eco-matrix' },
-    h('thead', {}, h('tr', {}, h('th', { class: 'team' }, 'Your buy ↓  vs  theirs →'), ...types.map(k => h('th', {}, v.labels[k])))),
+    h('thead', {}, h('tr', {}, h('th', { class: 'team lead' }, 'Your buy ↓  vs  theirs →'), ...types.map(k => h('th', {}, v.labels[k])))),
     h('tbody', {}, ...types.filter(a => types.some(b => v.matrix[a][b][1])).map(a => h('tr', {}, h('td', { class: 'name' }, v.labels[a]),
       ...types.map(b => { const [w, p] = v.matrix[a][b]; return h('td', { class: p ? (w / p >= 0.5 ? 'good' : 'bad') : '', title: p ? `${w} won of ${p}` : '' }, p ? `${w}/${p}` : '—'); })))));
 

@@ -113,7 +113,7 @@ function renderInventory() {
         d.pricesAt ? ` · ${d.sources[d.source]} prices from ${ago(d.pricesAt)}` : null,
         st.loading ? h('span', {}, ' · ', spinner(11), ' updating') : null,
         (st.salesJob || d.sales?.job)?.steamid === d.steamid
-          ? h('span', { title: 'The most valuable items are priced from what they sold for on Steam (one item every few seconds, so Steam doesn’t block DemoLab)' },
+          ? h('span', { style: { whiteSpace: 'nowrap' }, title: 'The most valuable items are priced from what they sold for on Steam (one item every few seconds, so Steam doesn’t block DemoLab)' },
             ' · ', spinner(11), h('span', { id: 'invSales' }, ` checking Steam sales ${(st.salesJob || d.sales.job).done}/${(st.salesJob || d.sales.job).total}`))
           : null)),
     h('span', { class: 'spacer' }),
@@ -143,8 +143,8 @@ function renderInventory() {
   const summary = h('div', { class: 'inv-summary', style: { '--inv-stats': stats.length } },
     h('div', { class: 'tile inv-stat inv-hero' }, h('div', { class: 'tile-k' }, 'Inventory value'),
       h('div', { class: 'tile-row' }, h('div', { class: 'tile-v inv-total' }, invMoney(d.total)),
-        d.trend30 ? invChangeEl(invChange(d.trend30.now, d.trend30.then), `Against the same items at their 30-day average price (${invMoney(d.trend30.then)})`) : null,
-        d.trend30 ? h('span', { class: 'inv-vs' }, 'vs 30-day avg') : null),
+        d.trend30 ? h('span', { class: 'inv-delta' }, invChangeEl(invChange(d.trend30.now, d.trend30.then), `Against the same items at their 30-day average price (${invMoney(d.trend30.then)})`),
+          h('span', { class: 'inv-vs' }, 'vs 30-day avg')) : null),
       h('div', { class: 'tile-sub' }, 'Total estimated value')), ...stats);
 
   const byType = new Map();

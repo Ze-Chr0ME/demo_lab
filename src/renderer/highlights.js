@@ -28,6 +28,8 @@ function hlMark(key, label) {
   el.append(img);
   return el;
 }
+// Short words next to the kill-type icons in the filter, so the icon is never the only cue.
+const HL_CHIP_WORDS = { noscope: 'No-scope', wallbang: 'Wallbang', smoke: 'Smoke', blind: 'Blind', jumpshot: 'Jump', knife: 'Knife', zeus: 'Zeus' };
 const tagMark = t => hlMark(t.type === 'special' ? t.key : null, t.label);
 
 async function loadHighlights() {
@@ -189,9 +191,9 @@ function hlQueueBar() {
           onclick: () => hlToggleQueue(item) }, icon(ICONS.x))))) : null),
     !queued.length ? h('span', { class: 'hl-queue-hint' }, 'Click highlights to add clips') : null,
     h('span', { class: 'spacer' }),
-    h('button', { class: 'btn ghost', type: 'button', disabled: !queued.length,
+    h('button', { class: 'btn', type: 'button', disabled: !queued.length,
       onclick: () => { state.hl.queue.clear(); renderHighlights(false); } }, 'Clear queue'),
-    h('button', { class: `btn ${queued.length ? 'primary' : 'ghost'}`, type: 'button', disabled: !queued.length || !!state.recording || !!state.recordStarting,
+    h('button', { class: `btn ${queued.length ? 'primary' : ''}`, type: 'button', disabled: !queued.length || !!state.recording || !!state.recordStarting,
       onclick: hlRecordQueue }, icon(ICONS.rec), `Record queue (${queued.length})`));
 }
 
@@ -270,7 +272,8 @@ function renderHighlights(check = true) {
       const key = hlTag(tag), on = st.tags.has(key);
       return h('button', { class: `hl-chip ${on ? 'on' : ''}`, type: 'button', 'aria-pressed': String(on), title: key,
         onclick: () => { on ? st.tags.delete(key) : st.tags.add(key); change({}); } },
-      tag.type === 'clutch' ? h('span', { class: 'hl-mark-text' }, 'Clutch') : tagMark(tag), h('small', {}, n));
+      tag.type === 'clutch' ? h('span', { class: 'hl-mark-text' }, 'Clutch') : tagMark(tag),
+      tag.type === 'special' && HL_CHIP_WORDS[tag.key] ? h('span', { class: 'hl-chip-word' }, HL_CHIP_WORDS[tag.key]) : null, h('small', {}, n));
     }));
   const maps = [...mapCounts].sort((a, b) => b[1] - a[1] || mapName(a[0]).localeCompare(mapName(b[0])));
   const cycleMap = m => {
@@ -296,7 +299,7 @@ function renderHighlights(check = true) {
     ...[['all', 'Both', 'Both teams'], ['T', 'T', 'Terrorists'], ['CT', 'CT', 'Counter-Terrorists']].map(([v, l, label]) =>
       h('button', { class: `${st.side === v ? 'on' : ''} ${v !== 'all' ? `side-${v}` : ''}`, type: 'button',
         title: label, 'aria-label': label, 'aria-pressed': String(st.side === v), onclick: () => change({ side: v }) },
-      v === 'all' ? h('span', { class: 'hl-team-pair', 'aria-hidden': 'true' }, sideEmblem('T'), sideEmblem('CT')) : sideEmblem(v), l)));
+      v === 'all' ? h('span', { class: 'hl-team-pair', 'aria-hidden': 'true' }, sideEmblem('T'), sideEmblem('CT')) : sideEmblem(v))));
   const toggle = (key, label, mark) => h('button', { class: `hl-chip hl-icon-toggle ${st[key] ? 'on' : ''}`, type: 'button',
     'aria-label': label, 'aria-pressed': String(st[key]), title: label,
     onclick: () => change({ [key]: !st[key] }) }, mark);
