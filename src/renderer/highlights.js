@@ -206,8 +206,8 @@ function hlCard(item) {
       h('div', { class: 'hl-card-when' },
         h('div', { class: 'hl-card-map' }, h('b', {}, mapName(item.map)), sideTag(hl.side), h('span', {}, `Round ${hl.round}`)),
         h('div', { class: 'hl-card-date' }, fmtDate(item.demo.date)),
-        h('div', { class: 'hl-card-file' }, item.demo.customName || item.demo.name)),
-      h('span', { class: 'hl-card-stars', title: `${rating} star${rating > 1 ? 's' : ''}` }, '★'.repeat(rating))),
+        item.demo.customName ? h('div', { class: 'hl-card-file' }, item.demo.customName) : null),
+      h('span', { class: 'hl-card-stars', title: `${rating} star${rating > 1 ? 's' : ''}` }, starRow(rating))),
     h('div', { class: 'hl-card-tags' }, ...words.map(t => h('b', {}, t.label)), ...marks.map(tagMark)),
     h('div', { class: 'hl-feed' }, ...kills.map(k => h('div', { class: 'hl-feed-row' },
       h('span', { class: 'hl-feed-gun', title: k.weapon }, weaponIcon(k.code || 'knife')),
@@ -218,7 +218,7 @@ function hlCard(item) {
     h('div', { class: 'hl-card-foot' },
       h('button', { class: `hl-queue-status ${queued ? 'on' : ''}`, type: 'button', 'aria-pressed': String(queued),
         onclick: () => hlToggleQueue(item) }, queued ? icon(ICONS.check) : icon(ICONS.rec), queued ? 'Queued' : 'Add to queue'),
-      h('button', { class: 'hl-open', type: 'button', onclick: e => { e.stopPropagation(); openHighlight(item); } }, 'Match Page →')));
+      h('button', { class: 'hl-open', type: 'button', onclick: e => { e.stopPropagation(); openHighlight(item); } }, 'Match page →')));
 }
 
 function renderHighlights(check = true) {

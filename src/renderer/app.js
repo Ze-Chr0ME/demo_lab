@@ -55,7 +55,9 @@ const fmtShort = ms => { const d = new Date(ms), y = d.getFullYear() !== new Dat
   return `${d.toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', ...(y ? { year: 'numeric' } : {}) })} · ${d.toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' })}`; };
 const fmtDur = s => { s = Math.round(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const fmtSize = b => `${(b / 1048576).toFixed(0)} MB`;
-const stars = score => '★'.repeat(Math.max(1, Math.min(5, Math.round(score / 25)))) ;
+// Always five glyphs: the filled ones first, the rest faint, the same way on every page.
+const starRow = n => [h('b', {}, '★'.repeat(n)), '★'.repeat(5 - n)];
+const stars = score => starRow(Math.max(1, Math.min(5, Math.round(score / 25))));
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
 const fmtNum = n => Math.round(n).toLocaleString(UI_LOCALE);
@@ -838,7 +840,7 @@ api.onIntegrityProgress(({ id, progress, phase }) => {
   if (el) el.textContent = integProgressText();
 });
 
-const INTEG_LEVEL = { normal: ['Normal', 'ok'], unusual: ['Unusual', 'new'], very: ['Very unusual', 'bad'] };
+const INTEG_LEVEL = { normal: ['Normal', ''], unusual: ['Unusual', 'new'], very: ['Very unusual', 'bad'] };
 const MOMENT_KIND = { snap: 'Aim without mouse', track: 'Followed through a wall', wallhit: 'Hit through a wall', contact: 'Aimed where they appeared' };
 
 function integrityView() {
@@ -854,12 +856,12 @@ function integrityView() {
   const teamName = p => p.team == null ? '' : p.team === st.value.myTeam ? 'Your team' : 'Opponents';
   const table = h('table', { class: 'sb integ' },
     h('thead', {}, h('tr', {},
-      h('th', { class: 'team lead' }, 'Player'),
+      h('th', { class: 'team lead' }, 'Player', h('span', { class: 'team-key' }, h('i', { class: 'ally' }), 'your team', h('i', { class: 'foe' }), 'opponents')),
       h('th', { title: 'One very unusual signal, or two unusual ones, make a player very unusual' }, 'Overall'),
       ...sel.signals.map(c => h('th', { title: `${c.tip}\n\nNormal: ${c.normal}` }, c.label)),
       h('th', { title: 'Kills and headshot percentage, for context' }, 'K · HS%'))),
-    h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''}`, title: 'Show this player’s moments', onclick: () => { state.integPlayer = p.steamid; renderDetail(); } },
-      h('td', { class: 'name' }, steamAvatar(p.name, p.steamid, 'sm'), p.name, h('span', { class: 'integ-team' }, teamName(p))),
+    h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''} ${p.team == null ? '' : p.team === st.value.myTeam ? 'ally' : 'foe'}`, title: 'Show this player’s moments', onclick: () => { state.integPlayer = p.steamid; renderDetail(); } },
+      h('td', { class: 'name', title: teamName(p) }, steamAvatar(p.name, p.steamid, 'sm'), p.name),
       h('td', {}, h('span', { class: `pill ${INTEG_LEVEL[p.level][1]}` }, INTEG_LEVEL[p.level][0])),
       ...p.signals.map(s => h('td', { class: `integ-${s.level}`, title: `Normal: ${s.normal}` }, s.display)),
       h('td', {}, `${p.context.kills} · ${p.context.hsPct}%`)))));
@@ -2693,7 +2695,7 @@ function trendCard(list) {
     const area = `${ratingPath}L${x(vals.length - 1)},${H - padB}L${x(0)},${H - padB}Z`;
     const svg = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg"><defs><linearGradient id="tFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" class="t-stop-a"/><stop offset="1" class="t-stop-b"/></linearGradient></defs>${grid.join('')}
       <path d="${area}" class="t-area"/><path d="${ratingPath}" class="t-line"/><path d="${line(avg)}" class="t-avg"/>
-      ${ms.map((m, i) => `<circle cx="${x(i)}" cy="${y(m.rating)}" r="4.5" class="t-pt r-${m.result}" data-i="${i}"><title>${mapName(m.map).replace(/[<&]/g, '')} ${m.score[0]}:${m.score[1]} · rating ${m.rating.toFixed(2)} · ${new Date(m.date).toLocaleDateString(UI_LOCALE)}</title></circle>`).join('')}</svg>`;
+      ${ms.map((m, i) => `<circle cx="${x(i)}" cy="${y(m.rating)}" r="4.5" class="t-pt r-${m.result}" data-i="${i}"><title>${mapName(m.map).replace(/[<&]/g, '')} ${m.score[0]}:${m.score[1]} · rating ${m.rating.toFixed(2)} · ${fmtShort(m.date)}</title></circle>`).join('')}</svg>`;
     el.innerHTML = svg;
   };
   const observer = new ResizeObserver(() => {
@@ -4092,7 +4094,7 @@ function clipCard(c) {
   h('div', { class: 'clip-body' },
     h('div', { class: 'clip-top' },
       h('div', { class: 'clip-title', title: c.title }, c.title),
-      rating ? h('span', { class: 'clip-score', title: `Score ${Math.round(c.score)}` }, h('b', {}, '★'.repeat(rating)), '★'.repeat(5 - rating)) : null),
+      rating ? h('span', { class: 'clip-score', title: `Score ${Math.round(c.score)}` }, ...starRow(rating)) : null),
     h('div', { class: 'clip-meta' },
       c.kind === 'clip' ? h('i', { class: 'clip-dot' }) : null,
       h('span', {}, c.kind === 'share' ? shareBadge(c) : c.kind === 'montage' ? `${c.tags?.[0] || 'Montage'} · ${(c.map || '').split(',').map(m => mapName(m.trim())).join(', ')}` : `${mapName(c.map)} · Round ${c.round ?? '?'}`),
@@ -4610,7 +4612,7 @@ function renderDownloads() {
   updateDlCount();
   const d = state.dl;
   const STATUS = {
-    downloaded: ['ok', 'On your PC'], available: ['new', 'Not downloaded'], queued: ['', 'Queued'],
+    downloaded: ['', 'On your PC'], available: ['new', 'Not downloaded'], queued: ['', 'Queued'],
     downloading: ['new', 'Downloading'], removed: ['', 'Deleted / moved'], expired: ['', 'Expired'],
     waiting: ['new', 'Waiting for you'], // FACEIT room open: you click "Watch demo" there
   };
@@ -4620,7 +4622,7 @@ function renderDownloads() {
     h('span', { class: 'dl-head-info' }, d.lastCheck ? `Last checked ${fmtDate(d.lastCheck)}` : 'Never checked'),
     h('span', { class: 'spacer' }),
     autoToggle,
-    h('button', { class: 'btn primary', disabled: d.checking, onclick: checkNow }, d.checking ? h('span', { class: 'spinner' }) : icon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/>'), d.checking ? 'Checking…' : 'Check now'),
+    h('button', { class: 'btn', disabled: d.checking, onclick: checkNow }, d.checking ? h('span', { class: 'spinner' }) : icon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/>'), d.checking ? 'Checking…' : 'Check now'),
   );
 
   const signedIn = d.community === 'ok';
