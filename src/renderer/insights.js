@@ -121,7 +121,7 @@ function economyView() {
   const flags = v.flags.filter(f => f.steamid === pov);
   const broke = v.rounds.filter(r => r.teams[me].brokeAfterForce);
   const flagList = flags.length ? h('div', { class: 'integ-moments' }, ...flags.map(f => h('div', { class: 'integ-moment' },
-    h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, f.round), h('div', { class: 'l' }, f.side)),
+    h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, f.round), h('div', { class: 'l' }, sideTag(f.side))),
     h('div', { class: 'integ-text' }, f.text),
     h('div', { class: 'integ-actions' }, h('button', { class: 'btn', onclick: () => showInReplay(pov, f.tick + 2 * 64) }, '2D replay')))))
     : h('div', { class: 'integ-none' }, `No buy mistakes found for ${name}.`);
@@ -143,7 +143,7 @@ function economyView() {
     h('div', { class: 'section-head' }, h('h3', {}, 'Economy'), h('span', { class: 'spacer' }),
       h('span', { class: 'hint' }, 'Loadout value when each round went live. Dots: who won the round. Click a round to open it in the 2D replay.')),
     chart,
-    h('div', { class: 'legend eco-legend' }, ...types.map(k => h('span', { class: `lg buy-${k}`, title: BUY_TIP[k] }, h('i', {}), v.labels[k])), h('span', { class: 'lg side-T' }, h('i', {}), 'T'), h('span', { class: 'lg side-CT' }, h('i', {}), 'CT')),
+    h('div', { class: 'legend eco-legend' }, ...types.map(k => h('span', { class: `lg buy-${k}`, title: BUY_TIP[k] }, h('i', {}), v.labels[k])), h('span', { class: 'lg side-T' }, h('i', {}), sideTag('T')), h('span', { class: 'lg side-CT' }, h('i', {}), sideTag('CT'))),
     h('div', { class: 'dash eco-cards' },
       card(`Win rate per buy · ${v.teamNames[me]}`, barList(winRow(me))),
       card(`Win rate per buy · ${v.teamNames[them]}`, barList(winRow(them))),
@@ -466,7 +466,7 @@ function quizQuestion() {
   const x = state.ut.items.find(y => y.id === qq.id);
   if (!x) { q.i++; return quizQuestion(); }
   const head = h('div', { class: 'quiz-head' }, h('span', { class: 'pill' }, `${q.i + 1} / ${q.questions.length}`), h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[x.type] } }),
-    h('b', {}, `${utLabel(UT_TYPES, x.type)} · ${mapName(x.map)}`), x.side !== 'both' ? h('span', { class: `side-${x.side}` }, x.side) : null);
+    h('b', {}, `${utLabel(UT_TYPES, x.type)} · ${mapName(x.map)}`), x.side !== 'both' ? sideTag(x.side) : null);
   const answered = qq.answer != null;
   const next = h('button', { class: 'btn primary', onclick: () => { q.i++; quizQuestion(); } }, q.i + 1 < q.questions.length ? 'Next' : 'Finish');
   const result = answered ? h('div', { class: `quiz-result ${qq.right ? 'good' : 'bad'}` }, qq.right ? '✓ Right' : '✗ Not quite', qq.dist != null ? ` · ${fmtNum(qq.dist)} units off` : '', ` · ${x.name}`) : null;

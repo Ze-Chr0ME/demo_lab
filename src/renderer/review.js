@@ -52,7 +52,7 @@ function deathRow(x, { name, steamid, onReplay, cs2 = true, extra = null }) {
     h('div', { class: 'integ-text' },
       extra,
       h('div', { class: 'death-line' },
-        h('span', { class: `side-${x.side}` }, x.side), ' · killed by ', h('b', {}, x.killerName || '?'),
+        sideTag(x.side), ' · killed by ', h('b', {}, x.killerName || '?'),
         ` with the ${x.weapon}`, x.headshot ? ' (headshot)' : '', x.wallbang ? ' · wallbang' : '', x.smoke ? ' · through smoke' : '',
         x.place ? ` · ${placeLabel(x.place)}` : ''),
       h('div', { class: 'death-tags' },

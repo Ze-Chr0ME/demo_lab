@@ -2,6 +2,8 @@
 'use strict';
 
 // ---------- Helpers ----------
+// Dates and numbers follow the English interface, not the Windows region (no "lundi", "janv." or "2 477").
+const UI_LOCALE = 'en-GB';
 const $ = sel => document.querySelector(sel);
 function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -47,13 +49,13 @@ const MAPS = {
 };
 const mapName = m => MAPS[m]?.[0] || (m || '?').replace(/^(de|cs|ar)_/, '').replace(/^\w/, c => c.toUpperCase());
 const mapColor = m => MAPS[m]?.[1] || '#7a8494';
-const fmtDate = ms => new Date(ms).toLocaleString(undefined, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fmtDate = ms => new Date(ms).toLocaleString(UI_LOCALE, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const fmtDur = s => { s = Math.round(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const fmtSize = b => `${(b / 1048576).toFixed(0)} MB`;
 const stars = score => '★'.repeat(Math.max(1, Math.min(5, Math.round(score / 25)))) ;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
-const fmtNum = n => Math.round(n).toLocaleString();
+const fmtNum = n => Math.round(n).toLocaleString(UI_LOCALE);
 const resultOf = (mine, enemy) => (mine > enemy ? 'w' : mine < enemy ? 'l' : 'd');
 const spinner = (px = 24) => h('span', { class: 'spinner', style: { width: `${px}px`, height: `${px}px` } });
 
@@ -622,11 +624,12 @@ function renderDetail() {
         sb ? stat('Rating', sb.rating == null ? '—' : sb.rating.toFixed(2), ratingClass(sb.rating)) : null,
       ) : null,
     ),
-    roundStrip(),
-    h('div', { class: 'player-pick' }, 'Point of view', playerSelect,
-      h('span', { class: 'spacer' }),
-      viewInCs2Button('View demo', 'btn', 'Opens this demo in CS2 (through HLAE) at the first round, in the eyes of the point-of-view player',
-        () => ({ name: a.player?.name }), 'The demo is playing in the CS2 window.')),
+    // Rounds and the point-of-view picker share one band; the picker drops under the rounds when they need the width.
+    h('div', { class: 'hero-foot' },
+      roundStrip(),
+      h('div', { class: 'player-pick' }, 'Point of view', playerSelect,
+        viewInCs2Button('View demo', 'btn', 'Opens this demo in CS2 (through HLAE) at the first round, in the eyes of the point-of-view player',
+          () => ({ name: a.player?.name }), 'The demo is playing in the CS2 window.'))),
   );
 
   const tab = state.tab;
@@ -743,7 +746,7 @@ function scoreboardView() {
           h('span', { class: `team-score score-${t.score > lost ? 'w' : t.score < lost ? 'l' : 'd'}`, title: side ? `Rounds won as ${side}: ${t.score} of ${t.played}` : null }, side ? `${t.score}–${lost}` : t.score),
           teamLabel(t), side
             ? h('span', { class: `side side-${side}` }, `as ${side} · ${t.played} rounds`)
-            : h('span', { class: `side side-${t.startSide}` }, `started ${t.startSide}`)),
+            : h('span', { class: `side side-tag side-${t.startSide}`, title: `Started on the ${t.startSide === 'T' ? 'Terrorist' : 'Counter-Terrorist'} side` }, 'started', sideIcon(t.startSide))),
         ...cols.map(([k, tip]) => h('th', {
           title: tip, class: `${sort.col === k ? 'sorted' : ''} ${k === 'Multi' || k === 'Clutch' ? 'wide' : ''}`,
           onclick: () => { state.sbSort = { col: k, dir: sort.col === k ? -sort.dir : -1 }; renderDetail(); },
@@ -2673,7 +2676,7 @@ function trendCard(list) {
     const area = `${ratingPath}L${x(vals.length - 1)},${H - padB}L${x(0)},${H - padB}Z`;
     const svg = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg"><defs><linearGradient id="tFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" class="t-stop-a"/><stop offset="1" class="t-stop-b"/></linearGradient></defs>${grid.join('')}
       <path d="${area}" class="t-area"/><path d="${ratingPath}" class="t-line"/><path d="${line(avg)}" class="t-avg"/>
-      ${ms.map((m, i) => `<circle cx="${x(i)}" cy="${y(m.rating)}" r="4.5" class="t-pt r-${m.result}" data-i="${i}"><title>${mapName(m.map).replace(/[<&]/g, '')} ${m.score[0]}:${m.score[1]} · rating ${m.rating.toFixed(2)} · ${new Date(m.date).toLocaleDateString()}</title></circle>`).join('')}</svg>`;
+      ${ms.map((m, i) => `<circle cx="${x(i)}" cy="${y(m.rating)}" r="4.5" class="t-pt r-${m.result}" data-i="${i}"><title>${mapName(m.map).replace(/[<&]/g, '')} ${m.score[0]}:${m.score[1]} · rating ${m.rating.toFixed(2)} · ${new Date(m.date).toLocaleDateString(UI_LOCALE)}</title></circle>`).join('')}</svg>`;
     el.innerHTML = svg;
   };
   const observer = new ResizeObserver(() => {
@@ -2710,7 +2713,7 @@ function recentCard(list) {
   const last = list.slice(0, 8);
   return card('Last matches', h('div', { class: 'recent' }, ...last.map(m => h('button', { class: `recent-m r-${m.result}`, onclick: () => openMatch(m), title: `${fmtDate(m.date)} · open the scoreboard` },
     mapThumb(m.map),
-    h('span', { class: 'recent-t' }, h('b', {}, mapName(m.map)), h('small', {}, new Date(m.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))),
+    h('span', { class: 'recent-t' }, h('b', {}, mapName(m.map)), h('small', {}, new Date(m.date).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short' }))),
     h('span', { class: `recent-sc score-${m.result === 'W' ? 'w' : m.result === 'L' ? 'l' : 'd'}` }, `${m.score[0]}:${m.score[1]}`),
     h('span', { class: 'recent-kd' }, `${m.kills}–${m.deaths}`),
     h('span', { class: `rtg ${ratingClass(m.rating)}` }, m.rating == null ? '—' : m.rating.toFixed(2))))),
@@ -2764,7 +2767,7 @@ async function renderPlayerSearch() {
   ps.rows = rows.slice(0, 8);
   ps.id = id;
   ps.sel = clamp(ps.sel, 0, Math.max(0, ps.rows.length - 1));
-  const short = ms => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  const short = ms => new Date(ms).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric' });
   const body = ps.rows.map((p, i) => h('button', {
     class: `ps-row ${i === ps.sel ? 'on' : ''}`, title: `SteamID ${p.steamid}${p.names.length > 1 ? `\nAlso played as: ${p.names.slice(1).join(', ')}` : ''}`,
     onmousedown: e => { e.preventDefault(); choosePlayer(p.steamid); },
@@ -2852,10 +2855,10 @@ function renderMaps() {
             mapEmblem(e.map, 'map-card-icon'),
             h('div', { class: 'map-card-t' },
               h('div', { class: 'map-card-name' }, mapName(e.map)),
-              h('div', { class: 'map-card-sub' }, `${e.demos} match${e.demos === 1 ? '' : 'es'} · last ${new Date(e.last).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`))),
+              h('div', { class: 'map-card-sub' }, `${e.demos} match${e.demos === 1 ? '' : 'es'} · last ${new Date(e.last).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short' })}`))),
           me ? h('div', { class: 'map-card-rec' },
-            h('span', {}, `${me.won}W – ${me.lost}L`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`),
-            h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))) : h('div', { class: 'map-card-rec muted' }, state.who ? 'This player did not play here' : 'You did not play here'),
+            h('span', {}, `${me.won}W – ${me.lost}L${me.played > me.won + me.lost ? ` – ${me.played - me.won - me.lost}D` : ''}`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`),
+            h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))) : h('div', { class: 'map-card-rec muted' }, state.who ? 'This player is in none of these demos' : 'You are in none of these demos'),
           info ? null : h('div', { class: 'map-card-sub' }, 'No radar image for this map')));
     })) : h('div', { class: 'empty' }, pending ? spinner(28) : icon(ICONS.demo, 'class="big"'), h('h2', {}, pending ? 'Reading your demos…' : 'No maps yet'), h('div', {}, 'Maps appear once their demos have been read.')),
   ));
@@ -2942,7 +2945,7 @@ function mapDetail() {
     ]),
     h('div', { class: 'sub-head' }, `Matches (${me.won}W – ${me.lost}L${me.tied ? ` – ${me.tied}T` : ''})`),
     h('div', { class: 'map-matches' }, ...mine.slice(0, 8).map(m => h('button', { class: `mm r-${m.result}`, onclick: () => openMatch(m) },
-      h('span', { class: 'rdot' }), h('span', { class: 'mm-date' }, new Date(m.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })),
+      h('span', { class: 'rdot' }), h('span', { class: 'mm-date' }, new Date(m.date).toLocaleDateString(UI_LOCALE, { day: '2-digit', month: 'short' })),
       h('b', {}, `${m.score[0]}:${m.score[1]}`), h('span', { class: 'mm-kd' }, `${m.kills}–${m.deaths}`),
       h('span', { class: `rtg ${m.rating == null ? '' : ratingClass(m.rating)}` }, m.rating == null ? '' : m.rating.toFixed(2))))),
   ], { cls: 'map-stats' }) : null;
@@ -3048,7 +3051,9 @@ function renderUtility() {
 
   function utBody() {
     const list = utFiltered();
-    if (u.map === 'all' && !u.search) return [h('div', { class: 'ut-map-grid' }, ...maps.map(m => utMapCard(m, u.items.filter(x => x.map === m))))];
+    if (u.map === 'all' && !u.search) return [h('div', { class: 'ut-map-grid' }, ...maps.map(m => utMapCard(m, u.items.filter(x => x.map === m))),
+      // A quiet way to start another map, so a short list doesn't end in an empty page
+      h('button', { class: 'ut-add-card', onclick: () => editLineup() }, icon(PLUS), h('b', {}, 'Add a lineup'), h('span', {}, 'on this or another map')))];
     if (u.map === 'all') {
       if (!list.length) return [h('div', { class: 'muted-note' }, 'No lineup matches this search.')];
       const byMap = maps.map(m => [m, list.filter(x => x.map === m)]).filter(([, l]) => l.length);
@@ -3074,7 +3079,8 @@ function utMapCard(m, list) {
     h('div', { class: 'map-card-body' },
       h('div', { class: 'map-card-title' }, mapEmblem(m, 'map-card-icon'),
         h('div', { class: 'map-card-t' }, h('div', { class: 'map-card-name' }, mapName(m)),
-          h('div', { class: 'map-card-sub' }, [`${list.length} lineup${list.length === 1 ? '' : 's'}`, side('T') ? `${side('T')} T` : '', side('CT') ? `${side('CT')} CT` : '', fav ? `${fav} starred` : ''].filter(Boolean).join(' · ')))),
+          h('div', { class: 'map-card-sub' }, ...[`${list.length} lineup${list.length === 1 ? '' : 's'}`, side('T') ? sideTag('T', `${side('T')}`) : null, side('CT') ? sideTag('CT', `${side('CT')}`) : null, fav ? `${fav} starred` : null]
+            .filter(Boolean).flatMap((x, i) => i ? [' · ', x] : [x])))),
       h('div', { class: 'ut-types' }, ...UT_TYPES.filter(([k]) => n(k)).map(([k, l]) =>
         h('span', { class: 'ut-type', style: { '--c': NADE_COLOR[k] } }, h('span', { class: 'ut-dot' }), h('b', {}, n(k)), n(k) === 1 ? l : UT_PLURAL[k])))));
 }
@@ -3086,7 +3092,7 @@ function utCard(x, onclick) {
       x.images.length > 1 ? h('span', { class: 'ut-count' }, `${x.images.length} pics`) : null),
     h('div', { class: 'ut-card-body' },
       h('div', { class: 'ut-name' }, h('span', { class: 'ut-dot' }), h('span', { class: 'ut-name-t' }, x.name), x.fav ? icon(STAR, 'class="ut-fav-ic"') : null),
-      h('div', { class: 'ut-sub' }, x.side !== 'both' ? h('span', { class: `side-${x.side}` }, x.side) : null, x.side !== 'both' ? ' · ' : '', utLabel(UT_TYPES, x.type), utMoved(x) ? ` · ${utMoved(x)}` : ''),
+      h('div', { class: 'ut-sub' }, x.side !== 'both' ? sideTag(x.side) : null, x.side !== 'both' ? ' · ' : '', utLabel(UT_TYPES, x.type), utMoved(x) ? ` · ${utMoved(x)}` : ''),
       x.aim ? h('div', { class: 'ut-aim' }, x.aim) : null));
 }
 
@@ -3324,7 +3330,7 @@ function utDetail(x) {
       h('span', { class: 'nc-dot' }),
       h('div', { class: 'nc-title' },
         h('div', { class: 'nc-type' }, x.name),
-        h('div', { class: 'nc-who' }, utLabel(UT_TYPES, x.type), ' · ', mapName(x.map), x.side !== 'both' ? [' · ', h('span', { class: `side-${x.side}` }, x.side)] : ' · both sides')),
+        h('div', { class: 'nc-who' }, utLabel(UT_TYPES, x.type), ' · ', mapName(x.map), x.side !== 'both' ? [' · ', sideTag(x.side)] : ' · both sides')),
       h('button', { class: `nc-close ut-star ${x.fav ? 'on' : ''}`, title: x.fav ? 'Unpin' : 'Pin to the top', onclick: () => patch({ fav: !x.fav }) }, icon(STAR)),
       h('button', { class: 'nc-close', title: 'Back to the list (Esc)', onclick: () => { u.sel = null; renderUtility(); } }, icon(ICONS.x))),
     x.images.length ? h('div', { class: 'ut-shots' },
@@ -3527,7 +3533,7 @@ function editLineup(seed = {}) {
         const b = e.currentTarget; b.disabled = true;
         const name = await guard(() => api.utilityAddImage({ file: s.file }));
         if (name) { d.images.push(name); paintShots(); b.classList.add('added'); } else b.disabled = false;
-      } }, h('img', { src: api.fileUrl(s.thumb), loading: 'lazy' }), h('span', {}, new Date(s.time).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))))
+      } }, h('img', { src: api.fileUrl(s.thumb), loading: 'lazy' }), h('span', {}, new Date(s.time).toLocaleString(UI_LOCALE, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))))
       : [h('div', { class: 'muted-note' }, 'No CS2 screenshots found. In game, press F12 (Steam\'s screenshot key) to take one.')]));
   };
   const onPaste = e => {
@@ -3611,7 +3617,7 @@ function highlightCard(hl) {
   }, icon(ICONS.check), done.length > 1 ? `Clipped ×${done.length}` : 'Already clipped') : null;
   return h('div', { class: `hl ${sel ? 'selected' : ''} ${done.length ? 'is-clipped' : ''}`, onclick: () => { sel ? state.selected.delete(hl.id) : state.selected.add(hl.id); renderDetail(); } },
     h('div', { class: 'check' }, icon(ICONS.check)),
-    h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, hl.round), h('div', { class: `l side-${hl.side}` }, hl.side)),
+    h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, hl.round), h('div', { class: 'l' }, sideTag(hl.side))),
     h('div', {},
       h('div', { class: 'hl-title' }, ...hl.tags.map(t => h('span', { class: `tag ${t.type}` }, t.label)), clipped),
       h('div', { class: 'kills' }, ...hl.kills.map(k => h('div', { class: 'kill' },
@@ -3951,8 +3957,8 @@ function clipDayLabel(day, now = new Date()) {
   const dayNumber = d => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000;
   const date = new Date(day), age = dayNumber(now) - dayNumber(date);
   const label = age === 0 ? 'Today' : age === 1 ? 'Yesterday'
-    : age > 1 && age < 7 ? date.toLocaleDateString(undefined, { weekday: 'long' })
-      : date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', ...(date.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
+    : age > 1 && age < 7 ? date.toLocaleDateString(UI_LOCALE, { weekday: 'long' })
+      : date.toLocaleDateString(UI_LOCALE, { weekday: 'long', day: 'numeric', month: 'long', ...(date.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
@@ -4072,7 +4078,7 @@ function clipCard(c) {
     h('div', { class: 'clip-meta' },
       c.kind === 'clip' ? h('i', { class: 'clip-dot' }) : null,
       h('span', {}, c.kind === 'share' ? shareBadge(c) : c.kind === 'montage' ? `${c.tags?.[0] || 'Montage'} · ${(c.map || '').split(',').map(m => mapName(m.trim())).join(', ')}` : `${mapName(c.map)} · Round ${c.round ?? '?'}`),
-      ms ? h('time', { datetime: new Date(ms).toISOString(), title: fmtDate(ms) }, new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })) : null),
+      ms ? h('time', { datetime: new Date(ms).toISOString(), title: fmtDate(ms) }, new Date(ms).toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' })) : null),
     c.kind === 'clip' && weapons.length ? h('div', { class: 'clip-weapons' }, ...weapons.map((w, i) => h('span', { class: i ? '' : 'main' }, w))) : null,
   ));
   return card;
@@ -4194,6 +4200,10 @@ function sideIcon(side) {
   if (side === 'both' || side === 'all') return h('span', { class: 'pick-sides', 'aria-hidden': 'true' }, sideIcon('T'), sideIcon('CT'));
   return h('img', { class: 'pick-side', src: `img/team-${String(side).toLowerCase()}.png`, alt: '', 'aria-hidden': 'true' });
 }
+// A team side shown as its icon (never as "T"/"CT" text); the name is in the tooltip.
+function sideTag(side, ...text) {
+  return h('span', { class: `side-tag side-${side}`, title: side === 'T' ? 'Terrorist side' : 'Counter-Terrorist side' }, ...text, sideIcon(side));
+}
 function pickMap(m) { return !m || m === 'all' ? pickSvg(PICK_ICONS.map) : mapEmblem(m, 'pick-emblem'); }
 function pickWeapon(code) { return code === 'all' ? pickSvg(PICK_ICONS.grid) : h('span', { class: 'pick-wpn', 'aria-hidden': 'true' }, weaponIcon(code)); }
 function select(value, options, onchange, opts = {}) {
@@ -4232,7 +4242,7 @@ state.hlaeUpdate = null; // { installed, latest, updateAvailable, ... } once che
 function hlaeUpdateCtl() {
   const u = state.hlaeUpdate;
   const status = h('span', { class: 'hint' },
-    !u ? 'Not checked yet' : u.updateAvailable ? `HLAE ${u.latest} is available (${new Date(u.published).toLocaleDateString()})` : `Up to date (latest is ${u.latest})`);
+    !u ? 'Not checked yet' : u.updateAvailable ? `HLAE ${u.latest} is available (${new Date(u.published).toLocaleDateString(UI_LOCALE)})` : `Up to date (latest is ${u.latest})`);
   const checkBtn = h('button', { class: 'btn', onclick: async () => {
     status.textContent = 'Checking…';
     try { state.hlaeUpdate = await api.hlaeCheck(); } catch (e) { status.textContent = '✗ ' + e.message; return; }
@@ -4633,8 +4643,8 @@ function renderDownloads() {
     else if (m.status === 'downloading') action = h('div', { class: 'mini-progress' }, h('div', { 'data-dl-progress': m.id, style: { width: prog?.total ? `${Math.round(100 * prog.received / prog.total)}%` : '3%' } }));
     const renamed = m.status === 'downloaded' && m.file && m.fileBase && !m.file.endsWith(m.fileBase + '.dem');
     return h('div', { class: 'dl' },
-      h('div', { class: 'when' }, m.time ? new Date(m.time).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) : '?',
-        h('small', {}, m.time ? new Date(m.time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '')),
+      h('div', { class: 'when' }, m.time ? new Date(m.time).toLocaleDateString(UI_LOCALE, { day: '2-digit', month: 'short', year: 'numeric' }) : '?',
+        h('small', {}, m.time ? new Date(m.time).toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' }) : '')),
       h('div', { class: 'mode' },
         h('span', { class: 'mode-name' }, m.mode), m.mapLabel ? ` · ${m.mapLabel}` : '', m.durationMin ? ` · ${m.durationMin} min` : '',
         renamed ? h('div', { class: 'hint' }, `Already on your PC as ${m.file.split(/[\\/]/).pop()}`) : null),

@@ -204,7 +204,7 @@ function hlCard(item) {
       onclick: () => hlToggleQueue(item) },
     h('div', { class: 'hl-card-head' }, mapEmblem(item.map, 'hl-card-emblem'),
       h('div', { class: 'hl-card-when' },
-        h('div', { class: 'hl-card-map' }, h('b', {}, mapName(item.map)), h('span', { class: `side-${hl.side}` }, hl.side), h('span', {}, `Round ${hl.round}`)),
+        h('div', { class: 'hl-card-map' }, h('b', {}, mapName(item.map)), sideTag(hl.side), h('span', {}, `Round ${hl.round}`)),
         h('div', { class: 'hl-card-date' }, fmtDate(item.demo.date)),
         h('div', { class: 'hl-card-file' }, item.demo.customName || item.demo.name)),
       h('span', { class: 'hl-card-stars', title: `${rating} star${rating > 1 ? 's' : ''}` }, '★'.repeat(rating))),

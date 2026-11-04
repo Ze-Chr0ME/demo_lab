@@ -154,7 +154,7 @@ async function galleryDialog() {
       h('div', { class: 'gal-thumb', style: c?.thumb ? { backgroundImage: `url("${api.fileUrl(c.thumb)}")` } : {} }, h('span', {}, fmtDur(x.duration))),
       h('div', { class: 'gal-info' },
         h('div', { class: 'gal-title' }, x.title),
-        h('div', { class: 'hint' }, [x.kind === 'montage' ? 'Montage' : mapName(x.map), x.weapon, `published ${new Date(x.publishedAt).toLocaleDateString()}`].filter(Boolean).join(' · '))),
+        h('div', { class: 'hint' }, [x.kind === 'montage' ? 'Montage' : mapName(x.map), x.weapon, `published ${new Date(x.publishedAt).toLocaleDateString(UI_LOCALE)}`].filter(Boolean).join(' · '))),
       h('button', { class: `icon-btn ${g.featured === x.id ? 'on' : ''}`, title: g.featured === x.id ? 'Featured at the top of the page (click to let the page pick the best clip)' : 'Feature it: shown big at the top of the page', onclick: () => update(() => api.galleryFeature(x.id, look)) }, icon(STAR_ICON)),
       h('button', { class: 'icon-btn', title: 'Move up', disabled: i === 0, onclick: () => update(() => api.galleryMove(x.id, -1, look)) }, icon(UP_ICON)),
       h('button', { class: 'icon-btn', title: 'Move down', disabled: i === g.items.length - 1, onclick: () => update(() => api.galleryMove(x.id, 1, look)) }, icon(DOWN_ICON)),

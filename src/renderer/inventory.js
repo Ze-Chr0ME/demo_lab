@@ -55,7 +55,7 @@ function invMoney(usd, { cents = true } = {}) {
   const cur = invCurrency();
   const v = usd * (state.inv.data?.rates?.[cur] || 1);
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur, minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 }).format(v);
+    return new Intl.NumberFormat(UI_LOCALE, { style: 'currency', currency: cur, minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 }).format(v);
   } catch { return `${v.toFixed(cents ? 2 : 0)} ${cur}`; }
 }
 const invChange = (now, then) => (now != null && then ? now / then - 1 : null);
@@ -120,7 +120,7 @@ function renderInventory() {
     back,
     h('div', { class: 'filters' },
       select(d.source, Object.entries(d.sources).map(([k, l]) => [k, l]), v => { setInv({ source: v }).then(() => loadInventory()); }, { seg: true, icon: () => pickSvg(PICK_ICONS.coin) }),
-      select(cur, currencies.map(c => [c, c, () => { let symbol = c; try { symbol = new Intl.NumberFormat(undefined, { style: 'currency', currency: c }).formatToParts(0).find(p => p.type === 'currency')?.value || c; } catch {} return h('span', { class: 'muted' }, symbol); }]), v => { setInv({ currency: v }).then(() => renderInventory()); }, { seg: false, search: true, noun: 'currencies', right: true }),
+      select(cur, currencies.map(c => [c, c, () => { let symbol = c; try { symbol = new Intl.NumberFormat(UI_LOCALE, { style: 'currency', currency: c }).formatToParts(0).find(p => p.type === 'currency')?.value || c; } catch {} return h('span', { class: 'muted' }, symbol); }]), v => { setInv({ currency: v }).then(() => renderInventory()); }, { seg: false, search: true, noun: 'currencies', right: true }),
       invShareSelect(d, setInv)),
     h('button', { class: 'btn', disabled: st.loading, title: 'Read the inventory from Steam again', onclick: () => loadInventory(true) },
       icon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/>'), 'Refresh'));
@@ -185,7 +185,7 @@ function invChart(pts, { W = 800, H = 150, volume = false, tip }) {
     grid.push(`<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${padL - 6}" y="${y(v) + 4}" class="g-t">${invMoney(v, { cents }).replace(/[<&]/g, '')}</text>`);
   }
   const long = t1 - t0 > 300 * 864e5;
-  const fmtDay = t => new Date(t).toLocaleDateString(undefined, long ? { month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' });
+  const fmtDay = t => new Date(t).toLocaleDateString(UI_LOCALE, long ? { month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' });
   const axis = `<text x="${padL}" y="${H - 6}" class="g-t" style="text-anchor:start">${fmtDay(t0)}</text><text x="${W - padR}" y="${H - 6}" class="g-t">${fmtDay(t1)}</text>`;
   const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.usd).toFixed(1)}`).join('');
   const area = `${line}L${x(t1)},${plotB}L${x(t0)},${plotB}Z`;
@@ -220,7 +220,7 @@ function invChart(pts, { W = 800, H = 150, volume = false, tip }) {
   el.addEventListener('mouseleave', () => { tipEl.classList.add('hidden'); cross.classList.add('hidden'); dot.classList.add('hidden'); });
   return el;
 }
-const fmtWhen = (t, hours = true) => new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', ...(hours ? { hour: '2-digit', minute: '2-digit' } : {}) });
+const fmtWhen = (t, hours = true) => new Date(t).toLocaleString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric', ...(hours ? { hour: '2-digit', minute: '2-digit' } : {}) });
 
 // Applied stickers sell for a part of their own price (and nothing once scraped off); how big a part is a
 // guess, so it's a setting. Charms always count in full: they can be taken off and sold.
@@ -242,7 +242,7 @@ function invHistoryCard(d) {
   const el = invChart(pts, { W: 600, H: 150, tip: (p, prev) => [h('b', {}, invMoney(p.usd)), h('div', {}, fmtWhen(p.t)),
     h('div', { class: 'hint' }, `${fmtNum(p.n)} items`, prev ? [' · ', invChangeEl(invChange(p.usd, prev.usd), 'Since the point before')] : null)] });
   const first = pts[0];
-  return card('Value over time', el, { span: 2, cls: 'inv-history', extra: h('span', { class: 'hint' }, `${pts.length} points since ${new Date(first.t).toLocaleDateString()} · `, invChangeEl(invChange(pts[pts.length - 1].usd, first.usd), 'Since the first point')) });
+  return card('Value over time', el, { span: 2, cls: 'inv-history', extra: h('span', { class: 'hint' }, `${pts.length} points since ${new Date(first.t).toLocaleDateString(UI_LOCALE)} · `, invChangeEl(invChange(pts[pts.length - 1].usd, first.usd), 'Since the first point')) });
 }
 
 // ---- Storage units (your own inventory only)

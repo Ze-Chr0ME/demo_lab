@@ -136,7 +136,7 @@ function drillCard(id) {
   const last = hist.at(-1), best = hist.reduce((m, e) => Math.max(m, e.score ?? -1), -1);
   const scMap = [...(state.sc?.items || [])].sort((a, b) => b.updated - a.updated)[0]?.map || last?.map || 'de_mirage';
   return hubCard(id, { name: d.name, about: d.about, art: TR_SHOTS[id] ? Promise.resolve(trShot(id, 0)) : mapShotUrl(scMap),
-    sub: last ? `${hist.length} session${hist.length === 1 ? '' : 's'} · last ${ago(last.date)}` : 'Not played yet',
+    sub: last ? `${hist.length} session${hist.length === 1 ? '' : 's'} · played ${ago(last.date)}` : 'Not played yet',
     onclick: () => { state.tr.drill = id; renderTraining(); },
     score: hist.length ? h('div', { class: 'tr-card-score' },
       h('span', {}, 'Last', h('b', {}, last.score ?? '—')), h('span', {}, 'Best', h('b', {}, best >= 0 ? best : '—')),
