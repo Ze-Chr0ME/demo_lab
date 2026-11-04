@@ -772,7 +772,7 @@ function scoreboardView() {
       h('button', { class: 'chip-toggle sb-mode', 'aria-pressed': String(detailed), title: 'Switch scoreboard detail', onclick: () => { state.sbDetailed = !detailed; renderDetail(); } }, pickSvg(PICK_ICONS[detailed ? 'layers' : 'list']), detailed ? 'Advanced' : 'Simple'),
       st.sides ? h('div', { class: 'tabs', title: 'Count everything, or only the rounds each player spent on one side' }, ...[[null, 'Both sides'], ['CT', 'CT side'], ['T', 'T side']].map(([v, l]) =>
         h('button', { class: `${side === v ? 'on' : ''} ${v ? 'side-' + v : ''}`, 'aria-pressed': String(side === v), title: l, 'aria-label': l, onclick: () => { state.sbSide = v; renderDetail(); } }, sideIcon(v || 'both')))) : null,
-      h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Click a column to sort it, a player to view the match as them, the bars icon for their stats over all your demos.')),
+      h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Sort by any column · click a player to see the match as them · the bars icon opens their stats')),
     ...teams.map(t => h('div', { class: 'sb-wrap' }, table(t))),
   ];
 }
@@ -808,7 +808,7 @@ function duelsView() {
         h('th', { class: 'team' }, `${teamLabel(rowsT)} ↓  vs  ${teamLabel(colsT)} →`),
         ...colsT.players.map(b => h('th', { class: `duel-head ${b.steamid === me ? 'me' : ''}`, title: b.name },
           steamAvatar(b.name, b.steamid), h('span', { class: 'duel-name' }, b.name))),
-        h('th', { class: 'duel-total', title: 'Kills–deaths in player duels (world and self damage are not duels)' }, 'Duel K–D'))),
+        h('th', { class: 'duel-total', title: 'Kills–deaths in player duels (world and self damage are not duels)' }, 'Vs opponents', h('small', {}, 'kills–deaths')))),
       h('tbody', {}, ...rowsT.players.map(a => h('tr', { class: a.steamid === me ? 'me' : '', onclick: pick(a.steamid) },
         h('td', { class: 'name', title: a.name }, steamAvatar(a.name, a.steamid, 'sm'), a.name),
         ...colsT.players.map(b => cell(a, b)),
@@ -2882,7 +2882,7 @@ function renderMaps() {
               h('div', { class: 'map-card-name' }, mapName(e.map)),
               h('div', { class: 'map-card-sub' }, `${e.demos} match${e.demos === 1 ? '' : 'es'} · last ${new Date(e.last).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short' })}`))),
           me ? h('div', { class: 'map-card-rec' },
-            h('span', {}, `${me.won}W – ${me.lost}L${me.played > me.won + me.lost ? ` – ${me.played - me.won - me.lost}D` : ''}`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`),
+            h('span', {}, `${me.won} W · ${me.lost} L${me.played > me.won + me.lost ? ` · ${me.played - me.won - me.lost} D` : ''}`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`),
             h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))) : h('div', { class: 'map-card-rec muted' }, state.who ? 'This player is in none of these demos' : 'You are in none of these demos'),
           info ? null : h('div', { class: 'map-card-sub' }, 'No radar image for this map')));
     })) : h('div', { class: 'empty' }, pending ? spinner(28) : icon(ICONS.demo, 'class="big"'), h('h2', {}, pending ? 'Reading your demos…' : 'No maps yet'), h('div', {}, 'Maps appear once their demos have been read.')),
@@ -3654,9 +3654,9 @@ function highlightCard(hl) {
     ),
     h('div', { class: 'hl-right' },
       h('div', { class: 'stars' }, stars(hl.score)),
-      h('div', {}, `${Math.round(hl.duration)}s clip`),
+      h('div', {}, `${Math.round(hl.duration)}s long`),
       hl.segments.length > 1 ? h('div', {}, `${hl.segments.length} cuts`) : null,
-      h('div', {}, `at ${fmtDur(hl.time)}`),
+      h('div', {}, `starts ${fmtDur(hl.time)}`),
     ),
   );
 }

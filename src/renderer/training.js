@@ -140,7 +140,7 @@ function drillCard(id) {
     onclick: () => { state.tr.drill = id; renderTraining(); },
     score: hist.length && !hist.some(e => e.score > 0) ? h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'Sessions here are not scored'))
       : hist.length ? h('div', { class: 'tr-card-score' },
-      h('span', {}, 'Last', h('b', {}, last.score ?? '—')), h('span', {}, 'Best', h('b', {}, best >= 0 ? best : '—')),
+      h('span', {}, 'Last', h('b', {}, last.score ?? '—'), last.score != null ? h('small', {}, '/100') : null), h('span', {}, 'Best', h('b', {}, best >= 0 ? best : '—'), best >= 0 ? h('small', {}, '/100') : null),
       hist.length > 1 ? sparkline(hist.map(e => e.score)) : null) : null });
 }
 

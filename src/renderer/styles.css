@@ -69,7 +69,7 @@ svg { width: 18px; height: 18px; flex: none; }
   -webkit-mask-image: radial-gradient(circle at 60% 40%, #000 20%, transparent 68%); }
 .sc-photo.radar.ready { opacity: .085; }
 .sc-photo.radar .sc-img { background-size: contain; }
-.sc-pattern-wrap { inset: 0; opacity: .4;
+.sc-pattern-wrap { inset: 0; opacity: .3;
   -webkit-mask-image: radial-gradient(75% 80% at 76% 26%, #000 0%, #0009 42%, transparent 82%); }
 [data-kind=pattern] .sc-pattern-wrap { opacity: .4; }
 .sc-pattern { position: absolute; left: 0; right: 0; top: 0; bottom: calc(-1 * var(--tile-h, 0px)); opacity: .5; will-change: transform; }
@@ -84,11 +84,11 @@ svg { width: 18px; height: 18px; flex: none; }
 .sc-logo[data-look=lit] { opacity: .78; }
 .sc-logo img { width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 1.2s ease; }
 /* Kept faint: the logo is mood, the cards in front of it carry the data */
-.sc-logo img.ready { opacity: .26; animation: sc-flicker 11s 2s infinite; }
+.sc-logo img.ready { opacity: .2; animation: sc-flicker 11s 2s infinite; }
 /* An old neon sign: steady, then a short stutter now and then */
 @keyframes sc-flicker {
-  0%, 88%, 89.6%, 91.4%, 100% { opacity: .26; }
-  88.8% { opacity: .15; } 90.5% { opacity: .2; } 91% { opacity: .14; }
+  0%, 88%, 89.6%, 91.4%, 100% { opacity: .2; }
+  88.8% { opacity: .12; } 90.5% { opacity: .16; } 91% { opacity: .11; }
 }
 .sc-shade { inset: 0; }
 .sc-shade::after { content: ""; position: absolute; inset: 0; background: var(--base); opacity: 0; }
@@ -166,7 +166,7 @@ svg { width: 18px; height: 18px; flex: none; }
   background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 14px 40px #0009; }
 .me-menu.hidden { display: none; }
 .me-menu-id b { display: block; font-size: 14px; font-weight: 650; color: var(--text); margin-bottom: 1px; }
-.me-menu-id { font-size: 12px; color: var(--muted); padding: 6px 10px 8px; border-bottom: 1px solid var(--line-soft); margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+.me-menu-id { user-select: text; font-size: 12px; color: var(--muted); padding: 6px 10px 8px; border-bottom: 1px solid var(--line-soft); margin-bottom: 4px; font-variant-numeric: tabular-nums; }
 .me-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--text); font-size: 13.5px; font-weight: 600; text-align: left; cursor: pointer; }
 .me-item svg { width: 16px; height: 16px; color: var(--muted); flex: none; }
 .me-item:hover { background: var(--panel-3); }
@@ -1693,8 +1693,7 @@ table.sb.sb-score th.wide { width: 118px; }
 .death-line { color: var(--text); }
 .death-line .side-T { color: var(--t); font-weight: 700; } .death-line .side-CT { color: var(--ct); font-weight: 700; }
 .death-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.death-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; margin: 0 0 14px; }
-.death-chips > * { justify-content: flex-start; }
+.death-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
 .dchip { display: inline-flex; align-items: center; gap: 6px; }
 .dchip.bad:not(.on) .tab-count { background: color-mix(in srgb, var(--loss) 15%, transparent); color: color-mix(in oklab, var(--loss), #fff 35%); }
 .death-note { display: flex; align-items: center; gap: 14px; justify-content: space-between; }
@@ -2665,7 +2664,7 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 /* Pass 11: one selected-row look (soft wash plus an accent edge on the name), calm "Normal", a plain "On your PC" */
 .sb.integ tr.on td.name, .sb.integ tr.on.ally td.name, .sb.integ tr.on.foe td.name { box-shadow: inset 3px 0 0 var(--accent); }
 .sb tr.me td.name { background: color-mix(in srgb, var(--blue) 7%, var(--card-bg)); }
-.integ-normal { font-size: 13px; color: var(--dim); }
+.integ-normal { font-size: 13px; color: var(--muted); }
 .dl-have { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .dl-have svg { width: 14px; height: 14px; color: var(--win); }
 .settings input[type=number] { width: 72px; text-align: center; }
@@ -2673,3 +2672,13 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 /* Clips: official map emblems instead of colour dots (two maps shared one orange) */
 .clip-emblem { width: 16px; height: 16px; flex: none; object-fit: contain; vertical-align: -3px; }
 .clip-day-map { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Pass 12: neutral numbers read as data, not disabled; tighter weapon columns in a match; score units */
+.sb.integ td.muted { color: var(--muted); }
+#view-matches .wp-row { grid-template-columns: 92px minmax(150px, 1fr) repeat(var(--wp-cols), minmax(64px, 96px)); gap: 0 8px; padding-right: 14px; }
+.tr-card-score small { font-size: .72em; font-weight: 400; color: color-mix(in oklab, var(--text) 60%, transparent); margin-left: 1px; }
+.sb.duels th.duel-total small { display: block; font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); }
+#view-clips .clip-score { color: var(--dim); }
+/* Over a map photo, a match tab's heading row gets a soft panel fade behind it, so its hint reads on bright spots */
+:root[data-scene=map] #view-matches .detail-scroll .section-head { padding: 6px 12px; margin-left: -12px; border-radius: 10px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--panel) 82%, transparent), color-mix(in srgb, var(--panel) 50%, transparent) 60%, transparent 92%); }
