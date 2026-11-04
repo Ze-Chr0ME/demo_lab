@@ -225,7 +225,7 @@ function aimView() {
   const sel = players.find(p => p.steamid === state.aimPlayer) || players.find(p => p.steamid === povId()) || players[0];
   const cell = (s, p) => {
     const v = p[s.k], ok = v != null && p[s.n] >= s.min;
-    return h('td', { class: ok ? aimLevel(s, v) : 'muted', title: `${p[s.n]} sample${p[s.n] === 1 ? '' : 's'}` }, ok ? s.fmt(v) : '—');
+    return h('td', { class: ok ? aimLevel(s, v) : 'muted', title: ok ? `${p[s.n]} sample${p[s.n] === 1 ? '' : 's'}` : `Too few samples (${p[s.n]})` }, ok ? s.fmt(v) : '—');
   };
   const teamName = p => (p.team == null ? '' : p.team === st.value.myTeam ? 'Your team' : 'Opponents');
   const table = h('table', { class: 'sb integ aim-table' },
@@ -261,7 +261,7 @@ function aimView() {
   const list = tab === 'moving' ? sel.moving : sel.caught;
   return [
     h('div', { class: 'section-head' }, h('h3', {}, 'Aim'), h('span', { class: 'spacer' }),
-      h('span', { class: 'hint' }, 'Green: better than three players in four of your lobbies; red: worse. Hover a column for what it measures, click a player for details.')),
+      h('span', { class: 'hint' }, 'Green: better than three players in four of your lobbies; red: worse. — means too few samples. Hover a column for what it measures, click a player for details.')),
     st.value.lineOfSight ? null : h('div', { class: 'integ-note' }, 'No map geometry for this map, so who could see whom comes from the in-game radar. Crosshair placement and time to damage are rougher than usual.'),
     h('div', { class: 'sb-wrap' }, table),
     h('div', { class: 'section-head' }, h('h3', { class: 'with-avatar' }, avatar(sel.name, sel.steamid, 'sm'), sel.name)),

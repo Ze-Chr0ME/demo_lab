@@ -208,7 +208,7 @@ function hlCard(item) {
         h('div', { class: 'hl-card-date' }, fmtDate(item.demo.date)),
         item.demo.customName ? h('div', { class: 'hl-card-file' }, item.demo.customName) : null),
       h('span', { class: 'hl-card-stars', title: `${rating} star${rating > 1 ? 's' : ''}` }, starRow(rating))),
-    h('div', { class: 'hl-card-tags' }, ...words.map(t => h('b', {}, t.label)), ...marks.map(tagMark)),
+    h('div', { class: 'hl-card-tags' }, ...words.map(t => h('b', { title: tagTitle(t, kills.length) }, tagLabel(t, kills.length))), ...marks.map(tagMark)),
     h('div', { class: 'hl-feed' }, ...kills.map(k => h('div', { class: 'hl-feed-row' },
       h('span', { class: 'hl-feed-gun', title: k.weapon }, weaponIcon(k.code || 'knife')),
       ...(k.flags || []).filter(f => HL_FLAG_KEYS[f]).map(f => hlMark(HL_FLAG_KEYS[f], f)),

@@ -55,6 +55,9 @@ const fmtShort = ms => { const d = new Date(ms), y = d.getFullYear() !== new Dat
   return `${d.toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', ...(y ? { year: 'numeric' } : {}) })} · ${d.toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' })}`; };
 const fmtDur = s => { s = Math.round(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const fmtSize = b => `${(b / 1048576).toFixed(0)} MB`;
+// An ace in a small mode (Rush 3v3, Wingman 2v2) has fewer than five kills: say how many, so "ACE" over 3 kills reads right.
+const tagLabel = (t, kills) => (t.type === 'multikill' && t.label === 'ACE' && kills > 0 && kills < 5 ? `ACE ${kills}/${kills}` : t.label);
+const tagTitle = (t, kills) => (t.type === 'multikill' && t.label === 'ACE' ? `Killed the whole enemy team (${kills})` : null);
 // Always five glyphs: the filled ones first, the rest faint, the same way on every page.
 const starRow = n => [h('b', {}, '★'.repeat(n)), '★'.repeat(5 - n)];
 const stars = score => starRow(Math.max(1, Math.min(5, Math.round(score / 25))));
@@ -786,7 +789,7 @@ function duelsView() {
   const verdict = (k, d) => !k && !d ? 'none' : k > d ? 'good' : k < d ? 'bad' : 'even';
   const cell = (a, b) => {
     const k = n(a.steamid, b.steamid), d = n(b.steamid, a.steamid);
-    return h('td', { class: `duel ${verdict(k, d)}`, title: `${a.name} killed ${b.name} ${k}×, died to them ${d}×` }, `${k}–${d}`);
+    return h('td', { class: `duel ${verdict(k, d)}`, style: { '--d': Math.min(1, Math.abs(k - d) / 4) }, title: `${a.name} killed ${b.name} ${k}×, died to them ${d}×` }, `${k}–${d}`);
   };
   const total = a => {
     let k = 0, d = 0;
@@ -863,7 +866,8 @@ function integrityView() {
     h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''} ${p.team == null ? '' : p.team === st.value.myTeam ? 'ally' : 'foe'}`, title: 'Show this player’s moments', onclick: () => { state.integPlayer = p.steamid; renderDetail(); } },
       h('td', { class: 'name', title: teamName(p) }, steamAvatar(p.name, p.steamid, 'sm'), p.name),
       h('td', {}, h('span', { class: `pill ${INTEG_LEVEL[p.level][1]}` }, INTEG_LEVEL[p.level][0])),
-      ...p.signals.map(s => h('td', { class: `integ-${s.level}`, title: `Normal: ${s.normal}` }, s.display)),
+      ...p.signals.map(s => { const m = /^(.*) · ([\d.]+×)$/.exec(s.display || '');
+        return h('td', { class: `integ-${s.level}`, title: `Normal: ${s.normal}` }, m ? [m[1], h('small', { class: 'integ-x' }, `${m[2]} normal`)] : s.display); }),
       h('td', {}, `${p.context.kills} · ${p.context.hsPct}%`)))));
 
   return [
@@ -1172,7 +1176,9 @@ function heatmapView() {
     const canvas = h('canvas', { width: 1280, height: 1280 });
     const prepared = prepareHeat(frame, pts.filter(p => p[1] === si), hs.layers);
     radarImage(frame.src).then(img => { painted[si] = { canvas, img, layers: prepared }; drawHeat(canvas, img, v, prepared, opts); });
-    return h('div', { class: 'heat-map' }, h('div', { class: `heat-side side-${side}`, title: `${side} side` }, sideIcon(side), h('span', {}, a.player.name)), zoomable(canvas, v, redraw));
+    const n = pts.filter(p => p[1] === si && hs.layers.has(HEAT_LAYERS[p[0]]?.[0])).length;
+    return h('div', { class: 'heat-map' }, h('div', { class: `heat-side side-${side}`, title: `${side} side` }, sideIcon(side), `${side} side`,
+      h('span', {}, n ? `${fmtNum(n)} event${n === 1 ? '' : 's'} shown` : 'Nothing from the picked layers on this side')), zoomable(canvas, v, redraw));
   }));
   return [h('div', { class: 'section-head' }, h('h3', {}, 'Heatmap'), h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Scroll to zoom · drag to move · double-click for the whole map')), controls, layers, maps];
 }
@@ -2142,7 +2148,7 @@ function drawRadar() {
           h('span', { class: 'rp-hp' }, p.s.alive ? p.s.hp : '✕')),
         h('div', { class: 'rp-bar' }, h('div', { style: { width: `${p.s.alive ? p.s.hp : 0}%`, background: ct ? 'var(--ct)' : 'var(--t)' } })),
         h('div', { class: 'rp-w' }, !p.s.alive ? '' : bs.planting?.player === p.id ? 'Planting…' : bs.defusing?.player === p.id ? 'Defusing…' : p.s.weapon)));
-    els.teams.replaceChildren(h('div', { class: 'rt side-CT' }, 'CT'), ...side(true), h('div', { class: 'rt side-T' }, 'T'), ...side(false));
+    els.teams.replaceChildren(h('div', { class: 'rt side-CT' }, sideTag('CT', 'CT')), ...side(true), h('div', { class: 'rt side-T' }, sideTag('T', 'T')), ...side(false));
     if (R.list === 'utility') {
       els.feed.replaceChildren(...(rr.nades.length ? rr.nades.map(n => {
         const tick = n.throw?.tick ?? n.t0;
@@ -3072,7 +3078,7 @@ function renderUtility() {
     const list = utFiltered();
     if (u.map === 'all' && !u.search) return [h('div', { class: 'ut-map-grid' }, ...maps.map(m => utMapCard(m, u.items.filter(x => x.map === m))),
       // A quiet way to start another map, so a short list doesn't end in an empty page
-      h('button', { class: 'ut-add-card', onclick: () => editLineup() }, icon(PLUS), h('b', {}, 'Add a lineup'), h('span', {}, 'on this or another map')))];
+      h('button', { class: 'ut-add-card', onclick: () => editLineup() }, icon(PLUS), h('b', {}, 'New lineup'), h('span', {}, 'on this or another map')))];
     if (u.map === 'all') {
       if (!list.length) return [h('div', { class: 'muted-note' }, 'No lineup matches this search.')];
       const byMap = maps.map(m => [m, list.filter(x => x.map === m)]).filter(([, l]) => l.length);
@@ -3638,7 +3644,7 @@ function highlightCard(hl) {
     h('div', { class: 'check' }, icon(ICONS.check)),
     h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, hl.round), h('div', { class: 'l' }, sideTag(hl.side))),
     h('div', {},
-      h('div', { class: 'hl-title' }, ...hl.tags.map(t => h('span', { class: `tag ${t.type}` }, t.label)), clipped),
+      h('div', { class: 'hl-title' }, ...hl.tags.map(t => h('span', { class: `tag ${t.type}`, title: tagTitle(t, hl.kills.length) }, tagLabel(t, hl.kills.length))), clipped),
       h('div', { class: 'kills' }, ...hl.kills.map(k => h('div', { class: 'kill' },
         h('span', { class: 'w' }, k.weapon),
         k.headshot ? h('span', { class: 'hs' }, 'HS') : null,
@@ -3976,7 +3982,7 @@ function clipDayLabel(day, now = new Date()) {
   const dayNumber = d => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000;
   const date = new Date(day), age = dayNumber(now) - dayNumber(date);
   const label = age === 0 ? 'Today' : age === 1 ? 'Yesterday'
-    : age > 1 && age < 7 ? date.toLocaleDateString(UI_LOCALE, { weekday: 'long' })
+    : age > 1 && age < 7 ? date.toLocaleDateString(UI_LOCALE, { weekday: 'long', day: 'numeric', month: 'short' })
       : date.toLocaleDateString(UI_LOCALE, { weekday: 'long', day: 'numeric', month: 'long', ...(date.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
   return label.charAt(0).toUpperCase() + label.slice(1);
 }

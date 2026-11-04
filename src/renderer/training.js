@@ -154,7 +154,7 @@ function hubCard(id, { name, sub, about, art, onclick, score = null }) {
       h('div', { class: 'map-card-title' }, h('span', { class: 'tr-icon' }, icon(TR_ICONS[id])),
         h('div', { class: 'map-card-t' }, h('div', { class: 'map-card-name' }, name), h('div', { class: 'map-card-sub' }, sub))),
       h('div', { class: 'tr-card-about' }, about),
-      score));
+      score || h('div', { class: 'tr-card-score', 'aria-hidden': 'true' })));
 }
 
 // The live state of a running session, or how the last one ended.

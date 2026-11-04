@@ -886,7 +886,7 @@ code { background: var(--bg-2); padding: 1px 6px; border-radius: 5px; font-famil
 .kill .hs { color: var(--accent-2); font-weight: 700; font-size: 11px; }
 .kill .f { color: #7fe3ab; font-size: 11.5px; }
 .hl-right { text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; }
-.stars { color: color-mix(in srgb, var(--muted) 40%, transparent); letter-spacing: 1px; font-size: 13px; }
+.stars { color: color-mix(in srgb, var(--dim) 75%, transparent); letter-spacing: 1px; font-size: 13px; }
 .stars b, .hl-card-stars b { font-weight: inherit; color: var(--accent); }
 .action-bar { border-top: 1px solid var(--line); background: var(--panel); padding: 12px var(--gutter); display: flex; align-items: center; gap: 14px; }
 .action-bar .info { color: var(--muted); font-size: 13px; }
@@ -926,8 +926,8 @@ table.sb.duels { table-layout: fixed; min-width: 640px; }
 .sb.duels th.duel-total { vertical-align: bottom; width: 120px; cursor: default; border-left: 1px solid var(--line); }
 .sb.duels th.team { display: table-cell; vertical-align: bottom; width: 250px; font-size: 12.5px; color: var(--muted); }
 .sb td.duel { font-size: 16px; font-weight: 650; }
-.sb td.duel.good { background: #45d4831a; color: #7fe3ab; }
-.sb td.duel.bad { background: #ff4d6317; color: #ff9bab; }
+.sb td.duel.good { background: color-mix(in srgb, var(--win) calc(5% + 15% * var(--d, .5)), transparent); color: #7fe3ab; }
+.sb td.duel.bad { background: color-mix(in srgb, var(--loss) calc(5% + 15% * var(--d, .5)), transparent); color: #ff9bab; }
 .sb td.duel.even { background: var(--panel-2); color: var(--text); }
 .sb td.duel.none { color: var(--dim); background: transparent; }
 .sb td.duel.total { border-left: 1px solid var(--line); }
@@ -978,7 +978,7 @@ canvas.zoomable.dragging { cursor: grabbing; }
 .radar-clock { font-variant-numeric: tabular-nums; font-weight: 650; min-width: 70px; text-align: right; font-size: 13px; }
 .radar-side { width: 290px; flex: 1 1 290px; display: flex; flex-direction: column; gap: 12px; }
 .radar-teams, .radar-feed { background: var(--card-bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; }
-.radar-teams .rt, .radar-feed .rt { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin: 6px 0 4px; color: var(--muted); }
+.radar-teams .rt, .radar-feed .rt { display: flex; align-items: center; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin: 6px 0 4px; color: var(--muted); }
 .radar-teams .rt.side-T { color: var(--t); }
 .radar-teams .rt.side-CT { color: var(--ct); }
 .rp { padding: 3px 0; }
@@ -1159,9 +1159,9 @@ kbd { display: inline-block; min-width: 18px; text-align: center; font: 700 11px
 #view-clips .clips-hint { font-size: 12.5px; color: var(--muted); margin: -10px 0 6px; }
 /* Star rating filter: hovering previews the stars up to the one under the mouse */
 #view-clips .clip-stars-pick { display: inline-flex; flex-direction: row-reverse; justify-content: flex-end; }
-#view-clips .clip-stars-pick button { border: 0; background: none; padding: 2px 1px; font-size: 21px; line-height: 1; cursor: pointer; color: color-mix(in srgb, var(--muted) 45%, transparent); transition: color .12s, transform .12s; }
+#view-clips .clip-stars-pick button { border: 0; background: none; padding: 2px 1px; font-size: 21px; line-height: 1; cursor: pointer; color: var(--dim); transition: color .12s, transform .12s; }
 #view-clips .clip-stars-pick button.on { color: var(--accent); }
-#view-clips .clip-stars-pick:hover button { color: color-mix(in srgb, var(--muted) 45%, transparent); }
+#view-clips .clip-stars-pick:hover button { color: var(--dim); }
 #view-clips .clip-stars-pick button:hover, #view-clips .clip-stars-pick button:hover ~ button { color: var(--accent-2); }
 #view-clips .clip-stars-pick button:hover { transform: scale(1.15); }
 /* Day sections: plain heading with a hairline rule, no band behind it */
@@ -1193,7 +1193,7 @@ kbd { display: inline-block; min-width: 18px; text-align: center; font: 700 11px
 #view-clips .clip-body { padding: 10px 2px 0; text-shadow: 0 1px 3px #000, 0 0 8px #000c; }
 #view-clips .clip-top { display: flex; align-items: baseline; gap: 10px; }
 #view-clips .clip-title { flex: 1; min-width: 0; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#view-clips .clip-score { flex-shrink: 0; font-size: 12px; letter-spacing: 1px; color: color-mix(in srgb, var(--muted) 40%, transparent); }
+#view-clips .clip-score { flex-shrink: 0; font-size: 12px; letter-spacing: 1px; color: color-mix(in srgb, var(--dim) 75%, transparent); }
 #view-clips .clip-score b { font-weight: inherit; color: var(--accent); }
 #view-clips .clip-score { color: color-mix(in srgb, var(--muted) 60%, transparent); }
 #view-clips .clip-meta { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); margin-top: 3px; }
@@ -1623,7 +1623,7 @@ table.sb.sb-score th.wide { width: 118px; }
 .wp-row.dim { opacity: .5; }
 .wp-row.dim:hover { opacity: .85; }
 .wp-row.wp-cols { background: none; border: 0; cursor: default; padding-top: 0; padding-bottom: 2px; margin: 0; }
-.wp-sel-info { font-size: 12px; color: var(--dim); }
+.wp-sel-info { font-size: 12px; color: var(--muted); }
 .wp-th { border: 0; background: none; padding: 4px 0; text-align: right; cursor: pointer; font: var(--label); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
 .wp-th:hover, .wp-th.on { color: var(--text); }
 .wp-td { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1693,7 +1693,8 @@ table.sb.sb-score th.wide { width: 118px; }
 .death-line { color: var(--text); }
 .death-line .side-T { color: var(--t); font-weight: 700; } .death-line .side-CT { color: var(--ct); font-weight: 700; }
 .death-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.death-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.death-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; margin: 0 0 14px; }
+.death-chips > * { justify-content: flex-start; }
 .dchip { display: inline-flex; align-items: center; gap: 6px; }
 .dchip.bad:not(.on) .tab-count { background: color-mix(in srgb, var(--loss) 15%, transparent); color: color-mix(in oklab, var(--loss), #fff 35%); }
 .death-note { display: flex; align-items: center; gap: 14px; justify-content: space-between; }
@@ -2502,7 +2503,7 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 .hl-card-map b { color: var(--text); font-weight: 650; }
 .hl-card-date { font-size: 13px; font-weight: 550; letter-spacing: -.2px; font-variant-numeric: tabular-nums; }
 .hl-card-file { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hl-card-stars { color: color-mix(in srgb, var(--muted) 40%, transparent); font-size: 14px; letter-spacing: 1px; white-space: nowrap; }
+.hl-card-stars { color: color-mix(in srgb, var(--dim) 75%, transparent); font-size: 14px; letter-spacing: 1px; white-space: nowrap; }
 .hl-card-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-height: 22px; }
 .hl-card-tags b { font-size: 16px; font-weight: 700; color: var(--accent); }
 .hl-card-tags .hl-mark-img { width: 22px; height: 22px; }
@@ -2649,3 +2650,14 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 .team-key i.ally { margin-left: 0; }
 .sb.integ thead th { vertical-align: bottom; }
 .sb.integ tr.me td.name { box-shadow: inset 3px 0 0 var(--blue); }
+/* Pass 10: Integrity pairs show the multiplier as a second line; Settings toggles calmer */
+.sb.integ td small.integ-x { display: block; margin-top: 1px; font-size: 11px; font-weight: 500; color: var(--muted); }
+.settings .chip-toggle.on { border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.heat-side { font-size: 13px; }
+.heat-side span { margin-left: 4px; font-size: 12px; }
+/* Training: every card keeps a score row and two lines of text, so titles line up across a row */
+.tr-card .tr-card-about { min-height: 2.8em; }
+.tr-card .tr-card-score { min-height: 28px; }
+/* Match tabs: hints over the map photo get a shadow so they hold up on bright spots; tighter first heading */
+:root[data-scene=map] .detail-scroll .section-head .hint { text-shadow: 0 1px 3px #000d, 0 0 8px #0009; }
+#view-matches .detail-scroll .section-head { margin-top: 18px; }

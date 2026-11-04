@@ -192,7 +192,7 @@ function weaponBoard(rows, wp, repaint, { kills: killsSub } = {}) {
   const share = r => (all.kills ? r.kills / all.kills : all.dmg ? r.dmg / all.dmg : 0);
   const toggle = w => { wp.sel.has(w) ? wp.sel.delete(w) : wp.sel.add(w); repaint(); };
   const head = h('div', { class: 'wp-row wp-cols', ...grid }, h('span'), h('span', { class: 'wp-sel-info' },
-    sel.length ? [`${sel.length} selected · `, h('button', { class: 'link-btn', onclick: () => { wp.sel.clear(); repaint(); } }, 'clear')] : 'Click weapons to compare them'),
+    sel.length ? [`${sel.length} selected · `, h('button', { class: 'link-btn', onclick: () => { wp.sel.clear(); repaint(); } }, 'clear')] : 'Click weapons to compare · bars: share of kills'),
   ...cols.map(([k, label, tip]) => h('button', { class: `wp-th ${sort.col === k ? 'on' : ''}`, title: tip,
     onclick: () => { wp.sort = { metric, col: k, dir: sort.col === k ? -sort.dir : -1 }; repaint(); } }, sort.col === k ? (sort.dir < 0 ? '▾ ' : '▴ ') : '', label)));
   const list = rows.map(r => h('div', { class: `wp-row ${wp.sel.has(r.w) ? 'on' : sel.length ? 'dim' : ''}`, ...grid, onclick: () => toggle(r.w), title: wp.sel.has(r.w) ? 'Click to unselect' : 'Click to select' },
