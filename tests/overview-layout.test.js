@@ -414,7 +414,7 @@ test('every optional module renders from real-shaped totals, with and without da
   const context = {
     h, card: (title, body) => h('card', { title }, body), barList: rows => h('bars', {}, ...rows.map(r => h('row', r, r.label, r.value))),
     big: (v, u, note) => h('big', {}, v, u, note), kv: rows => h('kv', {}, ...rows.flat()), pct: (a, b) => (b ? Math.round(100 * a / b) : 0),
-    fmtNum: n => String(Math.round(n)), fmtDate: d => String(d), mapName: m => m, mapThumb: m => h('thumb', {}, m), openMatch() {}, selectPlayer() {},
+    fmtNum: n => String(Math.round(n)), fmtDate: d => String(d), UI_LOCALE: 'en-GB', mapName: m => m, mapThumb: m => h('thumb', {}, m), openMatch() {}, selectPlayer() {},
     avatar: () => h('avatar'), weaponIcon: c => h('img', { c }), overviewMedian: v => (v?.length ? [...v].sort((a, b) => a - b)[v.length >> 1] : null),
     qualityClass: (v, g, b) => (v >= g ? 'good' : v < b ? 'bad' : 'mid'), ratingClass: () => '', state: { ov: {} }, renderOverview() {},
     RATING_LEVELS: [[1.2, 'Excellent'], [1.08, 'Good'], [0.95, 'Average'], [0.85, 'Below average'], [-Infinity, 'Poor']],
