@@ -435,7 +435,7 @@ function renderCompare() {
     const value = (side, v, r) => h('div', { class: `cmp-v ${side} ${win === side ? 'win' : ''}` },
       h('b', {}, win === side ? glyph(ICONS.check) : null, fmt(v)),
       h('div', { class: 'cmp-sub' },
-        win === side ? h('span', { class: 'cmp-delta', title: `${fmt(Math.abs(va - vb))} better than the other side${s.low ? ' (lower is better)' : ''}` }, `+${fmt(Math.abs(va - vb))}`) : null,
+        win === side ? h('span', { class: 'cmp-delta', title: `${fmt(Math.abs(va - vb))} better than the other side${s.low ? ' (lower is better)' : ''}` }, `${Math.abs(va - vb).toFixed(s.d)}${s.u === '%' ? ' pp' : s.u || ''} ${s.low ? 'lower' : 'higher'}`) : null,
         tier(r)));
     const track = (side, w, r) => h('div', { class: `cmp-bar ${side}` },
       h('i', { class: win === side ? 'win' : '', style: { width: `${clamp(w || 0, 0, 1) * 100}%` } }),
@@ -488,6 +488,7 @@ function renderCompare() {
       swap), who(B, lb, c.b, winsB > winsA, pickB)),
     !lobby ? h('div', { class: 'hint' }, spinner(10), ' Reading everyone’s numbers in your demos (only the first time takes a few seconds)…') : null,
     lobby?.pending ? h('div', { class: 'hint' }, `${lobby.pending} demo${lobby.pending > 1 ? 's are' : ' is'} not read yet and not in the lobby numbers.`) : null,
+    !empty ? h('div', { class: 'cmp-key' }, h('span', {}, 'Bars: share of your lobbies each value beats'), h('span', {}, h('i', { class: 'cmp-key-median' }), 'lobby median'), h('span', {}, glyph(CMP_ICONS.down), 'lower is better')) : null,
     empty ? h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.'))
       : h('div', { class: 'cmp-groups' }, ...[...groups].map(([g, rows]) => {
         const [a, b] = tallies.get(g) || [0, 0];

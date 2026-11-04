@@ -784,7 +784,7 @@ function duelsView() {
   const verdict = (k, d) => !k && !d ? 'none' : k > d ? 'good' : k < d ? 'bad' : 'even';
   const cell = (a, b) => {
     const k = n(a.steamid, b.steamid), d = n(b.steamid, a.steamid);
-    return h('td', { class: `duel ${verdict(k, d)}`, title: `${a.name} killed ${b.name} ${k}×, died to them ${d}×` }, k || d ? `${k}–${d}` : '—');
+    return h('td', { class: `duel ${verdict(k, d)}`, title: `${a.name} killed ${b.name} ${k}×, died to them ${d}×` }, `${k}–${d}`);
   };
   const total = a => {
     let k = 0, d = 0;
@@ -1549,7 +1549,7 @@ function radarView() {
       h('button', { class: R.floor === k ? 'on' : '', onclick: () => { R.floor = k; renderDetail(); } }, l))) : null,
     roomSelect(info, R.room, v => { R.room = v; renderDetail(); }),
     h('span', { class: 'spacer' }),
-    h('span', { class: 'hint' }, 'Click a grenade to see how it was thrown'),
+    h('span', { class: 'hint', title: 'Space: play/pause · ←/→: 5 s (Shift: ⅛ s) · ↑/↓: round · Esc: close grenade' }, 'Click a grenade to see its throw · Space play/pause · ←/→ 5 s · ↑/↓ round'),
     viewInCs2Button('View in CS2', 'btn', 'Opens this demo in CS2 (through HLAE) 2 s before this moment, in the eyes of the point-of-view player',
       () => ({ tick: R.tick, lead: 2, name: state.analysis?.player?.name }), 'The demo is playing in the CS2 window.'),
   );
@@ -1579,8 +1579,7 @@ function radarView() {
   renderNadeCard();
   startRadarLoop();
   return [
-    h('div', { class: 'section-head' }, h('h3', {}, `Round ${R.round}`), h('span', { class: `pill side-${rd.winner}` }, `${rd.winner} win`), h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Space: play/pause · ←/→: 5 s (Shift: ⅛ s) · ↑/↓: round · Esc: close grenade')),
-    rounds,
+    h('div', { class: 'section-head radar-head' }, h('h3', {}, `Round ${R.round}`), h('span', { class: `pill side-${rd.winner}` }, `${rd.winner} win`), rounds),
     controls,
     options,
     h('div', { class: 'radar-layout' },
@@ -4005,13 +4004,14 @@ function renderClips() {
   const starPicker = h('div', { class: `clip-stars-pick ${sf ? 'set' : ''}` }, ...[5, 4, 3, 2, 1].map(n =>
     h('button', { class: n <= sf ? 'on' : '', title: sf === n ? 'Show all ratings' : `${n}-star clips (${perStar[n]})`,
       onclick: () => { state.starFilter = sf === n ? 0 : n; renderClips(); } }, '★')));
+  const starGroup = h('div', { class: 'clip-rating' }, h('span', { class: 'clip-rating-k' }, sf ? `Rating · ${sf}★` : 'Rating'), starPicker);
 
   const head = h('div', { class: 'page-head' },
     h('div', { class: 'clips-heading' }, h('h2', {}, 'Clips'),
       h('span', { class: 'clips-stats' }, `${items.length} clip${items.length === 1 ? '' : 's'} · ${fmtDur(items.reduce((s, c) => s + (c.duration || 0), 0))}`)),
     h('div', { class: 'tabs' }, ...[['all', 'All'], ['clip', 'Clips'], ['montage', 'Montages'], ['share', 'Shared']].map(([k, l]) =>
       h('button', { class: state.clipFilter === k ? 'on' : '', onclick: () => { state.clipFilter = k; renderClips(); } }, l))),
-    weaponsBtn, starPicker,
+    weaponsBtn, starGroup,
     h('span', { class: 'spacer' }),
     galleryHeadButton(),
     h('button', { class: 'btn clips-folder', title: 'Open folder', onclick: () => api.open(state.env.outputDir) }, icon(ICONS.folder), h('span', {}, 'Open folder')),
@@ -4476,8 +4476,8 @@ function renderSettings() {
         select(String(d.minClutch), [['1', 'from 1v1'], ['2', 'from 1v2'], ['3', 'from 1v3'], ['4', 'from 1v4'], ['5', '1v5 only']], v => save({ detection: { minClutch: +v } }, true), { seg: true, icon: false }))),
       row('Special kills', h('div', { class: 'chips' }, ...Object.entries(SPECIAL_LABELS).map(([k, l]) => toggle(l, d.specials[k], v => save({ detection: { specials: { [k]: v } } }, true))))),
       row('Seconds before / after', h('div', { class: 'ctl' },
-        num(t.padBefore, v => save({ timing: { padBefore: v } }, true), { max: 15, step: 0.5 }), ' / ',
-        num(t.padAfter, v => save({ timing: { padAfter: v } }, true), { max: 15, step: 0.5 })), 'Footage kept around each kill.'),
+        h('span', { class: 'ctl-k' }, 'Before'), num(t.padBefore, v => save({ timing: { padBefore: v } }, true), { max: 15, step: 0.5 }),
+        h('span', { class: 'ctl-k' }, 'After'), num(t.padAfter, v => save({ timing: { padAfter: v } }, true), { max: 15, step: 0.5 })), 'Footage kept around each kill.'),
       row('Cut gaps longer than', h('div', { class: 'ctl' }, num(t.mergeGap, v => save({ timing: { mergeGap: v } }, true), { max: 120, step: 1 }), 'seconds'), 'Long waits between kills are cut out. Set high (e.g. 60) to keep full sequences.'),
     ),
 
