@@ -84,6 +84,7 @@ function showView(v) {
   closeMeMenu();
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === `view-${v}`));
   state.view = v;
+  document.documentElement.dataset.view = v; // lets a page tone down the backdrop behind it (Clips)
   if (v === 'overview') renderOverview();
   if (v === 'aim') renderAimPage();
   if (v === 'maps') renderMaps();
@@ -802,7 +803,7 @@ function duelsView() {
         h('th', { class: 'team' }, `${teamLabel(rowsT)} ↓  vs  ${teamLabel(colsT)} →`),
         ...colsT.players.map(b => h('th', { class: `duel-head ${b.steamid === me ? 'me' : ''}`, title: b.name },
           steamAvatar(b.name, b.steamid), h('span', { class: 'duel-name' }, b.name))),
-        h('th', { class: 'duel-total' }, 'Total'))),
+        h('th', { class: 'duel-total', title: 'Kills–deaths in player duels (world and self damage are not duels)' }, 'Duel K–D'))),
       h('tbody', {}, ...rowsT.players.map(a => h('tr', { class: a.steamid === me ? 'me' : '', onclick: pick(a.steamid) },
         h('td', { class: 'name', title: a.name }, steamAvatar(a.name, a.steamid, 'sm'), a.name),
         ...colsT.players.map(b => cell(a, b)),
@@ -2028,6 +2029,7 @@ function drawRadar() {
   const blind = new Map();
   for (const b of rr.blinds) if (b.tick <= t && t < b.end) blind.set(b.victim, Math.max(blind.get(b.victim) || 0, (b.end - t) / (b.end - b.tick)));
   ctx.textAlign = 'center';
+  const labels = [];
   for (const p of players) {
     if (!p.s.alive) continue;
     const [x, y] = px(p.s.x, p.s.y);
@@ -2055,10 +2057,21 @@ function drawRadar() {
     }
     if (bs.carrier === p.id) bombIcon(ctx, x + 13, y + 11, 0.75);
     ctx.font = '600 20px "Segoe UI", sans-serif';
-    ctx.fillStyle = '#0a0e16cc'; const label = p.name.length > 14 ? p.name.slice(0, 13) + '…' : p.name;
-    const wdt = ctx.measureText(label).width + 10;
-    ctx.fillRect(x - wdt / 2, y - 42, wdt, 24);
-    ctx.fillStyle = p.id === pov ? '#fff' : color; ctx.fillText(label, x, y - 23);
+    const label = p.name.length > 14 ? p.name.slice(0, 13) + '…' : p.name;
+    labels.push({ x, y, label, w: ctx.measureText(label).width + 10, color: p.id === pov ? '#fff' : color, alpha: ctx.globalAlpha, pov: p.id === pov });
+  }
+  // Name tags go on after every marker: players standing together (spawn, a stack) get their tags
+  // stacked upward with a thin leader line instead of printed on top of each other.
+  ctx.font = '600 20px "Segoe UI", sans-serif';
+  const placed = [];
+  for (const l of labels.sort((a, b) => b.pov - a.pov || b.y - a.y)) {
+    let top = l.y - 42;
+    for (let i = 0; i < 6 && placed.some(r => l.x - l.w / 2 < r.x + r.w && l.x + l.w / 2 > r.x && top < r.y + 24 && top + 24 > r.y); i++) top -= 26;
+    placed.push({ x: l.x - l.w / 2, y: top, w: l.w });
+    ctx.globalAlpha = l.alpha;
+    if (top < l.y - 42) { ctx.strokeStyle = '#0a0e16aa'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(l.x, l.y - 12); ctx.lineTo(l.x, top + 24); ctx.stroke(); }
+    ctx.fillStyle = '#0a0e16cc'; ctx.fillRect(l.x - l.w / 2, top, l.w, 24);
+    ctx.fillStyle = l.color; ctx.fillText(l.label, l.x, top + 19);
   }
   ctx.globalAlpha = 1;
 

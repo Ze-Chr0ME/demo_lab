@@ -115,7 +115,7 @@ function renderTraining() {
 function hubPage() {
   const tr = state.tr;
   const head = h('div', { class: 'page-head' }, h('h2', {}, 'Training'),
-    h('span', { class: 'dl-head-info' }, 'Four ways to practise in CS2. Every session is recorded and scored from its demo.'));
+    h('span', { class: 'dl-head-info' }, 'Four ways to practise in CS2. Every session is recorded from its demo; the drills that can be measured get a score.'));
   // the map with the most lineups shows on the Utility card
   const lineups = state.ut?.items || [];
   const per = {};
