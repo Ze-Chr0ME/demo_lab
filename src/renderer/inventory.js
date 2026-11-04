@@ -107,7 +107,7 @@ function renderInventory() {
   const head = h('div', { class: 'dash-head' },
     steamAvatar(name, d.steamid, 'large'),
     h('div', { class: 'dash-title' },
-      h('h2', {}, isMe ? 'Inventory' : `${name}’s inventory`, !isMe ? h('span', { class: 'dash-tag', title: `SteamID ${d.steamid}` }, 'Player') : null),
+      h('h2', { class: 'inv-title' }, 'Inventory', back), // the player picker sits right after the title, as on the other pages
       h('div', { class: 'sub' }, `${fmtNum(d.count)} item${d.count === 1 ? '' : 's'}`,
         ` · read ${ago(d.t)}`,
         d.pricesAt ? ` · ${d.sources[d.source]} prices from ${ago(d.pricesAt)}` : null,
@@ -117,7 +117,6 @@ function renderInventory() {
             ' · ', spinner(11), h('span', { id: 'invSales' }, ` checking Steam sales ${(st.salesJob || d.sales.job).done}/${(st.salesJob || d.sales.job).total}`))
           : null)),
     h('span', { class: 'spacer' }),
-    back,
     h('div', { class: 'filters' },
       select(d.source, Object.entries(d.sources).map(([k, l]) => [k, l]), v => { setInv({ source: v }).then(() => loadInventory()); }, { seg: true, icon: () => pickSvg(PICK_ICONS.coin) }),
       select(cur, currencies.map(c => [c, c, () => { let symbol = c; try { symbol = new Intl.NumberFormat(UI_LOCALE, { style: 'currency', currency: c }).formatToParts(0).find(p => p.type === 'currency')?.value || c; } catch {} return h('span', { class: 'muted' }, symbol); }]), v => { setInv({ currency: v }).then(() => renderInventory()); }, { seg: false, search: true, noun: 'currencies', right: true }),

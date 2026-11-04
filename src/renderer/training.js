@@ -138,9 +138,9 @@ function drillCard(id) {
   return hubCard(id, { name: d.name, about: d.about, art: TR_SHOTS[id] ? Promise.resolve(trShot(id, 0)) : mapShotUrl(scMap),
     sub: last ? `${hist.length} session${hist.length === 1 ? '' : 's'} · played ${ago(last.date)}` : 'Not played yet',
     onclick: () => { state.tr.drill = id; renderTraining(); },
-    score: hist.length ? h('div', { class: 'tr-card-score' },
-      // A session without a score (or 0 from a run that recorded none) shows a dash, not a failing 0
-      h('span', {}, 'Last', h('b', {}, last.score || '—')), h('span', {}, 'Best', h('b', {}, best > 0 ? best : '—')),
+    score: hist.length && !hist.some(e => e.score > 0) ? h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'Sessions here are not scored'))
+      : hist.length ? h('div', { class: 'tr-card-score' },
+      h('span', {}, 'Last', h('b', {}, last.score ?? '—')), h('span', {}, 'Best', h('b', {}, best >= 0 ? best : '—')),
       hist.length > 1 ? sparkline(hist.map(e => e.score)) : null) : null });
 }
 

@@ -321,12 +321,11 @@ function renderAimPage() {
   const rows = aimPageRows(list, f);
   const setF = (k, val) => { ap.f = { ...ap.f, [k]: val }; repaint(); };
 
+  // Same header as Maps and Highlights: title, player picker, then the page's one-line description
   const head = h('div', { class: 'page-head' },
-    h('div', { class: 'dash-title' },
-      h('h2', {}, 'Aim', other ? h('span', { class: 'dash-tag', title: `SteamID ${v.steamid}` }, name) : null),
-      h('div', { class: 'sub' }, `Every weapon over ${list.length} match${list.length === 1 ? '' : 'es'}`,
-        pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null)),
-    back);
+    h('h2', {}, 'Aim'), back,
+    h('span', { class: 'dl-head-info' }, `Every weapon over ${list.length} match${list.length === 1 ? '' : 'es'}`,
+      pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null));
   const filters = h('div', { class: 'filters wp-filters' },
     modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], x => setF('mode', x), { icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'grid' : 'swords']) }) : null,
     maps.length > 1 ? select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], x => setF('map', x), { seg: false, icon: pickMap, noun: 'maps' }) : null,

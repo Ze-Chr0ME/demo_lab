@@ -50,6 +50,9 @@ const MAPS = {
 const mapName = m => MAPS[m]?.[0] || (m || '?').replace(/^(de|cs|ar)_/, '').replace(/^\w/, c => c.toUpperCase());
 const mapColor = m => MAPS[m]?.[1] || '#7a8494';
 const fmtDate = ms => new Date(ms).toLocaleString(UI_LOCALE, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+// Short form for lists: the year only when it isn't this year ("3 Nov · 21:50")
+const fmtShort = ms => { const d = new Date(ms), y = d.getFullYear() !== new Date().getFullYear();
+  return `${d.toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', ...(y ? { year: 'numeric' } : {}) })} · ${d.toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' })}`; };
 const fmtDur = s => { s = Math.round(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const fmtSize = b => `${(b / 1048576).toFixed(0)} MB`;
 const stars = score => '★'.repeat(Math.max(1, Math.min(5, Math.round(score / 25)))) ;
@@ -514,7 +517,8 @@ function renderDemoList() {
       mapThumb(s?.map, s ? null : isRush(d) ? 'RSH' : d.failed ? '!' : '…'),
       h('div', { style: { minWidth: 0 } },
         title,
-        h('div', { class: 'demo-meta', title: d.path }, `${fmtDate(d.date)} · ${d.customName && s ? mapName(s.map) : where}`),
+        h('div', { class: 'demo-meta', title: `${fmtDate(d.date)}
+${d.path}` }, `${fmtShort(d.date)} · ${d.customName && s ? mapName(s.map) : where}`),
       ),
       h('div', { class: 'demo-right' },
         sc ? h('div', { class: `demo-score score-${res}` }, `${sc.mine}:${sc.enemy}`) : h('div', { class: 'demo-score score-d' }, s ? '—' : ''),
@@ -1535,7 +1539,7 @@ function radarView() {
     playBtn,
     h('button', { class: 'icon-btn', title: 'Next round (↓)', disabled: R.round >= data.rounds.length, onclick: () => { setRadarRound(R.round + 1); renderDetail(); } }, icon('<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2"/>')),
     timeline,
-    select(String(R.speed), [['0.25', '0.25×'], ['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }, { seg: true }),
+    select(String(R.speed), [['0.25', '0.25×'], ['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }, { seg: true, icon: false, title: 'Playback speed' }),
   );
   const options = h('div', { class: 'radar-options' },
     toggle('Shots', R.shots, v => { R.shots = v; }, 'Bullet tracers, hits and damage numbers'),
@@ -2565,7 +2569,8 @@ function renderOverview() {
     rating: () => scorePanel(t, last10, list, layout),
     stats: () => h('div', { class: 'ov-stats' },
       h('div', { class: 'sec' }, h('h3', {}, 'Stats overview'),
-        h('span', { class: 'hint legend-inline' }, h('i', { class: 'lg-avg' }), 'selection', list.length > 10 ? [h('i', { class: 'lg-rec' }), 'last 10'] : null),
+        h('span', { class: 'hint legend-inline' }, h('i', { class: 'lg-avg' }), 'selection', list.length > 10 ? [h('i', { class: 'lg-rec' }), 'last 10'] : null,
+          h('b', { class: 'lg-dot good' }), 'above your lobbies', h('b', { class: 'lg-dot bad' }), 'below'),
         editing ? OverviewEditor.chips('stat', layout.stats) : null),
       statTiles.length ? tilesGrid()
         : h('div', { class: 'muted-note' }, editing ? 'Every stat is hidden. Add tiles back with the + buttons above.' : 'No stats selected. Choose your tiles in Customize overview.')),
@@ -4208,9 +4213,11 @@ function pickMap(m) { return !m || m === 'all' ? pickSvg(PICK_ICONS.map) : mapEm
 function pickWeapon(code) { return code === 'all' ? pickSvg(PICK_ICONS.grid) : h('span', { class: 'pick-wpn', 'aria-hidden': 'true' }, weaponIcon(code)); }
 function select(value, options, onchange, opts = {}) {
   const same = (a, b) => String(a) === String(b);
-  const image = ([v, , factory]) => factory ? factory() : opts.icon ? opts.icon(v) : pickSvg(PICK_ICONS.grid);
+  const seg = opts.seg === true || (opts.seg !== false && options.length <= 4 && options.every(([, l]) => String(l).length <= 18));
+  // Segments show an icon only when each option has its own; the same glyph on every option says nothing
+  const image = ([v, , factory]) => factory ? factory() : opts.icon === false ? null : opts.icon ? opts.icon(v) : seg ? null : pickSvg(PICK_ICONS.grid);
   const prefix = () => opts.label ? h('span', { class: 'pick-prefix' }, opts.label) : null;
-  if (opts.seg === true || (opts.seg !== false && options.length <= 4 && options.every(([, l]) => String(l).length <= 18))) {
+  if (seg) {
     const root = h('div', { class: `tabs pick-seg ${opts.cls || ''}`, title: opts.title, role: 'group', 'aria-label': opts.label || opts.title });
     const buttons = options.map(o => h('button', { type: 'button', class: `${same(o[0], value) ? 'on' : ''} ${['T', 'CT'].includes(o[0]) ? 'side-' + o[0] : ''}`,
       'aria-pressed': String(same(o[0], value)), onclick: () => {
@@ -4406,7 +4413,6 @@ function themeCard() {
   });
   const maps = Object.keys(MAPS);
   return h('div', { class: 'card' },
-    h('h3', {}, 'Choose a theme'),
     h('div', { class: 'desc' }, 'Colors and a backdrop that moves as you scroll. Map themes use the map’s screenshots and team themes the team’s logo, both from your CS2 install.'),
     ...group('DemoLab', THEMES.filter(t => t.group === 'DemoLab')),
     ...group('Teams', THEMES.filter(t => t.group === 'Teams')),
@@ -4451,10 +4457,10 @@ function renderSettings() {
     h('div', { class: 'card' },
       h('h3', {}, 'Highlights'),
       h('div', { class: 'desc' }, 'What counts as a highlight. Each round becomes at most one clip.'),
-      row('Multi-kill from', select(String(d.minMultiKill), [['2', '2 kills'], ['3', '3 kills (3K)'], ['4', '4 kills (4K)'], ['5', 'Aces only']], v => save({ detection: { minMultiKill: +v } }, true), { seg: true, icon: () => pickSvg(PICK_ICONS.trophy) })),
+      row('Multi-kill from', select(String(d.minMultiKill), [['2', '2 kills'], ['3', '3 kills (3K)'], ['4', '4 kills (4K)'], ['5', 'Aces only']], v => save({ detection: { minMultiKill: +v } }, true), { seg: true, icon: false })),
       row('Clutches', h('div', { class: 'ctl' },
         toggle('Include clutches', d.clutch, v => save({ detection: { clutch: v } }, true)),
-        select(String(d.minClutch), [['1', 'from 1v1'], ['2', 'from 1v2'], ['3', 'from 1v3'], ['4', 'from 1v4'], ['5', '1v5 only']], v => save({ detection: { minClutch: +v } }, true), { seg: true, icon: () => pickSvg(PICK_ICONS.swords) }))),
+        select(String(d.minClutch), [['1', 'from 1v1'], ['2', 'from 1v2'], ['3', 'from 1v3'], ['4', 'from 1v4'], ['5', '1v5 only']], v => save({ detection: { minClutch: +v } }, true), { seg: true, icon: false }))),
       row('Special kills', h('div', { class: 'chips' }, ...Object.entries(SPECIAL_LABELS).map(([k, l]) => toggle(l, d.specials[k], v => save({ detection: { specials: { [k]: v } } }, true))))),
       row('Seconds before / after', h('div', { class: 'ctl' },
         num(t.padBefore, v => save({ timing: { padBefore: v } }, true), { max: 15, step: 0.5 }), ' / ',
