@@ -212,7 +212,7 @@ function scCard(s, hist) {
   const jig = s.bots.filter(b => b.jiggle).length, still = s.bots.filter(b => !b.shoot).length;
   const stat = (n, w, cls = '') => h('span', { class: `sc-stat ${cls}` }, h('b', {}, n), w);
   return h('article', { class: 'sc-card' },
-    h('button', { class: 'sc-prev-wrap', title: 'Edit on the 2D map', onclick: () => editScenario(s) }, scPreview(s),
+    h(s.builtin ? 'div' : 'button', { class: 'sc-prev-wrap', title: s.builtin ? 'Built-in scenario' : 'Edit on the 2D map', ...(s.builtin ? {} : { onclick: () => editScenario(s) }) }, scPreview(s),
       last ? h('span', { class: 'sc-card-score', title: 'Last score' }, last.score ?? '—') : null),
     h('div', { class: 'sc-card-body' },
       h('b', { class: 'sc-card-name', title: s.name || 'Untitled' }, s.name || 'Untitled'),
@@ -221,13 +221,13 @@ function scCard(s, hist) {
         jig ? stat(jig, 'jiggling') : null, still ? stat(still, 'not shooting') : null,
         s.options.firstTo ? stat(s.options.firstTo, 'to win') : stat(s.options.reps, 'reps'), stat(s.options.seconds, 's')),
       scVersions(s, hist),
-      h('small', { class: 'sc-card-meta' }, last ? `${plural(mine.length, 'session')} · ${ago(last.date)}` : 'Not played yet'),
+      h('small', { class: 'sc-card-meta' }, s.builtin ? 'Built-in · ' : '', last ? `${plural(mine.length, 'session')} · ${ago(last.date)}` : 'Not played yet'),
       h('div', { class: 'sc-card-foot' },
         h('button', { class: 'btn primary', disabled: running(), onclick: () => buyMenu(s.name || 'Untitled', () => playScenario(s)) }, icon(ICONS.play), 'Play'),
         h('span', { class: 'spacer' }),
-        h('button', { class: 'btn ghost sc-icon-btn', title: 'Edit', onclick: () => editScenario(s) }, icon(SC_ICONS.edit)),
+        s.builtin ? null : h('button', { class: 'btn ghost sc-icon-btn', title: 'Edit', onclick: () => editScenario(s) }, icon(SC_ICONS.edit)),
         h('button', { class: 'btn ghost sc-icon-btn', title: 'Share', onclick: () => shareScenarios([s]) }, icon(SC_ICONS.share)),
-        h('button', { class: 'btn ghost sc-icon-btn danger', title: 'Delete', onclick: async () => {
+        s.builtin ? null : h('button', { class: 'btn ghost sc-icon-btn danger', title: 'Delete', onclick: async () => {
           if (!confirm(`Delete "${s.name}"?`)) return;
           await trGuard(() => api.scenarioDelete(s.id));
           loadScenarios(true);
@@ -380,6 +380,7 @@ function buyMenu(title, go) {
 }
 
 function editScenario(s) {
+  if (s.builtin) return;
   const sc = state.sc;
   sc.edit = structuredClone(s); sc.sel = null; sc.tool = 'move'; sc.floor = 'upper'; resetZoom(sc.view);
   renderTraining();
