@@ -106,9 +106,9 @@ const accuracyOf = r => (r.shots && r.type !== 'grenades' && r.type !== 'other' 
 const WP_METRICS = {
   general: [
     ['kills', 'Kills', 'Enemies killed', r => r.kills],
-    ['hsp', 'HS kills %', 'Share of the kills that were headshots', r => (r.kills ? r.hs / r.kills : -1), r => pctTxt(r.hs, r.kills, 0)],
+    ['hsp', 'Headshot kills', 'Headshot kills / kills: share of the kills that were headshots', r => (r.kills ? r.hs / r.kills : -1), r => pctTxt(r.hs, r.kills, 0)],
     ['dmg', 'Damage', 'Damage dealt to enemies (capped at the health they had left)', r => r.dmg, r => fmtNum(r.dmg)],
-    ['head', 'Head hits %', 'Share of the bullets that hit someone that hit the head', r => (r.bodyHits ? r.headHits / r.bodyHits : -1),
+    ['head', 'Hits to head', 'Head hits / hits: share of the bullets that hit someone that hit the head', r => (r.bodyHits ? r.headHits / r.bodyHits : -1),
       r => pctTxt(r.headHits, r.bodyHits), r => (r.bodyHits >= 10 ? aimLevel(AIM_STATS[3], r.headHits / r.bodyHits) : '')],
     ['dist', 'Avg dist', 'Average distance of the kills', r => (r.distN ? r.distSum / r.distN : -1), r => (r.distN ? `${(r.distSum / r.distN).toFixed(1)}m` : '—')],
   ],
@@ -192,7 +192,7 @@ function weaponBoard(rows, wp, repaint, { kills: killsSub } = {}) {
   const share = r => (all.kills ? r.kills / all.kills : all.dmg ? r.dmg / all.dmg : 0);
   const toggle = w => { wp.sel.has(w) ? wp.sel.delete(w) : wp.sel.add(w); repaint(); };
   const selInfo = h('span', { class: 'wp-sel-info', title: 'The bar under each weapon is its share of the kills' },
-    sel.length ? [`${sel.length} selected · `, h('button', { class: 'link-btn', onclick: () => { wp.sel.clear(); repaint(); } }, 'clear')] : 'Click weapons to compare · Head hits % green or red against your lobbies');
+    sel.length ? [`${sel.length} selected · `, h('button', { class: 'link-btn', onclick: () => { wp.sel.clear(); repaint(); } }, 'clear')] : 'Select weapons to compare · Hits to head coloured against your lobbies');
   const head = h('div', { class: 'wp-row wp-cols', ...grid }, h('span'), h('span'),
   ...cols.map(([k, label, tip]) => h('button', { class: `wp-th ${sort.col === k ? 'on' : ''}`, title: tip,
     onclick: () => { wp.sort = { metric, col: k, dir: sort.col === k ? -sort.dir : -1 }; repaint(); } }, label, sort.col === k ? (sort.dir < 0 ? ' ▾' : ' ▴') : '')));

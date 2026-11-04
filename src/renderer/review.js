@@ -437,7 +437,7 @@ function renderCompare() {
       h('div', { class: 'cmp-sub' },
         win === side ? h('span', { class: 'cmp-delta', title: `${fmt(Math.abs(va - vb))} better than the other side${s.low ? ' (lower is better)' : ''}` }, `${Math.abs(va - vb).toFixed(s.d)}${s.u === '%' ? ' pp' : s.u || ''} ${s.low ? 'lower' : 'higher'}`) : null,
         tier(r)));
-    const track = (side, w, r) => h('div', { class: `cmp-bar ${side}`, style: (side === 'a' ? va : vb) == null ? { visibility: 'hidden' } : undefined },
+    const track = (side, w, r) => h('div', { class: `cmp-bar ${side}`, style: va == null || vb == null ? { visibility: 'hidden' } : undefined }, // no counterpart, no comparison bar
       h('i', { class: win === side ? 'win' : '', style: { width: `${clamp(w || 0, 0, 1) * 100}%` } }),
       r != null ? h('span', { class: 'cmp-median', title: 'Lobby median (50%)' }) : null);
     return h('div', { class: `cmp-row ${s.neutral ? 'neutral' : ''}`, title: tip || s.tip || '' },
@@ -483,7 +483,7 @@ function renderCompare() {
     h('div', { class: 'cmp-heads' }, filters, who(A, la, aId, winsA > winsB, pickA), h('div', { class: 'cmp-score', title: 'Stats where each side is better (roles like “Opening duels taken” don’t count)' },
       glyph(CMP_ICONS.trophy),
       h('div', { class: 'cmp-nums' }, counted ? [h('b', { class: winsA > winsB ? 'cmp-ahead' : '' }, winsA), h('span', {}, '–'), h('b', { class: winsB > winsA ? 'cmp-ahead' : '' }, winsB)] : '—'),
-      h('small', {}, counted ? 'stats ahead' : ''),
+      h('small', {}, counted ? 'metrics ahead' : ''),
       h('div', { class: 'cmp-split', 'aria-hidden': 'true' }, h('i', { style: { width: `${counted ? winsA / counted * 100 : 50}%` } }), h('i', { style: { width: `${counted ? winsB / counted * 100 : 50}%` } })),
       swap), who(B, lb, c.b, winsB > winsA, pickB)),
     !lobby ? h('div', { class: 'hint' }, spinner(10), ' Reading everyone’s numbers in your demos (only the first time takes a few seconds)…') : null,

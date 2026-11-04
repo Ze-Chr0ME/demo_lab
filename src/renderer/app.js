@@ -2805,7 +2805,7 @@ async function renderPlayerSearch() {
   h('span', { class: 'ps-main' },
     h('span', { class: 'ps-name' }, h('b', {}, p.name || p.steamid), p.steamid === idx.self ? h('span', { class: 'ps-you' }, 'you') : null,
       p.names.length > 1 ? h('span', { class: 'ps-aka' }, `aka ${p.names.slice(1, 3).join(', ')}${p.names.length > 3 ? '…' : ''}`) : null),
-    h('span', { class: 'ps-sub' }, [`${p.matches} match${p.matches === 1 ? '' : 'es'}`, p.with ? `${p.with} with you` : null, p.against ? `${p.against} against you` : null,
+    h('span', { class: 'ps-sub' }, [p.with === p.matches ? `${p.matches} match${p.matches === 1 ? '' : 'es'} with you` : p.against === p.matches ? `${p.matches} match${p.matches === 1 ? '' : 'es'} against you` : `${p.matches} match${p.matches === 1 ? '' : 'es'}`, p.with && p.with !== p.matches ? `${p.with} with you` : null, p.against && p.against !== p.matches ? `${p.against} against you` : null,
       `last ${short(p.last)}`].filter(Boolean).join(' · ')))));
   const title = q ? `${rows.length} player${rows.length === 1 ? '' : 's'}${rows.length > ps.rows.length ? ` · showing ${ps.rows.length}, type more to narrow` : ''}` : 'Players you met most';
   ps.list.replaceChildren(
