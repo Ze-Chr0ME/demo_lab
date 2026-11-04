@@ -109,8 +109,8 @@ function renderInventory() {
     h('div', { class: 'dash-title' },
       h('h2', { class: 'inv-title' }, 'Inventory', back), // the player picker sits right after the title, as on the other pages
       h('div', { class: 'sub' }, `${fmtNum(d.count)} item${d.count === 1 ? '' : 's'}`,
-        ' · ', h('span', { class: 'nowrap' }, `read ${ago(d.t)}`),
-        d.pricesAt ? [' · ', h('span', { class: 'nowrap' }, `${d.sources[d.source]} prices from ${ago(d.pricesAt)}`)] : null,
+        h('span', { class: 'nowrap' }, ` · read ${ago(d.t)}`),
+        d.pricesAt ? h('span', { class: 'nowrap' }, ` · ${d.sources[d.source]} prices from ${ago(d.pricesAt)}`) : null,
         st.loading ? h('span', {}, ' · ', spinner(11), ' updating') : null,
         (st.salesJob || d.sales?.job)?.steamid === d.steamid
           ? h('span', { style: { whiteSpace: 'nowrap' }, title: 'The most valuable items are priced from what they sold for on Steam (one item every few seconds, so Steam doesn’t block DemoLab)' },
