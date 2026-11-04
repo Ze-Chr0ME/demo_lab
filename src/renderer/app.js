@@ -666,7 +666,7 @@ function highlightsView(a) {
     ? [h('div', { class: 'empty' }, h('h2', {}, 'You are not in this demo'), h('div', {}, 'Pick the player whose highlights you want above.'))]
     : !hls.length
       ? [h('div', { class: 'empty' }, h('h2', {}, 'No highlights in this match'), h('div', {}, 'No multi-kills, clutches or special kills with the current rules. You can loosen them in Settings.'))]
-      : [h('div', { class: 'hl-grid' }, ...hls.map(hl => highlightCard(hl)))]; // two per row on wide windows: a row is mostly empty otherwise
+      : [h('div', { class: 'mhl-grid' }, ...hls.map(hl => highlightCard(hl)))]; // two per row on wide windows: a row is mostly empty otherwise
   const allOn = hls.length && hls.every(x => state.selected.has(x.id));
   return [
     hls.length ? h('div', { class: 'section-head' },
@@ -853,7 +853,7 @@ function integrityView() {
   const teamName = p => p.team == null ? '' : p.team === st.value.myTeam ? 'Your team' : 'Opponents';
   const table = h('table', { class: 'sb integ' },
     h('thead', {}, h('tr', {},
-      h('th', { class: 'team' }, 'Player'),
+      h('th', { class: 'team lead' }, 'Player'),
       h('th', { title: 'One very unusual signal, or two unusual ones, make a player very unusual' }, 'Overall'),
       ...sel.signals.map(c => h('th', { title: `${c.tip}\n\nNormal: ${c.normal}` }, c.label)),
       h('th', { title: 'Kills and headshot percentage, for context' }, 'K · HS%'))),
@@ -3020,7 +3020,7 @@ function renderUtility() {
     ...maps.map(m => chip(u.map === m, [mapEmblem(m, 'ut-chip-emblem'), `${mapName(m)} (${counts[m]})`], () => { u.map = m; u.sel = null; resetZoom(u.view); renderUtility(); }, { style: { '--c': mapColor(m) } }))) : null;
   const head = h('div', { class: 'page-head ut-head' },
     onMap ? h('button', { class: 'link-btn', onclick: () => { u.map = 'all'; u.sel = null; renderUtility(); } }, '← All maps')
-      : h('button', { class: 'link-btn', onclick: () => { state.tr.drill = null; showView('training'); } }, '← Training'),
+      : h('button', { class: 'btn ghost', onclick: () => { state.tr.drill = null; showView('training'); } }, icon('<path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'), 'Training'),
     onMap ? h('h2', { class: 'ut-title' }, mapEmblem(u.map, 'ut-title-emblem'), mapName(u.map), h('span', { class: 'ut-title-k' }, 'lineups')) : h('h2', {}, 'Utility'),
     mapChips,
     h('span', { class: 'spacer' }),
@@ -4598,7 +4598,7 @@ function renderDownloads() {
   const d = state.dl;
   const STATUS = {
     downloaded: ['ok', 'On your PC'], available: ['new', 'Not downloaded'], queued: ['', 'Queued'],
-    downloading: ['new', 'Downloading'], removed: ['', 'Deleted / moved'], expired: ['bad', 'Expired'],
+    downloading: ['new', 'Downloading'], removed: ['', 'Deleted / moved'], expired: ['', 'Expired'],
     waiting: ['new', 'Waiting for you'], // FACEIT room open: you click "Watch demo" there
   };
   const autoToggle = toggle('Auto-download new matches', state.settings.downloads.auto, async v => { await save({ downloads: { auto: v } }); });
@@ -4648,7 +4648,7 @@ function renderDownloads() {
     } }, 'Open');
     else if (m.status === 'downloading') action = h('div', { class: 'mini-progress' }, h('div', { 'data-dl-progress': m.id, style: { width: prog?.total ? `${Math.round(100 * prog.received / prog.total)}%` : '3%' } }));
     const renamed = m.status === 'downloaded' && m.file && m.fileBase && !m.file.endsWith(m.fileBase + '.dem');
-    return h('div', { class: 'dl' },
+    return h('div', { class: `dl ${m.status === 'expired' ? 'stale' : ''}` },
       h('div', { class: 'when' }, m.time ? new Date(m.time).toLocaleDateString(UI_LOCALE, { day: '2-digit', month: 'short', year: 'numeric' }) : '?',
         h('small', {}, m.time ? new Date(m.time).toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' }) : '')),
       h('div', { class: 'mode' },

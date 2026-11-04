@@ -229,7 +229,7 @@ function aimView() {
   };
   const teamName = p => (p.team == null ? '' : p.team === st.value.myTeam ? 'Your team' : 'Opponents');
   const table = h('table', { class: 'sb integ aim-table' },
-    h('thead', {}, h('tr', {}, h('th', { class: 'team' }, 'Player'), ...AIM_STATS.map(s => h('th', { title: `${s.tip}\n\nGood: ${s.fmt(s.good)} or ${s.low ? 'less' : 'more'} · needs work: ${s.low ? 'over' : 'under'} ${s.fmt(s.bad)}` }, s.label)), h('th', { title: 'Bullets fired · bullets that hit an enemy' }, 'Shots · hits'))),
+    h('thead', {}, h('tr', {}, h('th', { class: 'team lead' }, 'Player'), ...AIM_STATS.map(s => h('th', { title: `${s.tip}\n\nGood: ${s.fmt(s.good)} or ${s.low ? 'less' : 'more'} · needs work: ${s.low ? 'over' : 'under'} ${s.fmt(s.bad)}` }, s.label)), h('th', { title: 'Bullets fired · bullets that hit an enemy' }, 'Shots · hits'))),
     h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''}`, onclick: () => { state.aimPlayer = p.steamid; renderDetail(); } },
       h('td', { class: 'name' }, avatar(p.name, p.steamid, 'sm'), p.name, h('span', { class: 'integ-team' }, teamName(p))),
       ...AIM_STATS.map(s => cell(s, p)),

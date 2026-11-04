@@ -135,7 +135,7 @@ function weaponsView() {
   if (st.error) return h('div', { class: 'empty' }, h('h2', {}, 'No weapon stats for this demo'), h('div', { class: 'err-box' }, st.error));
   const root = h('div', { class: 'wp' });
   paintWeapons(root, st.value);
-  return root;
+  return [h('div', { class: 'section-head' }, h('h3', {}, 'Weapons'), h('span', { class: 'hint' }, 'Every weapon used in this match. Pick a round, player or side to narrow it down.')), root];
 }
 
 function paintWeapons(root, v) {
