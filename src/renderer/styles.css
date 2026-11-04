@@ -1246,7 +1246,6 @@ kbd { display: inline-block; min-width: 18px; text-align: center; font: 700 11px
 input[type=number] { height: 36px; }
 .ut-search { height: 36px; }
 .ov-page .dash-head .filters { background: color-mix(in srgb, var(--base) 45%, transparent); border-radius: 11px; padding: 3px; gap: 2px; }
-#hlCount:empty { display: inline-block; visibility: hidden; min-width: 34px; } /* reserves the badge's place: the nav doesn't shift when the count arrives */
 .info-box .info-title { display: block; margin-bottom: 4px; color: var(--text); }
 .page-head .chip-toggle { padding: 8px 14px; font-size: 13px; }
 .dl .act { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
@@ -1841,7 +1840,7 @@ table.sb.sb-score th.wide { width: 118px; }
 /* The long freshness line wraps instead of pushing Refresh onto its own row */
 .inv-page .dash-head > .dash-title { flex: 1 1 340px; min-width: 0; }
 .inv-hero .inv-total { font-size: 48px; letter-spacing: -1px; }
-.mhl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 640px), 1fr)); gap: 10px; }
+.mhl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 540px), 1fr)); gap: 10px; }
 .mhl-grid > .hl { margin-bottom: 0; }
 .inv-storage { margin: 10px 2px 18px; }
 .inv-dash { margin-bottom: 26px; }
