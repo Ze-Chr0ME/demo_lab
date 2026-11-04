@@ -54,7 +54,7 @@ function trendContext() {
       }
       return node;
     },
-    card: (title, content) => ({ title, content }), mapName: name => name, openMatch: match => { opened = match; },
+    card: (title, content) => ({ title, content }), mapName: name => name, fmtShort: d => String(d), openMatch: match => { opened = match; },
     ResizeObserver: class {
       constructor(callback) { onresize = callback; }
       observe() { onresize(); }

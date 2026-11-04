@@ -28,6 +28,8 @@ function hlMark(key, label) {
   el.append(img);
   return el;
 }
+// Short words next to the kill-type icons in the filter, so the icon is never the only cue.
+const HL_CHIP_WORDS = { noscope: 'No-scope', wallbang: 'Wallbang', smoke: 'Smoke', blind: 'Blind', jumpshot: 'Jump', knife: 'Knife', zeus: 'Zeus' };
 const tagMark = t => hlMark(t.type === 'special' ? t.key : null, t.label);
 
 async function loadHighlights() {
@@ -145,7 +147,7 @@ function weaponBuyButton(weapons, onclick) {
       : h('span', { class: 'hl-weapons-empty' },
         icon('<path d="M4 7h16M7 12h10M10 17h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>', 'aria-hidden="true"'),
         'Any weapon'),
-    icon('<path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>', 'class="hl-weapons-chevron" aria-hidden="true"'));
+    icon('<path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>', 'class="hl-weapons-chevron" aria-hidden="true"'));
 }
 
 const hlQueueKey = item => JSON.stringify([item.demo.id, item.player.steamid, item.highlight.id]);
@@ -189,9 +191,9 @@ function hlQueueBar() {
           onclick: () => hlToggleQueue(item) }, icon(ICONS.x))))) : null),
     !queued.length ? h('span', { class: 'hl-queue-hint' }, 'Click highlights to add clips') : null,
     h('span', { class: 'spacer' }),
-    h('button', { class: 'btn ghost', type: 'button', disabled: !queued.length,
+    h('button', { class: 'btn', type: 'button', disabled: !queued.length,
       onclick: () => { state.hl.queue.clear(); renderHighlights(false); } }, 'Clear queue'),
-    h('button', { class: 'btn primary', type: 'button', disabled: !queued.length || !!state.recording || !!state.recordStarting,
+    h('button', { class: `btn ${queued.length ? 'primary' : ''}`, type: 'button', disabled: !queued.length || !!state.recording || !!state.recordStarting,
       onclick: hlRecordQueue }, icon(ICONS.rec), `Record queue (${queued.length})`));
 }
 
@@ -204,11 +206,11 @@ function hlCard(item) {
       onclick: () => hlToggleQueue(item) },
     h('div', { class: 'hl-card-head' }, mapEmblem(item.map, 'hl-card-emblem'),
       h('div', { class: 'hl-card-when' },
-        h('div', { class: 'hl-card-map' }, h('b', {}, mapName(item.map)), h('span', { class: `side-${hl.side}` }, hl.side), h('span', {}, `Round ${hl.round}`)),
+        h('div', { class: 'hl-card-map' }, h('b', {}, mapName(item.map)), sideTag(hl.side), h('span', {}, `Round ${hl.round}`)),
         h('div', { class: 'hl-card-date' }, fmtDate(item.demo.date)),
-        h('div', { class: 'hl-card-file' }, item.demo.customName || item.demo.name)),
-      h('span', { class: 'hl-card-stars', title: `${rating} star${rating > 1 ? 's' : ''}` }, '★'.repeat(rating))),
-    h('div', { class: 'hl-card-tags' }, ...words.map(t => h('b', {}, t.label)), ...marks.map(tagMark)),
+        item.demo.customName ? h('div', { class: 'hl-card-file' }, item.demo.customName) : null),
+      h('span', { class: 'hl-card-stars', title: `${rating} star${rating > 1 ? 's' : ''}` }, starRow(rating))),
+    h('div', { class: 'hl-card-tags' }, ...words.map(t => h('b', { title: tagTitle(t, kills.length) }, tagLabel(t, kills.length))), ...marks.map(tagMark)),
     h('div', { class: 'hl-feed' }, ...kills.map(k => h('div', { class: 'hl-feed-row' },
       h('span', { class: 'hl-feed-gun', title: k.weapon }, weaponIcon(k.code || 'knife')),
       ...(k.flags || []).filter(f => HL_FLAG_KEYS[f]).map(f => hlMark(HL_FLAG_KEYS[f], f)),
@@ -217,8 +219,8 @@ function hlCard(item) {
     h('div', { class: 'hl-card-stats' }, `${kills.length} kill${kills.length === 1 ? '' : 's'} · ${fmtDur(hl.duration)}`)),
     h('div', { class: 'hl-card-foot' },
       h('button', { class: `hl-queue-status ${queued ? 'on' : ''}`, type: 'button', 'aria-pressed': String(queued),
-        onclick: () => hlToggleQueue(item) }, queued ? icon(ICONS.check) : icon(ICONS.rec), queued ? 'Queued' : 'Add to queue'),
-      h('button', { class: 'hl-open', type: 'button', onclick: e => { e.stopPropagation(); openHighlight(item); } }, 'Match Page →')));
+        onclick: () => hlToggleQueue(item) }, queued ? icon(ICONS.check) : icon(PLUS), queued ? 'Queued' : 'Add to queue'),
+      h('button', { class: 'hl-open', type: 'button', onclick: e => { e.stopPropagation(); openHighlight(item); } }, 'Match page →')));
 }
 
 function renderHighlights(check = true) {
@@ -261,16 +263,17 @@ function renderHighlights(check = true) {
       const input = $('#hlSearch'); input.focus(); input.setSelectionRange(start, end);
     } });
   const picker = h('div', { class: `clip-stars-pick ${st.stars ? 'set' : ''}`, role: 'group', 'aria-label': 'Exact star rating' },
-    ...[5, 4, 3, 2, 1].map(n => h('button', { type: 'button', class: n <= st.stars ? 'on' : '', 'aria-pressed': String(st.stars === n),
+    ...[5, 4, 3, 2, 1].map(n => h('button', { type: 'button', class: n === st.stars ? 'on' : '', 'aria-pressed': String(st.stars === n),
       title: `${n}-star highlights (${counts[n]}). Click again to clear.`, 'aria-label': `${n} stars, ${counts[n]} highlights`,
-      onclick: () => change({ stars: st.stars === n ? 0 : n }) }, '★', h('small', {}, counts[n]))));
+      onclick: () => change({ stars: st.stars === n ? 0 : n }) }, `${n}★`, h('small', {}, counts[n]))));
   const weaponsBtn = weaponBuyButton(st.weapons, hlWeaponMenu);
   const tagChips = h('div', { class: 'hl-chips', title: 'Shows highlights with any picked kill type' },
     ...[...tags.values()].sort((a, b) => b.n - a.n).map(({ tag, n }) => {
       const key = hlTag(tag), on = st.tags.has(key);
       return h('button', { class: `hl-chip ${on ? 'on' : ''}`, type: 'button', 'aria-pressed': String(on), title: key,
         onclick: () => { on ? st.tags.delete(key) : st.tags.add(key); change({}); } },
-      tag.type === 'clutch' ? h('span', { class: 'hl-mark-text' }, 'Clutch') : tagMark(tag), h('small', {}, n));
+      tag.type === 'clutch' ? h('span', { class: 'hl-mark-text' }, 'Clutch') : tagMark(tag),
+      tag.type === 'special' && HL_CHIP_WORDS[tag.key] ? h('span', { class: 'hl-chip-word' }, HL_CHIP_WORDS[tag.key]) : null, h('small', {}, n));
     }));
   const maps = [...mapCounts].sort((a, b) => b[1] - a[1] || mapName(a[0]).localeCompare(mapName(b[0])));
   const cycleMap = m => {
@@ -293,10 +296,10 @@ function renderHighlights(check = true) {
     }));
   const sideEmblem = team => h('img', { class: 'hl-team-emblem', src: `img/team-${team.toLowerCase()}.png`, alt: '', 'aria-hidden': 'true' });
   const sides = h('div', { class: 'hl-seg', role: 'group', 'aria-label': 'Team filter' },
-    ...[['T', 'T', 'Terrorists'], ['all', 'Both', 'Both teams'], ['CT', 'CT', 'Counter-Terrorists']].map(([v, l, label]) =>
+    ...[['all', 'Both', 'Both teams'], ['T', 'T', 'Terrorists'], ['CT', 'CT', 'Counter-Terrorists']].map(([v, l, label]) =>
       h('button', { class: `${st.side === v ? 'on' : ''} ${v !== 'all' ? `side-${v}` : ''}`, type: 'button',
         title: label, 'aria-label': label, 'aria-pressed': String(st.side === v), onclick: () => change({ side: v }) },
-      v === 'all' ? h('span', { class: 'hl-team-pair', 'aria-hidden': 'true' }, sideEmblem('T'), sideEmblem('CT')) : sideEmblem(v), l)));
+      v === 'all' ? h('span', { class: 'hl-team-pair', 'aria-hidden': 'true' }, sideEmblem('T'), sideEmblem('CT')) : sideEmblem(v))));
   const toggle = (key, label, mark) => h('button', { class: `hl-chip hl-icon-toggle ${st[key] ? 'on' : ''}`, type: 'button',
     'aria-label': label, 'aria-pressed': String(st[key]), title: label,
     onclick: () => change({ [key]: !st[key] }) }, mark);
@@ -322,7 +325,7 @@ function renderHighlights(check = true) {
     h('div', { class: 'hl-main' },
       h('div', { class: 'page-head' }, h('h2', {}, 'Highlights'), playerMenu(), h('span', { class: 'hl-summary', 'aria-live': 'polite' }, `${items.length} of ${all.length}`),
         h('span', { class: 'spacer' }), select(st.sort, [['score', 'Best rated', () => pickSvg(PICK_ICONS.sort)], ['date', 'Newest match', () => pickSvg(PICK_ICONS.calendar)]], sort => change({ sort }), { seg: true, title: 'Sort highlights' }),
-        h('button', { class: 'btn ghost', disabled: st.loading, onclick: () => loadHighlights() }, st.loading ? spinner(14) : null, 'Refresh')),
+        h('button', { class: 'btn', disabled: st.loading, onclick: () => loadHighlights() }, st.loading ? spinner(14) : icon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/>'), 'Refresh')),
       st.parsed < st.total ? h('div', { class: 'hl-progress', role: 'status' }, `${st.parsed} of ${st.total} matches parsed · Refresh to include newly parsed matches.`) : null,
       st.error ? h('div', { class: 'hl-error', role: 'alert' }, `Could not load highlights: ${st.error}`, h('button', { class: 'link-btn', onclick: () => loadHighlights() }, 'Try again')) : null,
       hlQueueBar(),

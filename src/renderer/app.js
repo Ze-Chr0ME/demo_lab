@@ -2,6 +2,8 @@
 'use strict';
 
 // ---------- Helpers ----------
+// Dates and numbers follow the English interface, not the Windows region (no "lundi", "janv." or "2 477").
+const UI_LOCALE = 'en-GB';
 const $ = sel => document.querySelector(sel);
 function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -47,13 +49,21 @@ const MAPS = {
 };
 const mapName = m => MAPS[m]?.[0] || (m || '?').replace(/^(de|cs|ar)_/, '').replace(/^\w/, c => c.toUpperCase());
 const mapColor = m => MAPS[m]?.[1] || '#7a8494';
-const fmtDate = ms => new Date(ms).toLocaleString(undefined, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fmtDate = ms => new Date(ms).toLocaleString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+// Short form for lists: the year only when it isn't this year ("3 Nov · 21:50")
+const fmtShort = ms => { const d = new Date(ms), y = d.getFullYear() !== new Date().getFullYear();
+  return `${d.toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', ...(y ? { year: 'numeric' } : {}) })} · ${d.toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' })}`; };
 const fmtDur = s => { s = Math.round(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const fmtSize = b => `${(b / 1048576).toFixed(0)} MB`;
-const stars = score => '★'.repeat(Math.max(1, Math.min(5, Math.round(score / 25)))) ;
+// An ace in a small mode (Rush 3v3, Wingman 2v2) has fewer than five kills: say how many, so "ACE" over 3 kills reads right.
+const tagLabel = (t, kills) => (t.type === 'multikill' && t.label === 'ACE' && kills > 0 && kills < 5 ? `ACE ${kills}/${kills}` : t.label);
+const tagTitle = (t, kills) => (t.type === 'multikill' && t.label === 'ACE' ? `Killed the whole enemy team (${kills})` : null);
+// Always five glyphs: the filled ones first, the rest faint, the same way on every page.
+const starRow = n => [h('b', {}, '★'.repeat(n)), '★'.repeat(5 - n)];
+const stars = score => starRow(Math.max(1, Math.min(5, Math.round(score / 25))));
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
-const fmtNum = n => Math.round(n).toLocaleString();
+const fmtNum = n => Math.round(n).toLocaleString(UI_LOCALE);
 const resultOf = (mine, enemy) => (mine > enemy ? 'w' : mine < enemy ? 'l' : 'd');
 const spinner = (px = 24) => h('span', { class: 'spinner', style: { width: `${px}px`, height: `${px}px` } });
 
@@ -79,6 +89,7 @@ function showView(v) {
   closeMeMenu();
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === `view-${v}`));
   state.view = v;
+  document.documentElement.dataset.view = v; // lets a page tone down the backdrop behind it (Clips)
   if (v === 'overview') renderOverview();
   if (v === 'aim') renderAimPage();
   if (v === 'maps') renderMaps();
@@ -328,7 +339,7 @@ function openMeMenu() {
   const e = state.env;
   const mine = state.view === 'overview' && !state.who;
   $('#meMenu').replaceChildren(
-    e?.mySteamId ? h('div', { class: 'me-menu-id' }, `SteamID ${e.mySteamId}`) : null,
+    e?.mySteamId ? h('div', { class: 'me-menu-id' }, state.profile?.name ? h('b', {}, state.profile.name) : null, `SteamID ${e.mySteamId}`) : null,
     ...ME_MENU.filter(([v]) => v !== 'customize' || e?.mySteamId).map(([v, label, d]) => h('button', {
       class: `me-item ${(v === 'overview' ? mine && !state.ovEdit : v === 'customize' ? state.view === 'overview' && state.ovEdit : state.view === v) ? 'on' : ''}`,
       onclick: () => {
@@ -494,9 +505,9 @@ function renderDemoList() {
   const pending = state.demos.filter(d => !d.summary && !d.failed).length;
   $('#matchCount').textContent = state.demos.length || '';
   $('#demoListSub').replaceChildren(
-    `${demos.length} match${demos.length === 1 ? '' : 'es'}`,
-    state.who ? ` Matches with ${state.other?.name || 'this player'}` : '',
     playerMenu(),
+    h('span', {}, `${demos.length} match${demos.length === 1 ? '' : 'es'}`),
+    state.who ? ` Matches with ${state.other?.name || 'this player'}` : '',
     pending ? h('span', {}, ' · ', h('span', { class: 'spinner', style: { width: '11px', height: '11px', borderWidth: '2px' } }), ` analyzing ${pending}…`) : '',
   );
   const mine = new Map((shownProfile()?.matches || []).map(m => [m.id, m]));
@@ -512,7 +523,8 @@ function renderDemoList() {
       mapThumb(s?.map, s ? null : isRush(d) ? 'RSH' : d.failed ? '!' : '…'),
       h('div', { style: { minWidth: 0 } },
         title,
-        h('div', { class: 'demo-meta', title: d.path }, `${fmtDate(d.date)} · ${d.customName && s ? mapName(s.map) : where}`),
+        h('div', { class: 'demo-meta', title: `${fmtDate(d.date)}
+${d.path}` }, `${fmtShort(d.date)} · ${d.customName && s ? mapName(s.map) : where}`),
       ),
       h('div', { class: 'demo-right' },
         sc ? h('div', { class: `demo-score score-${res}` }, `${sc.mine}:${sc.enemy}`) : h('div', { class: 'demo-score score-d' }, s ? '—' : ''),
@@ -608,25 +620,26 @@ function renderDetail() {
   const hero = h('div', { class: 'hero', style: { '--hero-c': mapColor(a.map) } },
     h('div', { class: 'hero-top' },
       h('div', { class: 'hero-title' },
-        h('div', { class: 'hero-kicker' }, mapName(a.map), a.playerFound ? h('span', { class: `result-pill r-${res}` }, res === 'w' ? 'Win' : res === 'l' ? 'Loss' : 'Draw') : null),
+        h('div', { class: 'hero-kicker' }, d.customName ? mapName(a.map) : /^match730_/.test(d.name) ? 'Valve match' : 'Demo', a.playerFound ? h('span', { class: `result-pill r-${res}` }, res === 'w' ? 'Win' : res === 'l' ? 'Loss' : 'Draw') : null),
         h('div', { class: 'title-row' },
           h('h1', {}, d.customName || mapName(a.map)),
           h('button', { class: 'icon-btn rename', title: 'Rename this match (only in DemoLab, the file keeps its name)', onclick: e => editName(d, e.currentTarget.previousSibling) }, icon(PENCIL))),
         h('div', { class: 'sub' }, `${fmtDate(d.date)} · ${a.rounds} rounds · ${fmtSize(d.size)}`),
       ),
       a.playerFound ? h('div', { class: 'stat-row' },
-        stat('Score', `${a.score.mine} : ${a.score.enemy}`, `score-${res}`),
-        stat('K – D', sb ? `${sb.kills} – ${sb.deaths}` : `${a.stats.kills} – ${a.stats.deaths}`),
+        stat('Score', `${a.score.mine}:${a.score.enemy}`, `score-${res}`),
+        stat('K–D', sb ? `${sb.kills}–${sb.deaths}` : `${a.stats.kills}–${a.stats.deaths}`),
         sb ? stat('ADR', sb.adr.toFixed(0)) : null,
         stat('HS %', `${sb ? sb.hsPct : a.stats.hsPct}%`),
         sb ? stat('Rating', sb.rating == null ? '—' : sb.rating.toFixed(2), ratingClass(sb.rating)) : null,
       ) : null,
     ),
-    roundStrip(),
-    h('div', { class: 'player-pick' }, 'Point of view', playerSelect,
-      h('span', { class: 'spacer' }),
-      viewInCs2Button('View demo', 'btn', 'Opens this demo in CS2 (through HLAE) at the first round, in the eyes of the point-of-view player',
-        () => ({ name: a.player?.name }), 'The demo is playing in the CS2 window.')),
+    // Rounds and the point-of-view picker share one band; the picker drops under the rounds when they need the width.
+    h('div', { class: 'hero-foot' },
+      roundStrip(),
+      h('div', { class: 'player-pick' }, 'Point of view', playerSelect,
+        viewInCs2Button('View in CS2', 'btn', 'Opens this demo in CS2 (through HLAE) at the first round, in the eyes of the point-of-view player',
+          () => ({ name: a.player?.name }), 'The demo is playing in the CS2 window.'))),
   );
 
   const tab = state.tab;
@@ -659,7 +672,7 @@ function highlightsView(a) {
     ? [h('div', { class: 'empty' }, h('h2', {}, 'You are not in this demo'), h('div', {}, 'Pick the player whose highlights you want above.'))]
     : !hls.length
       ? [h('div', { class: 'empty' }, h('h2', {}, 'No highlights in this match'), h('div', {}, 'No multi-kills, clutches or special kills with the current rules. You can loosen them in Settings.'))]
-      : hls.map(hl => highlightCard(hl));
+      : [h('div', { class: 'mhl-grid' }, ...hls.map(hl => highlightCard(hl)))]; // two per row on wide windows: a row is mostly empty otherwise
   const allOn = hls.length && hls.every(x => state.selected.has(x.id));
   return [
     hls.length ? h('div', { class: 'section-head' },
@@ -708,7 +721,7 @@ const SB_COLS = [
   ['ADR', 'Average damage per round', p => p.adr, p => p.adr.toFixed(1)],
   ['HS%', 'Share of kills that were headshots', p => p.hsPct, p => p.hsPct + '%'],
   ['KAST', 'Rounds with a Kill, Assist, Survival or Trade', p => p.kast, p => p.kast.toFixed(0) + '%'],
-  ['Rating', 'Approximation of HLTV Rating 2.0 (HLTV does not publish its formula; usually within ±0.02)', p => p.rating ?? 0, p => p.rating == null ? '—' : '≈' + p.rating.toFixed(2), p => ratingClass(p.rating)],
+  ['Rating', 'Approximation of HLTV Rating 2.0 (HLTV does not publish its formula; usually within ±0.02)', p => p.rating ?? 0, p => p.rating == null ? '—' : p.rating.toFixed(2), p => ratingClass(p.rating)],
   ['FK', 'First kills (opening duels won)', p => p.firstKills],
   ['FD', 'First deaths (opening duels lost)', p => p.firstDeaths],
   ['Multi', 'Rounds with 2 / 3 / 4 / 5 kills', p => p.multi[2] + 2 * p.multi[3] + 4 * p.multi[4] + 8 * p.multi[5], p => [2, 3, 4, 5].map(n => p.multi[n]).join(' / ')],
@@ -743,7 +756,7 @@ function scoreboardView() {
           h('span', { class: `team-score score-${t.score > lost ? 'w' : t.score < lost ? 'l' : 'd'}`, title: side ? `Rounds won as ${side}: ${t.score} of ${t.played}` : null }, side ? `${t.score}–${lost}` : t.score),
           teamLabel(t), side
             ? h('span', { class: `side side-${side}` }, `as ${side} · ${t.played} rounds`)
-            : h('span', { class: `side side-${t.startSide}` }, `started ${t.startSide}`)),
+            : h('span', { class: `side side-tag side-${t.startSide}`, title: `Started on the ${t.startSide === 'T' ? 'Terrorist' : 'Counter-Terrorist'} side` }, 'started', sideIcon(t.startSide))),
         ...cols.map(([k, tip]) => h('th', {
           title: tip, class: `${sort.col === k ? 'sorted' : ''} ${k === 'Multi' || k === 'Clutch' ? 'wide' : ''}`,
           onclick: () => { state.sbSort = { col: k, dir: sort.col === k ? -sort.dir : -1 }; renderDetail(); },
@@ -757,9 +770,9 @@ function scoreboardView() {
   return [
     h('div', { class: 'section-head' }, h('h3', {}, 'Scoreboard'),
       h('button', { class: 'chip-toggle sb-mode', 'aria-pressed': String(detailed), title: 'Switch scoreboard detail', onclick: () => { state.sbDetailed = !detailed; renderDetail(); } }, pickSvg(PICK_ICONS[detailed ? 'layers' : 'list']), detailed ? 'Advanced' : 'Simple'),
-      st.sides ? h('div', { class: 'tabs', title: 'Count everything, or only the rounds each player spent on one side' }, ...[[null, 'Both sides'], ['CT', 'CT side'], ['T', 'T side']].map(([v, l]) =>
+      st.sides ? h('div', { class: 'tabs', title: 'Count everything, or only the rounds each player spent on one side' }, ...[[null, 'Both sides'], ['T', 'T side'], ['CT', 'CT side']].map(([v, l]) =>
         h('button', { class: `${side === v ? 'on' : ''} ${v ? 'side-' + v : ''}`, 'aria-pressed': String(side === v), title: l, 'aria-label': l, onclick: () => { state.sbSide = v; renderDetail(); } }, sideIcon(v || 'both')))) : null,
-      h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Click a column to sort it, a player to view the match as them, the bars icon for their stats over all your demos.')),
+      h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Sort by any column · click a player to see the match as them · the bars icon opens their stats')),
     ...teams.map(t => h('div', { class: 'sb-wrap' }, table(t))),
   ];
 }
@@ -776,7 +789,7 @@ function duelsView() {
   const verdict = (k, d) => !k && !d ? 'none' : k > d ? 'good' : k < d ? 'bad' : 'even';
   const cell = (a, b) => {
     const k = n(a.steamid, b.steamid), d = n(b.steamid, a.steamid);
-    return h('td', { class: `duel ${verdict(k, d)}`, title: `${a.name} killed ${b.name} ${k}×, died to them ${d}×` }, k || d ? `${k}–${d}` : '·');
+    return h('td', { class: `duel ${verdict(k, d)}`, style: { '--d': Math.min(1, Math.abs(k - d) / 4) }, title: `${a.name} killed ${b.name} ${k}×, died to them ${d}×` }, `${k}–${d}`);
   };
   const total = a => {
     let k = 0, d = 0;
@@ -792,10 +805,10 @@ function duelsView() {
       h('span', { class: 'hint' }, `Row player's kills on the column player – deaths to them${mode === 'opening' ? ', first kill of each round only' : ''}.`)),
     h('div', { class: 'sb-wrap' }, h('table', { class: 'sb duels' },
       h('thead', {}, h('tr', {},
-        h('th', { class: 'team' }, `${teamLabel(rowsT)} ↓  vs  ${teamLabel(colsT)} →`),
+        h('th', { class: 'team lead' }, `${teamLabel(rowsT)} ↓  vs  ${teamLabel(colsT)} →`),
         ...colsT.players.map(b => h('th', { class: `duel-head ${b.steamid === me ? 'me' : ''}`, title: b.name },
           steamAvatar(b.name, b.steamid), h('span', { class: 'duel-name' }, b.name))),
-        h('th', { class: 'duel-total' }, 'Total'))),
+        h('th', { class: 'duel-total', title: 'Kills–deaths in player duels (world and self damage are not duels)' }, 'Vs opponents', h('small', {}, 'kills–deaths')))),
       h('tbody', {}, ...rowsT.players.map(a => h('tr', { class: a.steamid === me ? 'me' : '', onclick: pick(a.steamid) },
         h('td', { class: 'name', title: a.name }, steamAvatar(a.name, a.steamid, 'sm'), a.name),
         ...colsT.players.map(b => cell(a, b)),
@@ -830,7 +843,7 @@ api.onIntegrityProgress(({ id, progress, phase }) => {
   if (el) el.textContent = integProgressText();
 });
 
-const INTEG_LEVEL = { normal: ['Normal', 'ok'], unusual: ['Unusual', 'new'], very: ['Very unusual', 'bad'] };
+const INTEG_LEVEL = { normal: ['Normal', ''], unusual: ['Unusual', 'new'], very: ['Very unusual', 'bad'] };
 const MOMENT_KIND = { snap: 'Aim without mouse', track: 'Followed through a wall', wallhit: 'Hit through a wall', contact: 'Aimed where they appeared' };
 
 function integrityView() {
@@ -846,19 +859,20 @@ function integrityView() {
   const teamName = p => p.team == null ? '' : p.team === st.value.myTeam ? 'Your team' : 'Opponents';
   const table = h('table', { class: 'sb integ' },
     h('thead', {}, h('tr', {},
-      h('th', { class: 'team' }, 'Player'),
+      h('th', { class: 'team lead' }, 'Player', h('span', { class: 'team-key' }, h('i', { class: 'ally' }), 'your team', h('i', { class: 'foe' }), 'opponents')),
       h('th', { title: 'One very unusual signal, or two unusual ones, make a player very unusual' }, 'Overall'),
       ...sel.signals.map(c => h('th', { title: `${c.tip}\n\nNormal: ${c.normal}` }, c.label)),
       h('th', { title: 'Kills and headshot percentage, for context' }, 'K · HS%'))),
-    h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''}`, title: 'Show this player’s moments', onclick: () => { state.integPlayer = p.steamid; renderDetail(); } },
-      h('td', { class: 'name' }, steamAvatar(p.name, p.steamid, 'sm'), p.name, h('span', { class: 'integ-team' }, teamName(p))),
-      h('td', {}, h('span', { class: `pill ${INTEG_LEVEL[p.level][1]}` }, INTEG_LEVEL[p.level][0])),
-      ...p.signals.map(s => h('td', { class: `integ-${s.level}`, title: `Normal: ${s.normal}` }, s.display)),
+    h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''} ${p.team == null ? '' : p.team === st.value.myTeam ? 'ally' : 'foe'}`, title: 'Show this player’s moments', onclick: () => { state.integPlayer = p.steamid; renderDetail(); } },
+      h('td', { class: 'name', title: teamName(p) }, steamAvatar(p.name, p.steamid, 'sm'), p.name),
+      h('td', {}, p.level === 'normal' ? h('span', { class: 'integ-ok-text' }, 'Normal') : h('span', { class: `pill ${INTEG_LEVEL[p.level][1]}` }, INTEG_LEVEL[p.level][0])),
+      ...p.signals.map(s => { const m = /^(.*) · ([\d.]+×)$/.exec(s.display || '');
+        return h('td', { class: `integ-${s.level}`, title: `Normal: ${s.normal}` }, m ? [m[1], h('small', { class: 'integ-x' }, `${m[2]} normal`)] : s.display); }),
       h('td', {}, `${p.context.kills} · ${p.context.hsPct}%`)))));
 
   return [
     h('div', { class: 'section-head' }, h('h3', {}, 'Integrity'), h('span', { class: 'spacer' }),
-      h('span', { class: 'hint' }, 'Red flags read from the demo, not proof. Watch the moments before judging anyone. Hover a column for what it measures.')),
+      h('span', { class: 'hint' }, 'Red flags read from the demo, not proof · pick a player to see their moments below · hover a column for what it measures')),
     st.value.lineOfSight ? null : h('div', { class: 'integ-note' }, 'No map geometry for this map (or it could not be downloaded), so who could see whom comes from the in-game radar, which lags behind quick peeks. The wall-related numbers are rougher than usual.'),
     h('div', { class: 'sb-wrap' }, table),
     ...integrityMoments(sel),
@@ -873,7 +887,7 @@ function integrityMoments(p) {
     h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, m.round), h('div', { class: 'l' }, fmtDur(m.clock))),
     h('div', { class: 'integ-text' }, h('span', { class: `tag integ-${m.kind}` }, MOMENT_KIND[m.kind]), h('div', {}, m.text)),
     h('div', { class: 'integ-actions' },
-      h('button', { class: 'btn', title: 'Open the 2D replay 2 s before this moment, viewing the match as this player', onclick: () => showInReplay(p.steamid, m.tick) }, '2D replay'),
+      h('button', { class: 'btn', title: 'Open the 2D replay 2 s before this moment, viewing the match as this player', onclick: () => showInReplay(p.steamid, m.tick) }, icon(ICONS.play), '2D replay'),
       viewInCs2Button('View in CS2', 'btn', m.kind === 'snap'
         ? 'Opens the demo in CS2 in this player’s eyes 3 s before the snap and pauses right after it'
         : 'Opens the demo in CS2 in this player’s eyes 3 s before this moment',
@@ -1162,7 +1176,9 @@ function heatmapView() {
     const canvas = h('canvas', { width: 1280, height: 1280 });
     const prepared = prepareHeat(frame, pts.filter(p => p[1] === si), hs.layers);
     radarImage(frame.src).then(img => { painted[si] = { canvas, img, layers: prepared }; drawHeat(canvas, img, v, prepared, opts); });
-    return h('div', { class: 'heat-map' }, h('div', { class: `heat-side side-${side}`, title: `${side} side` }, sideIcon(side), h('span', {}, a.player.name)), zoomable(canvas, v, redraw));
+    const n = pts.filter(p => p[1] === si && hs.layers.has(HEAT_LAYERS[p[0]]?.[0])).length;
+    return h('div', { class: 'heat-map' }, h('div', { class: `heat-side side-${side}`, title: `${side} side` }, sideIcon(side), `${side} side`,
+      h('span', {}, n ? `${fmtNum(n)} event${n === 1 ? '' : 's'} shown` : 'Nothing from the picked layers on this side')), zoomable(canvas, v, redraw));
   }));
   return [h('div', { class: 'section-head' }, h('h3', {}, 'Heatmap'), h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Scroll to zoom · drag to move · double-click for the whole map')), controls, layers, maps];
 }
@@ -1532,7 +1548,7 @@ function radarView() {
     playBtn,
     h('button', { class: 'icon-btn', title: 'Next round (↓)', disabled: R.round >= data.rounds.length, onclick: () => { setRadarRound(R.round + 1); renderDetail(); } }, icon('<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2"/>')),
     timeline,
-    select(String(R.speed), [['0.25', '0.25×'], ['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }, { seg: true, icon: () => pickSvg(PICK_ICONS.speed) }),
+    select(String(R.speed), [['0.25', '0.25×'], ['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }, { seg: true, icon: false, title: 'Playback speed' }),
   );
   const options = h('div', { class: 'radar-options' },
     toggle('Shots', R.shots, v => { R.shots = v; }, 'Bullet tracers, hits and damage numbers'),
@@ -1541,8 +1557,8 @@ function radarView() {
       h('button', { class: R.floor === k ? 'on' : '', onclick: () => { R.floor = k; renderDetail(); } }, l))) : null,
     roomSelect(info, R.room, v => { R.room = v; renderDetail(); }),
     h('span', { class: 'spacer' }),
-    h('span', { class: 'hint' }, 'Click a grenade to see how it was thrown'),
-    viewInCs2Button('View in CS2', 'btn', 'Opens this demo in CS2 (through HLAE) 2 s before this moment, in the eyes of the point-of-view player',
+    h('span', { class: 'hint', title: 'Space: play/pause · ←/→: 5 s (Shift: ⅛ s) · ↑/↓: round · Esc: close grenade' }, 'Click a grenade to see its throw · Space play/pause · ←/→ 5 s · ↑/↓ round'),
+    viewInCs2Button('View from here', 'btn', 'Opens this demo in CS2 (through HLAE) 2 s before this moment, in the eyes of the point-of-view player',
       () => ({ tick: R.tick, lead: 2, name: state.analysis?.player?.name }), 'The demo is playing in the CS2 window.'),
   );
 
@@ -1571,8 +1587,7 @@ function radarView() {
   renderNadeCard();
   startRadarLoop();
   return [
-    h('div', { class: 'section-head' }, h('h3', {}, `Round ${R.round}`), h('span', { class: `pill side-${rd.winner}` }, `${rd.winner} win`), h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Space: play/pause · ←/→: 5 s (Shift: ⅛ s) · ↑/↓: round · Esc: close grenade')),
-    rounds,
+    h('div', { class: 'section-head radar-head' }, h('h3', {}, `Round ${R.round}`), h('span', { class: `pill side-${rd.winner}` }, `${rd.winner} win`), rounds),
     controls,
     options,
     h('div', { class: 'radar-layout' },
@@ -2021,6 +2036,7 @@ function drawRadar() {
   const blind = new Map();
   for (const b of rr.blinds) if (b.tick <= t && t < b.end) blind.set(b.victim, Math.max(blind.get(b.victim) || 0, (b.end - t) / (b.end - b.tick)));
   ctx.textAlign = 'center';
+  const labels = [];
   for (const p of players) {
     if (!p.s.alive) continue;
     const [x, y] = px(p.s.x, p.s.y);
@@ -2048,10 +2064,21 @@ function drawRadar() {
     }
     if (bs.carrier === p.id) bombIcon(ctx, x + 13, y + 11, 0.75);
     ctx.font = '600 20px "Segoe UI", sans-serif';
-    ctx.fillStyle = '#0a0e16cc'; const label = p.name.length > 14 ? p.name.slice(0, 13) + '…' : p.name;
-    const wdt = ctx.measureText(label).width + 10;
-    ctx.fillRect(x - wdt / 2, y - 42, wdt, 24);
-    ctx.fillStyle = p.id === pov ? '#fff' : color; ctx.fillText(label, x, y - 23);
+    const label = p.name.length > 14 ? p.name.slice(0, 13) + '…' : p.name;
+    labels.push({ x, y, label, w: ctx.measureText(label).width + 10, color: p.id === pov ? '#fff' : color, alpha: ctx.globalAlpha, pov: p.id === pov });
+  }
+  // Name tags go on after every marker: players standing together (spawn, a stack) get their tags
+  // stacked upward with a thin leader line instead of printed on top of each other.
+  ctx.font = '600 20px "Segoe UI", sans-serif';
+  const placed = [];
+  for (const l of labels.sort((a, b) => b.pov - a.pov || b.y - a.y)) {
+    let top = l.y - 42;
+    for (let i = 0; i < 6 && placed.some(r => l.x - l.w / 2 < r.x + r.w && l.x + l.w / 2 > r.x && top < r.y + 24 && top + 24 > r.y); i++) top -= 26;
+    placed.push({ x: l.x - l.w / 2, y: top, w: l.w });
+    ctx.globalAlpha = l.alpha;
+    if (top < l.y - 42) { ctx.strokeStyle = '#0a0e16aa'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(l.x, l.y - 12); ctx.lineTo(l.x, top + 24); ctx.stroke(); }
+    ctx.fillStyle = '#0a0e16cc'; ctx.fillRect(l.x - l.w / 2, top, l.w, 24);
+    ctx.fillStyle = l.color; ctx.fillText(l.label, l.x, top + 19);
   }
   ctx.globalAlpha = 1;
 
@@ -2121,7 +2148,7 @@ function drawRadar() {
           h('span', { class: 'rp-hp' }, p.s.alive ? p.s.hp : '✕')),
         h('div', { class: 'rp-bar' }, h('div', { style: { width: `${p.s.alive ? p.s.hp : 0}%`, background: ct ? 'var(--ct)' : 'var(--t)' } })),
         h('div', { class: 'rp-w' }, !p.s.alive ? '' : bs.planting?.player === p.id ? 'Planting…' : bs.defusing?.player === p.id ? 'Defusing…' : p.s.weapon)));
-    els.teams.replaceChildren(h('div', { class: 'rt side-CT' }, 'CT'), ...side(true), h('div', { class: 'rt side-T' }, 'T'), ...side(false));
+    els.teams.replaceChildren(h('div', { class: 'rt side-CT' }, sideTag('CT', 'CT')), ...side(true), h('div', { class: 'rt side-T' }, sideTag('T', 'T')), ...side(false));
     if (R.list === 'utility') {
       els.feed.replaceChildren(...(rr.nades.length ? rr.nades.map(n => {
         const tick = n.throw?.tick ?? n.t0;
@@ -2337,6 +2364,8 @@ function histogram(items, avg, recent, fmt) {
   const hits = bins.map((b, i) => b.length ? `<rect class="hit" data-b="${i}" x="${(i * bw).toFixed(1)}" width="${bw.toFixed(1)}" y="0" height="${H}"/>` : '').join('');
   const mark = (v, cls) => (v == null ? '' : `<line x1="${x(v)}" x2="${x(v)}" y1="0" y2="${H}" class="${cls}"/>`);
   const el = h('div', { class: 'tile-chart', html: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="histo">${bars}<line x1="0" x2="${W}" y1="${H - 1}" y2="${H - 1}" class="base"/>${mark(avg, 'avg')}${mark(recent, 'rec')}${hits}</svg>` });
+  // The scale: where the bars start and end (the 3rd and 97th percentile), so the shape has numbers.
+  el.append(h('div', { class: 'histo-range', 'aria-hidden': 'true' }, h('span', {}, fmt(lo)), h('span', {}, fmt(hi))));
   el.addEventListener('mouseover', e => { const b = e.target.dataset?.b; if (b !== undefined) showHistPop(el, +b, n, bins[+b], fmt); });
   el.addEventListener('mouseleave', hideHistPopSoon);
   return el;
@@ -2470,7 +2499,7 @@ function scorePanel(t, last10, list, layout = OverviewLayout.normalize(state.set
       level ? h('div', { class: 'sp-level' }, level) : null,
       h('div', { class: 'bar-track sp-bar' }, h('div', { class: 'bar-fill', style: { width: `${clamp((r ?? 0) / 2, 0, 1) * 100}%` } })),
       list.length > 10 && last10.rating != null && r != null ? h('div', { class: `sp-trend ${last10.rating > r + 0.005 ? 'up' : last10.rating < r - 0.005 ? 'down' : ''}` },
-        `${last10.rating > r + 0.005 ? '▲' : last10.rating < r - 0.005 ? '▼' : '='} ${last10.rating.toFixed(2)} over the last 10 matches`) : null,
+        `${last10.rating > r + 0.005 ? '▲' : last10.rating < r - 0.005 ? '▼' : '='} last 10: ${last10.rating.toFixed(2)}`) : null,
     ),
     rows.length || editing ? h('div', { class: 'sp-label' }, 'Breakdown') : null,
     editing ? OverviewEditor.chips('ratingStat', layout.ratingStats) : null,
@@ -2478,7 +2507,7 @@ function scorePanel(t, last10, list, layout = OverviewLayout.normalize(state.set
     editing && !rows.length ? h('div', { class: 'sp-breakdown-empty muted-note' }, 'No breakdown stats. Add them with the + buttons above.') : null,
     h('div', { class: 'sp-label' }, 'Form'),
     h('div', { class: 'form' }, ...last.map(m => h('button', { class: `form-m r-${m.result}`, onclick: () => openMatch(m),
-      title: `${mapName(m.map)} · ${m.score[0]}:${m.score[1]} · ${fmtDate(m.date)}${m.rating != null ? `\nRating ${m.rating.toFixed(2)}` : ''}` }, m.result))),
+      title: `${mapName(m.map)} · ${m.score[0]}:${m.score[1]} · ${fmtDate(m.date)}${m.rating != null ? `\nRating ${m.rating.toFixed(2)}` : ''}` }, m.result === 'T' ? 'D' : m.result))), // a draw is D, as on Maps (T reads as the T side)
   );
 }
 
@@ -2562,7 +2591,8 @@ function renderOverview() {
     rating: () => scorePanel(t, last10, list, layout),
     stats: () => h('div', { class: 'ov-stats' },
       h('div', { class: 'sec' }, h('h3', {}, 'Stats overview'),
-        h('span', { class: 'hint legend-inline' }, h('i', { class: 'lg-avg' }), 'selection', list.length > 10 ? [h('i', { class: 'lg-rec' }), 'last 10'] : null),
+        h('span', { class: 'hint legend-inline' }, h('i', { class: 'lg-avg' }), 'selection', list.length > 10 ? [h('i', { class: 'lg-rec' }), 'last 10'] : null,
+          h('b', { class: 'lg-dot good' }), 'better than a typical player', h('b', { class: 'lg-dot mid' }), 'typical', h('b', { class: 'lg-dot bad' }), 'worse'),
         editing ? OverviewEditor.chips('stat', layout.stats) : null),
       statTiles.length ? tilesGrid()
         : h('div', { class: 'muted-note' }, editing ? 'Every stat is hidden. Add tiles back with the + buttons above.' : 'No stats selected. Choose your tiles in Customize overview.')),
@@ -2660,12 +2690,13 @@ function trendCard(list) {
   const draw = () => {
     const W = Math.max(200, el.clientWidth), H = Math.max(70, el.clientHeight), padL = 34, padR = 12, padT = 12, padB = 22;
     const vals = ms.map(m => m.rating);
-    const lo = Math.min(0.4, Math.floor(Math.min(...vals) * 5) / 5), hi = Math.max(1.6, Math.ceil(Math.max(...vals) * 5) / 5);
+    const rawLo = Math.min(0.4, Math.min(...vals)), rawHi = Math.max(1.6, Math.max(...vals));
+    const step = Math.max(.5, Math.ceil((rawHi - rawLo) / Math.max(1, (H - padT - padB) / 18) * 2) / 2);
+    const lo = Math.floor(rawLo / step) * step, hi = Math.ceil(rawHi / step) * step; // grid snapped to the data so no point sits past the last line
     const x = i => padL + (W - padL - padR) * (ms.length === 1 ? 0.5 : i / (ms.length - 1));
     const y = v => padT + (H - padT - padB) * (1 - (v - lo) / (hi - lo));
     const avg = vals.map((_, i) => { const s = vals.slice(Math.max(0, i - 4), i + 1); return s.reduce((a, b) => a + b, 0) / s.length; });
     const grid = [];
-    const step = Math.max(.5, Math.ceil((hi - lo) / Math.max(1, (H - padT - padB) / 18) * 2) / 2);
     for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) grid.push(`<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" class="${Math.abs(v - 1) < 1e-9 ? 'g-one' : 'g'}"/><text x="${padL - 6}" y="${y(v) + 4}" class="g-t">${v.toFixed(1)}</text>`);
     if (Math.abs(1 / step - Math.round(1 / step)) > 1e-9) grid.push(`<line x1="${padL}" x2="${W - padR}" y1="${y(1)}" y2="${y(1)}" class="g-one"/>`);
     const line = pts => smoothRatingPath(pts.map((v, i) => [x(i), y(v)]));
@@ -2673,7 +2704,7 @@ function trendCard(list) {
     const area = `${ratingPath}L${x(vals.length - 1)},${H - padB}L${x(0)},${H - padB}Z`;
     const svg = `<svg viewBox="0 0 ${W} ${H}" class="trend-svg"><defs><linearGradient id="tFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" class="t-stop-a"/><stop offset="1" class="t-stop-b"/></linearGradient></defs>${grid.join('')}
       <path d="${area}" class="t-area"/><path d="${ratingPath}" class="t-line"/><path d="${line(avg)}" class="t-avg"/>
-      ${ms.map((m, i) => `<circle cx="${x(i)}" cy="${y(m.rating)}" r="4.5" class="t-pt r-${m.result}" data-i="${i}"><title>${mapName(m.map).replace(/[<&]/g, '')} ${m.score[0]}:${m.score[1]} · rating ${m.rating.toFixed(2)} · ${new Date(m.date).toLocaleDateString()}</title></circle>`).join('')}</svg>`;
+      ${ms.map((m, i) => `<circle cx="${x(i)}" cy="${y(m.rating)}" r="4.5" class="t-pt r-${m.result}" data-i="${i}"><title>${mapName(m.map).replace(/[<&]/g, '')} ${m.score[0]}:${m.score[1]} · rating ${m.rating.toFixed(2)} · ${fmtShort(m.date)}</title></circle>`).join('')}</svg>`;
     el.innerHTML = svg;
   };
   const observer = new ResizeObserver(() => {
@@ -2710,7 +2741,7 @@ function recentCard(list) {
   const last = list.slice(0, 8);
   return card('Last matches', h('div', { class: 'recent' }, ...last.map(m => h('button', { class: `recent-m r-${m.result}`, onclick: () => openMatch(m), title: `${fmtDate(m.date)} · open the scoreboard` },
     mapThumb(m.map),
-    h('span', { class: 'recent-t' }, h('b', {}, mapName(m.map)), h('small', {}, new Date(m.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))),
+    h('span', { class: 'recent-t' }, h('b', {}, mapName(m.map)), h('small', {}, new Date(m.date).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short' }))),
     h('span', { class: `recent-sc score-${m.result === 'W' ? 'w' : m.result === 'L' ? 'l' : 'd'}` }, `${m.score[0]}:${m.score[1]}`),
     h('span', { class: 'recent-kd' }, `${m.kills}–${m.deaths}`),
     h('span', { class: `rtg ${ratingClass(m.rating)}` }, m.rating == null ? '—' : m.rating.toFixed(2))))),
@@ -2764,7 +2795,7 @@ async function renderPlayerSearch() {
   ps.rows = rows.slice(0, 8);
   ps.id = id;
   ps.sel = clamp(ps.sel, 0, Math.max(0, ps.rows.length - 1));
-  const short = ms => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  const short = ms => new Date(ms).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric' });
   const body = ps.rows.map((p, i) => h('button', {
     class: `ps-row ${i === ps.sel ? 'on' : ''}`, title: `SteamID ${p.steamid}${p.names.length > 1 ? `\nAlso played as: ${p.names.slice(1).join(', ')}` : ''}`,
     onmousedown: e => { e.preventDefault(); choosePlayer(p.steamid); },
@@ -2774,9 +2805,9 @@ async function renderPlayerSearch() {
   h('span', { class: 'ps-main' },
     h('span', { class: 'ps-name' }, h('b', {}, p.name || p.steamid), p.steamid === idx.self ? h('span', { class: 'ps-you' }, 'you') : null,
       p.names.length > 1 ? h('span', { class: 'ps-aka' }, `aka ${p.names.slice(1, 3).join(', ')}${p.names.length > 3 ? '…' : ''}`) : null),
-    h('span', { class: 'ps-sub' }, [`${p.matches} match${p.matches === 1 ? '' : 'es'}`, p.with ? `${p.with} with you` : null, p.against ? `${p.against} against you` : null,
+    h('span', { class: 'ps-sub' }, [p.with === p.matches ? `${p.matches} match${p.matches === 1 ? '' : 'es'} with you` : p.against === p.matches ? `${p.matches} match${p.matches === 1 ? '' : 'es'} against you` : `${p.matches} match${p.matches === 1 ? '' : 'es'}`, p.with && p.with !== p.matches ? `${p.with} with you` : null, p.against && p.against !== p.matches ? `${p.against} against you` : null,
       `last ${short(p.last)}`].filter(Boolean).join(' · ')))));
-  const title = q ? `${rows.length} player${rows.length === 1 ? '' : 's'}${rows.length > ps.rows.length ? `, showing ${ps.rows.length}` : ''}` : 'Players you met most';
+  const title = q ? `${rows.length} player${rows.length === 1 ? '' : 's'}${rows.length > ps.rows.length ? ` · showing ${ps.rows.length}, type more to narrow` : ''}` : 'Players you met most';
   ps.list.replaceChildren(
     h('div', { class: 'ps-head' }, title),
     ...(body.length ? body : [h('div', { class: 'ps-note' }, id
@@ -2852,10 +2883,10 @@ function renderMaps() {
             mapEmblem(e.map, 'map-card-icon'),
             h('div', { class: 'map-card-t' },
               h('div', { class: 'map-card-name' }, mapName(e.map)),
-              h('div', { class: 'map-card-sub' }, `${e.demos} match${e.demos === 1 ? '' : 'es'} · last ${new Date(e.last).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`))),
+              h('div', { class: 'map-card-sub' }, `${e.demos} demo${e.demos === 1 ? '' : 's'}${me && me.played !== e.demos ? ` · ${me.played} played` : ''} · last ${new Date(e.last).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short' })}`))),
           me ? h('div', { class: 'map-card-rec' },
-            h('span', {}, `${me.won}W – ${me.lost}L`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`),
-            h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))) : h('div', { class: 'map-card-rec muted' }, state.who ? 'This player did not play here' : 'You did not play here'),
+            h('span', {}, `${me.won} W · ${me.lost} L${me.played > me.won + me.lost ? ` · ${me.played - me.won - me.lost} D` : ''}`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`),
+            h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))) : h('div', { class: 'map-card-rec muted' }, state.who ? 'This player is in none of these demos' : 'You are in none of these demos'),
           info ? null : h('div', { class: 'map-card-sub' }, 'No radar image for this map')));
     })) : h('div', { class: 'empty' }, pending ? spinner(28) : icon(ICONS.demo, 'class="big"'), h('h2', {}, pending ? 'Reading your demos…' : 'No maps yet'), h('div', {}, 'Maps appear once their demos have been read.')),
   ));
@@ -2942,7 +2973,7 @@ function mapDetail() {
     ]),
     h('div', { class: 'sub-head' }, `Matches (${me.won}W – ${me.lost}L${me.tied ? ` – ${me.tied}T` : ''})`),
     h('div', { class: 'map-matches' }, ...mine.slice(0, 8).map(m => h('button', { class: `mm r-${m.result}`, onclick: () => openMatch(m) },
-      h('span', { class: 'rdot' }), h('span', { class: 'mm-date' }, new Date(m.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })),
+      h('span', { class: 'rdot' }), h('span', { class: 'mm-date' }, new Date(m.date).toLocaleDateString(UI_LOCALE, { day: '2-digit', month: 'short' })),
       h('b', {}, `${m.score[0]}:${m.score[1]}`), h('span', { class: 'mm-kd' }, `${m.kills}–${m.deaths}`),
       h('span', { class: `rtg ${m.rating == null ? '' : ratingClass(m.rating)}` }, m.rating == null ? '' : m.rating.toFixed(2))))),
   ], { cls: 'map-stats' }) : null;
@@ -3012,7 +3043,7 @@ function renderUtility() {
     ...maps.map(m => chip(u.map === m, [mapEmblem(m, 'ut-chip-emblem'), `${mapName(m)} (${counts[m]})`], () => { u.map = m; u.sel = null; resetZoom(u.view); renderUtility(); }, { style: { '--c': mapColor(m) } }))) : null;
   const head = h('div', { class: 'page-head ut-head' },
     onMap ? h('button', { class: 'link-btn', onclick: () => { u.map = 'all'; u.sel = null; renderUtility(); } }, '← All maps')
-      : h('button', { class: 'link-btn', onclick: () => { state.tr.drill = null; showView('training'); } }, '← Training'),
+      : h('button', { class: 'btn ghost', onclick: () => { state.tr.drill = null; showView('training'); } }, icon('<path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'), 'Training'),
     onMap ? h('h2', { class: 'ut-title' }, mapEmblem(u.map, 'ut-title-emblem'), mapName(u.map), h('span', { class: 'ut-title-k' }, 'lineups')) : h('h2', {}, 'Utility'),
     mapChips,
     h('span', { class: 'spacer' }),
@@ -3048,7 +3079,9 @@ function renderUtility() {
 
   function utBody() {
     const list = utFiltered();
-    if (u.map === 'all' && !u.search) return [h('div', { class: 'ut-map-grid' }, ...maps.map(m => utMapCard(m, u.items.filter(x => x.map === m))))];
+    if (u.map === 'all' && !u.search) return [h('div', { class: 'ut-map-grid' }, ...maps.map(m => utMapCard(m, u.items.filter(x => x.map === m))),
+      // A quiet way to start another map, so a short list doesn't end in an empty page
+      h('button', { class: 'ut-add-card', onclick: () => editLineup() }, icon(PLUS), h('b', {}, 'New lineup'), h('span', {}, 'on this or another map')))];
     if (u.map === 'all') {
       if (!list.length) return [h('div', { class: 'muted-note' }, 'No lineup matches this search.')];
       const byMap = maps.map(m => [m, list.filter(x => x.map === m)]).filter(([, l]) => l.length);
@@ -3074,7 +3107,8 @@ function utMapCard(m, list) {
     h('div', { class: 'map-card-body' },
       h('div', { class: 'map-card-title' }, mapEmblem(m, 'map-card-icon'),
         h('div', { class: 'map-card-t' }, h('div', { class: 'map-card-name' }, mapName(m)),
-          h('div', { class: 'map-card-sub' }, [`${list.length} lineup${list.length === 1 ? '' : 's'}`, side('T') ? `${side('T')} T` : '', side('CT') ? `${side('CT')} CT` : '', fav ? `${fav} starred` : ''].filter(Boolean).join(' · ')))),
+          h('div', { class: 'map-card-sub' }, ...[`${list.length} lineup${list.length === 1 ? '' : 's'}`, side('T') ? sideTag('T', `${side('T')}`) : null, side('CT') ? sideTag('CT', `${side('CT')}`) : null, fav ? `${fav} starred` : null]
+            .filter(Boolean).flatMap((x, i) => i ? [' · ', x] : [x])))),
       h('div', { class: 'ut-types' }, ...UT_TYPES.filter(([k]) => n(k)).map(([k, l]) =>
         h('span', { class: 'ut-type', style: { '--c': NADE_COLOR[k] } }, h('span', { class: 'ut-dot' }), h('b', {}, n(k)), n(k) === 1 ? l : UT_PLURAL[k])))));
 }
@@ -3086,7 +3120,7 @@ function utCard(x, onclick) {
       x.images.length > 1 ? h('span', { class: 'ut-count' }, `${x.images.length} pics`) : null),
     h('div', { class: 'ut-card-body' },
       h('div', { class: 'ut-name' }, h('span', { class: 'ut-dot' }), h('span', { class: 'ut-name-t' }, x.name), x.fav ? icon(STAR, 'class="ut-fav-ic"') : null),
-      h('div', { class: 'ut-sub' }, x.side !== 'both' ? h('span', { class: `side-${x.side}` }, x.side) : null, x.side !== 'both' ? ' · ' : '', utLabel(UT_TYPES, x.type), utMoved(x) ? ` · ${utMoved(x)}` : ''),
+      h('div', { class: 'ut-sub' }, x.side !== 'both' ? sideTag(x.side) : null, x.side !== 'both' ? ' · ' : '', utLabel(UT_TYPES, x.type), utMoved(x) ? ` · ${utMoved(x)}` : ''),
       x.aim ? h('div', { class: 'ut-aim' }, x.aim) : null));
 }
 
@@ -3324,7 +3358,7 @@ function utDetail(x) {
       h('span', { class: 'nc-dot' }),
       h('div', { class: 'nc-title' },
         h('div', { class: 'nc-type' }, x.name),
-        h('div', { class: 'nc-who' }, utLabel(UT_TYPES, x.type), ' · ', mapName(x.map), x.side !== 'both' ? [' · ', h('span', { class: `side-${x.side}` }, x.side)] : ' · both sides')),
+        h('div', { class: 'nc-who' }, utLabel(UT_TYPES, x.type), ' · ', mapName(x.map), x.side !== 'both' ? [' · ', sideTag(x.side)] : ' · both sides')),
       h('button', { class: `nc-close ut-star ${x.fav ? 'on' : ''}`, title: x.fav ? 'Unpin' : 'Pin to the top', onclick: () => patch({ fav: !x.fav }) }, icon(STAR)),
       h('button', { class: 'nc-close', title: 'Back to the list (Esc)', onclick: () => { u.sel = null; renderUtility(); } }, icon(ICONS.x))),
     x.images.length ? h('div', { class: 'ut-shots' },
@@ -3527,7 +3561,7 @@ function editLineup(seed = {}) {
         const b = e.currentTarget; b.disabled = true;
         const name = await guard(() => api.utilityAddImage({ file: s.file }));
         if (name) { d.images.push(name); paintShots(); b.classList.add('added'); } else b.disabled = false;
-      } }, h('img', { src: api.fileUrl(s.thumb), loading: 'lazy' }), h('span', {}, new Date(s.time).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))))
+      } }, h('img', { src: api.fileUrl(s.thumb), loading: 'lazy' }), h('span', {}, new Date(s.time).toLocaleString(UI_LOCALE, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))))
       : [h('div', { class: 'muted-note' }, 'No CS2 screenshots found. In game, press F12 (Steam\'s screenshot key) to take one.')]));
   };
   const onPaste = e => {
@@ -3611,9 +3645,9 @@ function highlightCard(hl) {
   }, icon(ICONS.check), done.length > 1 ? `Clipped ×${done.length}` : 'Already clipped') : null;
   return h('div', { class: `hl ${sel ? 'selected' : ''} ${done.length ? 'is-clipped' : ''}`, onclick: () => { sel ? state.selected.delete(hl.id) : state.selected.add(hl.id); renderDetail(); } },
     h('div', { class: 'check' }, icon(ICONS.check)),
-    h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, hl.round), h('div', { class: `l side-${hl.side}` }, hl.side)),
+    h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, hl.round), h('div', { class: 'l' }, sideTag(hl.side))),
     h('div', {},
-      h('div', { class: 'hl-title' }, ...hl.tags.map(t => h('span', { class: `tag ${t.type}` }, t.label)), clipped),
+      h('div', { class: 'hl-title' }, ...hl.tags.filter(t => t.type !== 'special' || !hl.kills.some(k => k.flags.includes(t.label))).map(t => h('span', { class: `tag ${t.type}`, title: tagTitle(t, hl.kills.length) }, tagLabel(t, hl.kills.length))), clipped), // a special already on its kill line is not repeated
       h('div', { class: 'kills' }, ...hl.kills.map(k => h('div', { class: 'kill' },
         h('span', { class: 'w' }, k.weapon),
         k.headshot ? h('span', { class: 'hs' }, 'HS') : null,
@@ -3623,9 +3657,9 @@ function highlightCard(hl) {
     ),
     h('div', { class: 'hl-right' },
       h('div', { class: 'stars' }, stars(hl.score)),
-      h('div', {}, `${Math.round(hl.duration)}s clip`),
+      h('div', {}, `${Math.round(hl.duration)}s long`),
       hl.segments.length > 1 ? h('div', {}, `${hl.segments.length} cuts`) : null,
-      h('div', {}, `at ${fmtDur(hl.time)}`),
+      h('div', {}, `starts ${fmtDur(hl.time)}`),
     ),
   );
 }
@@ -3951,8 +3985,8 @@ function clipDayLabel(day, now = new Date()) {
   const dayNumber = d => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000;
   const date = new Date(day), age = dayNumber(now) - dayNumber(date);
   const label = age === 0 ? 'Today' : age === 1 ? 'Yesterday'
-    : age > 1 && age < 7 ? date.toLocaleDateString(undefined, { weekday: 'long' })
-      : date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', ...(date.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
+    : age > 1 && age < 7 ? date.toLocaleDateString(UI_LOCALE, { weekday: 'long', day: 'numeric', month: 'short' })
+      : date.toLocaleDateString(UI_LOCALE, { weekday: 'long', day: 'numeric', month: 'long', ...(date.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
@@ -3981,13 +4015,14 @@ function renderClips() {
   const starPicker = h('div', { class: `clip-stars-pick ${sf ? 'set' : ''}` }, ...[5, 4, 3, 2, 1].map(n =>
     h('button', { class: n <= sf ? 'on' : '', title: sf === n ? 'Show all ratings' : `${n}-star clips (${perStar[n]})`,
       onclick: () => { state.starFilter = sf === n ? 0 : n; renderClips(); } }, '★')));
+  const starGroup = h('div', { class: 'clip-rating' }, h('span', { class: 'clip-rating-k' }, sf ? `Only ${sf}★` : 'Filter by rating'), starPicker);
 
   const head = h('div', { class: 'page-head' },
     h('div', { class: 'clips-heading' }, h('h2', {}, 'Clips'),
       h('span', { class: 'clips-stats' }, `${items.length} clip${items.length === 1 ? '' : 's'} · ${fmtDur(items.reduce((s, c) => s + (c.duration || 0), 0))}`)),
     h('div', { class: 'tabs' }, ...[['all', 'All'], ['clip', 'Clips'], ['montage', 'Montages'], ['share', 'Shared']].map(([k, l]) =>
       h('button', { class: state.clipFilter === k ? 'on' : '', onclick: () => { state.clipFilter = k; renderClips(); } }, l))),
-    weaponsBtn, starPicker,
+    weaponsBtn, starGroup,
     h('span', { class: 'spacer' }),
     galleryHeadButton(),
     h('button', { class: 'btn clips-folder', title: 'Open folder', onclick: () => api.open(state.env.outputDir) }, icon(ICONS.folder), h('span', {}, 'Open folder')),
@@ -4016,7 +4051,7 @@ function renderClips() {
         h('div', { class: 'clip-day-head' },
           h('h3', {}, clipDayLabel(day, now)),
           h('span', { class: 'clips-stats' }, `${list.length} clip${list.length === 1 ? '' : 's'} · ${fmtDur(list.reduce((s, c) => s + (c.duration || 0), 0))}`),
-          ...maps.map(m => h('span', { class: 'clip-day-map' }, h('i', { style: { background: mapColor(m) } }), mapName(m))),
+          ...maps.map(m => h('span', { class: 'clip-day-map' }, mapEmblem(m, 'clip-emblem'), mapName(m))),
           h('span', { class: 'clip-day-rule' }),
           clips.length ? h('button', { class: 'link-btn clip-day-select', onclick: () => {
             const ids = new Set(clips.map(c => c.id));
@@ -4027,7 +4062,7 @@ function renderClips() {
         h('div', { class: 'grid' }, ...list.map(clipCard)));
     }));
   }
-  const hint = state.clips.some(c => c.kind === 'clip') ? h('div', { class: 'clips-hint' }, 'Click clips to select them for a montage — they will be joined in the order you click them.') : null;
+  const hint = state.clips.some(c => c.kind === 'clip') ? h('div', { class: 'clips-hint' }, 'Click clips to select them for a montage · joined in the order you click them') : null;
   view.replaceChildren(h('div', { class: `page clips-page ${state.montageSel.length ? 'has-montage' : ''}` }, head, hint, body), montageBar());
 }
 
@@ -4068,11 +4103,11 @@ function clipCard(c) {
   h('div', { class: 'clip-body' },
     h('div', { class: 'clip-top' },
       h('div', { class: 'clip-title', title: c.title }, c.title),
-      rating ? h('span', { class: 'clip-score', title: `Score ${Math.round(c.score)}` }, h('b', {}, '★'.repeat(rating)), '★'.repeat(5 - rating)) : null),
+      rating ? h('span', { class: 'clip-score', title: `Score ${Math.round(c.score)}` }, ...starRow(rating)) : null),
     h('div', { class: 'clip-meta' },
-      c.kind === 'clip' ? h('i', { class: 'clip-dot' }) : null,
+      c.kind === 'clip' && c.map ? mapEmblem(c.map, 'clip-emblem') : null,
       h('span', {}, c.kind === 'share' ? shareBadge(c) : c.kind === 'montage' ? `${c.tags?.[0] || 'Montage'} · ${(c.map || '').split(',').map(m => mapName(m.trim())).join(', ')}` : `${mapName(c.map)} · Round ${c.round ?? '?'}`),
-      ms ? h('time', { datetime: new Date(ms).toISOString(), title: fmtDate(ms) }, new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })) : null),
+      ms ? h('time', { datetime: new Date(ms).toISOString(), title: fmtDate(ms) }, new Date(ms).toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' })) : null),
     c.kind === 'clip' && weapons.length ? h('div', { class: 'clip-weapons' }, ...weapons.map((w, i) => h('span', { class: i ? '' : 'main' }, w))) : null,
   ));
   return card;
@@ -4194,19 +4229,25 @@ function sideIcon(side) {
   if (side === 'both' || side === 'all') return h('span', { class: 'pick-sides', 'aria-hidden': 'true' }, sideIcon('T'), sideIcon('CT'));
   return h('img', { class: 'pick-side', src: `img/team-${String(side).toLowerCase()}.png`, alt: '', 'aria-hidden': 'true' });
 }
+// A team side shown as its icon (never as "T"/"CT" text); the name is in the tooltip.
+function sideTag(side, ...text) {
+  return h('span', { class: `side-tag side-${side}`, title: side === 'T' ? 'Terrorist side' : 'Counter-Terrorist side' }, ...text, sideIcon(side));
+}
 function pickMap(m) { return !m || m === 'all' ? pickSvg(PICK_ICONS.map) : mapEmblem(m, 'pick-emblem'); }
 function pickWeapon(code) { return code === 'all' ? pickSvg(PICK_ICONS.grid) : h('span', { class: 'pick-wpn', 'aria-hidden': 'true' }, weaponIcon(code)); }
 function select(value, options, onchange, opts = {}) {
   const same = (a, b) => String(a) === String(b);
-  const image = ([v, , factory]) => factory ? factory() : opts.icon ? opts.icon(v) : pickSvg(PICK_ICONS.grid);
+  const seg = opts.seg === true || (opts.seg !== false && options.length <= 4 && options.every(([, l]) => String(l).length <= 18));
+  // Segments show an icon only when each option has its own; the same glyph on every option says nothing
+  const image = ([v, , factory]) => factory ? factory() : opts.icon === false ? null : opts.icon ? opts.icon(v) : seg ? null : pickSvg(PICK_ICONS.grid);
   const prefix = () => opts.label ? h('span', { class: 'pick-prefix' }, opts.label) : null;
-  if (opts.seg === true || (opts.seg !== false && options.length <= 4 && options.every(([, l]) => String(l).length <= 18))) {
+  if (seg) {
     const root = h('div', { class: `tabs pick-seg ${opts.cls || ''}`, title: opts.title, role: 'group', 'aria-label': opts.label || opts.title });
     const buttons = options.map(o => h('button', { type: 'button', class: `${same(o[0], value) ? 'on' : ''} ${['T', 'CT'].includes(o[0]) ? 'side-' + o[0] : ''}`,
-      'aria-pressed': String(same(o[0], value)), onclick: () => {
+      'aria-pressed': String(same(o[0], value)), ...(opts.iconOnly ? { title: o[1], 'aria-label': o[1] } : {}), onclick: () => {
         buttons.forEach((b, i) => { const on = same(options[i][0], o[0]); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
         onchange(o[0]);
-      } }, image(o), h('span', { class: 'pick-label' }, o[1])));
+      } }, image(o), opts.iconOnly ? null : h('span', { class: 'pick-label' }, o[1])));
     root.append(...[prefix(), ...buttons].filter(Boolean));
     return root;
   }
@@ -4232,7 +4273,7 @@ state.hlaeUpdate = null; // { installed, latest, updateAvailable, ... } once che
 function hlaeUpdateCtl() {
   const u = state.hlaeUpdate;
   const status = h('span', { class: 'hint' },
-    !u ? 'Not checked yet' : u.updateAvailable ? `HLAE ${u.latest} is available (${new Date(u.published).toLocaleDateString()})` : `Up to date (latest is ${u.latest})`);
+    !u ? 'Not checked yet' : u.updateAvailable ? `HLAE ${u.latest} is available (${new Date(u.published).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric' })})` : `Up to date (latest is ${u.latest})`);
   const checkBtn = h('button', { class: 'btn', onclick: async () => {
     status.textContent = 'Checking…';
     try { state.hlaeUpdate = await api.hlaeCheck(); } catch (e) { status.textContent = '✗ ' + e.message; return; }
@@ -4396,7 +4437,6 @@ function themeCard() {
   });
   const maps = Object.keys(MAPS);
   return h('div', { class: 'card' },
-    h('h3', {}, 'Choose a theme'),
     h('div', { class: 'desc' }, 'Colors and a backdrop that moves as you scroll. Map themes use the map’s screenshots and team themes the team’s logo, both from your CS2 install.'),
     ...group('DemoLab', THEMES.filter(t => t.group === 'DemoLab')),
     ...group('Teams', THEMES.filter(t => t.group === 'Teams')),
@@ -4441,15 +4481,15 @@ function renderSettings() {
     h('div', { class: 'card' },
       h('h3', {}, 'Highlights'),
       h('div', { class: 'desc' }, 'What counts as a highlight. Each round becomes at most one clip.'),
-      row('Multi-kill from', select(String(d.minMultiKill), [['2', '2 kills'], ['3', '3 kills (3K)'], ['4', '4 kills (4K)'], ['5', 'Aces only']], v => save({ detection: { minMultiKill: +v } }, true), { seg: true, icon: () => pickSvg(PICK_ICONS.trophy) })),
+      row('Multi-kill from', select(String(d.minMultiKill), [['2', '2 kills'], ['3', '3 kills (3K)'], ['4', '4 kills (4K)'], ['5', 'Aces only']], v => save({ detection: { minMultiKill: +v } }, true), { seg: true, icon: false })),
       row('Clutches', h('div', { class: 'ctl' },
         toggle('Include clutches', d.clutch, v => save({ detection: { clutch: v } }, true)),
-        select(String(d.minClutch), [['1', 'from 1v1'], ['2', 'from 1v2'], ['3', 'from 1v3'], ['4', 'from 1v4'], ['5', '1v5 only']], v => save({ detection: { minClutch: +v } }, true), { seg: true, icon: () => pickSvg(PICK_ICONS.swords) }))),
+        select(String(d.minClutch), [['1', 'from 1v1'], ['2', 'from 1v2'], ['3', 'from 1v3'], ['4', 'from 1v4'], ['5', '1v5 only']], v => save({ detection: { minClutch: +v } }, true), { seg: true, icon: false }))),
       row('Special kills', h('div', { class: 'chips' }, ...Object.entries(SPECIAL_LABELS).map(([k, l]) => toggle(l, d.specials[k], v => save({ detection: { specials: { [k]: v } } }, true))))),
       row('Seconds before / after', h('div', { class: 'ctl' },
-        num(t.padBefore, v => save({ timing: { padBefore: v } }, true), { max: 15, step: 0.5 }), ' / ',
-        num(t.padAfter, v => save({ timing: { padAfter: v } }, true), { max: 15, step: 0.5 })), 'Footage kept around each kill.'),
-      row('Cut gaps longer than', h('div', { class: 'ctl' }, num(t.mergeGap, v => save({ timing: { mergeGap: v } }, true), { max: 120, step: 1 }), 'seconds'), 'Long waits between kills are cut out. Set high (e.g. 60) to keep full sequences.'),
+        h('span', { class: 'ctl-k' }, 'Before'), num(t.padBefore, v => save({ timing: { padBefore: v } }, true), { max: 15, step: 0.5 }), h('span', { class: 'unit' }, 's'),
+        h('span', { class: 'ctl-k' }, 'After'), num(t.padAfter, v => save({ timing: { padAfter: v } }, true), { max: 15, step: 0.5 }), h('span', { class: 'unit' }, 's')), 'Footage kept around each kill.'),
+      row('Cut gaps longer than', h('div', { class: 'ctl' }, num(t.mergeGap, v => save({ timing: { mergeGap: v } }, true), { max: 120, step: 1 }), h('span', { class: 'unit' }, 's')), 'Long waits between kills are cut out. Set high (e.g. 60) to keep full sequences.'),
     ),
 
     h('div', { class: 'card' },
@@ -4496,7 +4536,7 @@ function renderSettings() {
       row('Save clips to', h('div', { class: 'ctl' }, h('span', { class: 'mono', style: { flex: 1 } }, e.outputDir),
         h('button', { class: 'btn', onclick: async () => { const p = await api.pickFolder('Where to save clips'); if (p) { await save({ outputDir: p }); await refreshEnv(); renderSettings(); } } }, 'Change'))),
       row('Video encoder', select(st.encoder, [['auto', `Auto (using ${e.encoder})`], ['libx264', 'CPU (x264)'], ['h264_nvenc', 'NVIDIA (NVENC)'], ['h264_amf', 'AMD (AMF)'], ['h264_qsv', 'Intel (QuickSync)']], v => save({ encoder: v }).then(refreshEnv), { seg: false, icon: () => pickSvg(PICK_ICONS.chip) })),
-      row('Montage fade', h('div', { class: 'ctl' }, num(st.montage.fade, v => save({ montage: { fade: v } }), { max: 2, step: 0.05 }), 'seconds')),
+      row('Montage fade', h('div', { class: 'ctl' }, num(st.montage.fade, v => save({ montage: { fade: v } }), { max: 2, step: 0.05 }), h('span', { class: 'unit' }, 's'))),
       row('Keep raw recordings', toggle('Keep', st.keepRaw, v => save({ keepRaw: v })), "Keeps HLAE's separate video and audio files in a _raw folder."),
       row('ffmpeg', h('div', { class: 'ctl' }, h('span', { class: 'mono', style: { flex: 1 } }, e.ffmpeg || 'not found'),
         h('button', { class: 'btn', onclick: async () => { const p = await api.pickFile('ffmpeg.exe', [{ name: 'ffmpeg', extensions: ['exe'] }]); if (p) { await save({ ffmpegPath: p }); await refreshEnv(); renderSettings(); } } }, 'Browse'))),
@@ -4511,7 +4551,7 @@ function renderSettings() {
     h('div', { class: 'card' },
       h('h3', {}, 'Advanced timing & commands'),
       h('div', { class: 'desc' }, 'Increase the startup wait if the first clip fails right after CS2 opens. Setup commands run once when CS2 starts, separated by ";".'),
-      row('CS2 startup wait', h('div', { class: 'ctl' }, num(t.startupWait, v => save({ timing: { startupWait: v } }), { max: 300 }), 'seconds')),
+      row('CS2 startup wait', h('div', { class: 'ctl' }, num(t.startupWait, v => save({ timing: { startupWait: v } }), { max: 300 }), h('span', { class: 'unit' }, 's'))),
       row('Setup commands', text(st.commands.setup, v => save({ commands: { setup: v } }), { class: 'mono' })),
     ),
   ];
@@ -4581,8 +4621,8 @@ function renderDownloads() {
   updateDlCount();
   const d = state.dl;
   const STATUS = {
-    downloaded: ['ok', 'On your PC'], available: ['new', 'Not downloaded'], queued: ['', 'Queued'],
-    downloading: ['new', 'Downloading'], removed: ['', 'Deleted / moved'], expired: ['bad', 'Expired'],
+    downloaded: ['', 'On your PC'], available: ['new', 'Not downloaded'], queued: ['', 'Queued'],
+    downloading: ['new', 'Downloading'], removed: ['', 'Deleted / moved'], expired: ['', 'Expired'],
     waiting: ['new', 'Waiting for you'], // FACEIT room open: you click "Watch demo" there
   };
   const autoToggle = toggle('Auto-download new matches', state.settings.downloads.auto, async v => { await save({ downloads: { auto: v } }); });
@@ -4591,7 +4631,7 @@ function renderDownloads() {
     h('span', { class: 'dl-head-info' }, d.lastCheck ? `Last checked ${fmtDate(d.lastCheck)}` : 'Never checked'),
     h('span', { class: 'spacer' }),
     autoToggle,
-    h('button', { class: 'btn primary', disabled: d.checking, onclick: checkNow }, d.checking ? h('span', { class: 'spinner' }) : icon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/>'), d.checking ? 'Checking…' : 'Check now'),
+    h('button', { class: 'btn', disabled: d.checking, onclick: checkNow }, d.checking ? h('span', { class: 'spinner' }) : icon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/>'), d.checking ? 'Checking…' : 'Check now'),
   );
 
   const signedIn = d.community === 'ok';
@@ -4616,7 +4656,7 @@ function renderDownloads() {
       : h('button', { class: 'btn primary', onclick: faceitSignIn }, 'Sign in to FACEIT'),
   );
   const info = h('div', { class: 'info-box' },
-    'Also asks Valve for your latest matches through your Steam client (like CS2’s ', h('b', {}, 'Watch → Your Matches'), ') when CS2 is closed. ',
+    h('b', { class: 'info-title' }, 'Valve match list'), 'Also asks Valve for your latest matches through your Steam client (like CS2’s ', h('b', {}, 'Watch → Your Matches'), ') when CS2 is closed. ',
     state.settings.downloads.auto ? `Checks automatically every ${state.settings.downloads.intervalMin} minutes and downloads new demos to your replays folder.` : 'Automatic checking is off.');
 
   const items = d.matches.map(m => {
@@ -4632,14 +4672,14 @@ function renderDownloads() {
     } }, 'Open');
     else if (m.status === 'downloading') action = h('div', { class: 'mini-progress' }, h('div', { 'data-dl-progress': m.id, style: { width: prog?.total ? `${Math.round(100 * prog.received / prog.total)}%` : '3%' } }));
     const renamed = m.status === 'downloaded' && m.file && m.fileBase && !m.file.endsWith(m.fileBase + '.dem');
-    return h('div', { class: 'dl' },
-      h('div', { class: 'when' }, m.time ? new Date(m.time).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }) : '?',
-        h('small', {}, m.time ? new Date(m.time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '')),
+    return h('div', { class: `dl ${m.status === 'expired' ? 'stale' : ''}` },
+      h('div', { class: 'when' }, m.time ? new Date(m.time).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric' }) : '?',
+        h('small', {}, m.time ? new Date(m.time).toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' }) : '')),
       h('div', { class: 'mode' },
         h('span', { class: 'mode-name' }, m.mode), m.mapLabel ? ` · ${m.mapLabel}` : '', m.durationMin ? ` · ${m.durationMin} min` : '',
         renamed ? h('div', { class: 'hint' }, `Already on your PC as ${m.file.split(/[\\/]/).pop()}`) : null),
-      h('div', { class: 'sc' }, m.score?.length === 2 ? `${m.score[0]} – ${m.score[1]}` : ''),
-      h('div', { class: 'act' }, h('span', { class: `pill ${cls}` }, label), action),
+      h('div', { class: `sc ${m.score?.length === 2 ? '' : 'none'}` }, m.score?.length === 2 ? `${m.score[0]}:${m.score[1]}` : '—'),
+      h('div', { class: 'act' }, m.status === 'downloaded' ? h('span', { class: 'dl-have' }, icon(ICONS.check), label) : h('span', { class: `pill ${cls}` }, label), action),
     );
   });
   // The match list, with the Steam sign-in and how checking works beside it (above it in narrow windows).
@@ -4650,7 +4690,7 @@ function renderDownloads() {
       h('div', { class: 'dl-main' },
         d.error ? h('div', { class: 'err-box' }, d.error) : null,
         d.notes?.length && !d.error ? h('div', { class: 'warn-box' }, d.notes.join('\n')) : null,
-        items.length ? h('div', { class: 'dl-list' }, ...items)
+        items.length ? h('div', { class: 'dl-list' }, h('div', { class: 'dl dl-cols', 'aria-hidden': 'true' }, h('span', {}, 'Date'), h('span', {}, 'Match'), h('span', { class: 'sc' }, 'Score'), h('span', { class: 'act' }, 'Status')), ...items)
           : h('div', { class: 'empty' }, h('h2', {}, 'No matches yet'), h('div', {}, signedIn ? 'Click "Check now" to look for your latest matches.' : 'Sign in to Steam, then click "Check now".')))),
   ));
 }

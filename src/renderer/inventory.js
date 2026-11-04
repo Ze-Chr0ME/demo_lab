@@ -55,7 +55,7 @@ function invMoney(usd, { cents = true } = {}) {
   const cur = invCurrency();
   const v = usd * (state.inv.data?.rates?.[cur] || 1);
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur, minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 }).format(v);
+    return new Intl.NumberFormat(UI_LOCALE, { style: 'currency', currency: cur, minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 }).format(v);
   } catch { return `${v.toFixed(cents ? 2 : 0)} ${cur}`; }
 }
 const invChange = (now, then) => (now != null && then ? now / then - 1 : null);
@@ -107,20 +107,19 @@ function renderInventory() {
   const head = h('div', { class: 'dash-head' },
     steamAvatar(name, d.steamid, 'large'),
     h('div', { class: 'dash-title' },
-      h('h2', {}, isMe ? 'Inventory' : `${name}’s inventory`, !isMe ? h('span', { class: 'dash-tag', title: `SteamID ${d.steamid}` }, 'Player') : null),
+      h('h2', { class: 'inv-title' }, 'Inventory', back), // the player picker sits right after the title, as on the other pages
       h('div', { class: 'sub' }, `${fmtNum(d.count)} item${d.count === 1 ? '' : 's'}`,
-        ` · read ${ago(d.t)}`,
-        d.pricesAt ? ` · ${d.sources[d.source]} prices from ${ago(d.pricesAt)}` : null,
+        h('span', { class: 'nowrap' }, ` · read ${ago(d.t)}`),
+        d.pricesAt ? h('span', { class: 'nowrap' }, ` · ${d.sources[d.source]} prices from ${ago(d.pricesAt)}`) : null,
         st.loading ? h('span', {}, ' · ', spinner(11), ' updating') : null,
         (st.salesJob || d.sales?.job)?.steamid === d.steamid
-          ? h('span', { title: 'The most valuable items are priced from what they sold for on Steam (one item every few seconds, so Steam doesn’t block DemoLab)' },
+          ? h('span', { style: { whiteSpace: 'nowrap' }, title: 'The most valuable items are priced from what they sold for on Steam (one item every few seconds, so Steam doesn’t block DemoLab)' },
             ' · ', spinner(11), h('span', { id: 'invSales' }, ` checking Steam sales ${(st.salesJob || d.sales.job).done}/${(st.salesJob || d.sales.job).total}`))
           : null)),
     h('span', { class: 'spacer' }),
-    back,
     h('div', { class: 'filters' },
       select(d.source, Object.entries(d.sources).map(([k, l]) => [k, l]), v => { setInv({ source: v }).then(() => loadInventory()); }, { seg: true, icon: () => pickSvg(PICK_ICONS.coin) }),
-      select(cur, currencies.map(c => [c, c, () => { let symbol = c; try { symbol = new Intl.NumberFormat(undefined, { style: 'currency', currency: c }).formatToParts(0).find(p => p.type === 'currency')?.value || c; } catch {} return h('span', { class: 'muted' }, symbol); }]), v => { setInv({ currency: v }).then(() => renderInventory()); }, { seg: false, search: true, noun: 'currencies', right: true }),
+      select(cur, currencies.map(c => [c, c, () => { let symbol = c; try { symbol = new Intl.NumberFormat(UI_LOCALE, { style: 'currency', currency: c }).formatToParts(0).find(p => p.type === 'currency')?.value || c; } catch {} return h('span', { class: 'muted' }, symbol); }]), v => { setInv({ currency: v }).then(() => renderInventory()); }, { seg: false, search: true, noun: 'currencies', right: true }),
       invShareSelect(d, setInv)),
     h('button', { class: 'btn', disabled: st.loading, title: 'Read the inventory from Steam again', onclick: () => loadInventory(true) },
       icon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/>'), 'Refresh'));
@@ -135,7 +134,7 @@ function renderInventory() {
     h('div', { class: 'tile-k' }, label), h('div', { class: 'tile-v' }, value), detail ? h('div', { class: 'tile-sub' }, detail) : null);
   const stats = [
     stat('Tradable now', invMoney(tradableValue), `${fmtNum(tradable)} of ${fmtNum(d.count)} items`, 'Items you can trade or sell right now (new items have a 7-day trade hold)'),
-    stat('Items', [fmtNum(d.priced), h('small', {}, `of ${fmtNum(d.count)}`)], unpriced > 0 ? h('span', { title: 'Medals, coins, badges and other items that cannot be sold' }, `${fmtNum(unpriced)} without a price`) : null),
+    stat('Priced items', [fmtNum(d.priced), h('small', {}, `of ${fmtNum(d.count)}`)], unpriced > 0 ? h('span', { title: 'Medals, coins, badges and other items that cannot be sold' }, `${fmtNum(unpriced)} without a price`) : null),
     stat('Average per priced item', invMoney(d.priced ? d.total / d.priced : 0)),
     d.applied > 0.005 ? stat('Stickers & charms on items', `+${invMoney(d.applied)}`, 'Included in inventory value', `Included in the value: charms at their full price (they come off), applied stickers at ${Math.round(d.stickerShare * 100)}% of theirs, less when scraped`) : null,
     d.storage?.count ? stat('In storage units', invMoney(d.storage.value), `${fmtNum(d.storage.count)} items in ${d.storage.units.length} unit${d.storage.units.length === 1 ? '' : 's'}`, 'Included in the inventory value') : null,
@@ -144,7 +143,8 @@ function renderInventory() {
   const summary = h('div', { class: 'inv-summary', style: { '--inv-stats': stats.length } },
     h('div', { class: 'tile inv-stat inv-hero' }, h('div', { class: 'tile-k' }, 'Inventory value'),
       h('div', { class: 'tile-row' }, h('div', { class: 'tile-v inv-total' }, invMoney(d.total)),
-        d.trend30 ? invChangeEl(invChange(d.trend30.now, d.trend30.then), `Against the same items at their 30-day average price (${invMoney(d.trend30.then)})`) : null),
+        d.trend30 ? h('span', { class: 'inv-delta' }, invChangeEl(invChange(d.trend30.now, d.trend30.then), `Against the same items at their 30-day average price (${invMoney(d.trend30.then)})`),
+          h('span', { class: 'inv-vs' }, 'vs 30-day avg')) : null),
       h('div', { class: 'tile-sub' }, 'Total estimated value')), ...stats);
 
   const byType = new Map();
@@ -179,13 +179,17 @@ function invChart(pts, { W = 800, H = 150, volume = false, tip }) {
   const x = t => padL + (W - padL - padR) * ((t - t0) / Math.max(1, t1 - t0));
   const y = v => padT + (plotB - padT) * (1 - (v - lo) / (hi - lo));
   const cents = hi < 20;
+  // Gridlines on round amounts in the shown currency (1, 2, 2.5 or 5 × 10ⁿ), so the axis reads €1,000 / €2,000 rather than thirds.
+  const rate = state.inv.data?.rates?.[invCurrency()] || 1;
+  const raw = (hi - lo) * rate / 3, mag = 10 ** Math.floor(Math.log10(raw || 1));
+  const step = ([1, 2, 2.5, 5, 10].find(m => m * mag >= raw) || 10) * mag / rate;
+  lo = Math.max(0, Math.floor(lo / step) * step); hi = Math.ceil(hi / step) * step;
   const grid = [];
-  for (let i = 0; i <= 3; i++) {
-    const v = lo + (hi - lo) * i / 3;
+  for (let v = lo; v <= hi + step / 1e6; v += step) {
     grid.push(`<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${padL - 6}" y="${y(v) + 4}" class="g-t">${invMoney(v, { cents }).replace(/[<&]/g, '')}</text>`);
   }
   const long = t1 - t0 > 300 * 864e5;
-  const fmtDay = t => new Date(t).toLocaleDateString(undefined, long ? { month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' });
+  const fmtDay = t => new Date(t).toLocaleDateString(UI_LOCALE, long ? { month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' });
   const axis = `<text x="${padL}" y="${H - 6}" class="g-t" style="text-anchor:start">${fmtDay(t0)}</text><text x="${W - padR}" y="${H - 6}" class="g-t">${fmtDay(t1)}</text>`;
   const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.usd).toFixed(1)}`).join('');
   const area = `${line}L${x(t1)},${plotB}L${x(t0)},${plotB}Z`;
@@ -220,7 +224,7 @@ function invChart(pts, { W = 800, H = 150, volume = false, tip }) {
   el.addEventListener('mouseleave', () => { tipEl.classList.add('hidden'); cross.classList.add('hidden'); dot.classList.add('hidden'); });
   return el;
 }
-const fmtWhen = (t, hours = true) => new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', ...(hours ? { hour: '2-digit', minute: '2-digit' } : {}) });
+const fmtWhen = (t, hours = true) => new Date(t).toLocaleString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric', ...(hours ? { hour: '2-digit', minute: '2-digit' } : {}) });
 
 // Applied stickers sell for a part of their own price (and nothing once scraped off); how big a part is a
 // guess, so it's a setting. Charms always count in full: they can be taken off and sold.
@@ -228,7 +232,7 @@ const INV_SHARES = [0, 0.05, 0.1, 0.2, 0.35, 0.5, 1];
 function invShareSelect(d, setInv) {
   const cur = d.stickerShare ?? 0.1;
   const opts = [...new Set([...INV_SHARES, cur])].sort((a, b) => a - b);
-  const el = select(String(cur), opts.map(v => [String(v), v ? `Stickers at ${Math.round(v * 100)}%` : 'Stickers not counted']), v => { setInv({ stickerShare: +v }).then(() => loadInventory()); }, { seg: false, icon: () => pickSvg(PICK_ICONS.sticker) });
+  const el = select(String(cur), opts.map(v => [String(v), v ? `Applied stickers at ${Math.round(v * 100)}%` : 'Applied stickers: 0%']), v => { setInv({ stickerShare: +v }).then(() => loadInventory()); }, { seg: false, icon: () => pickSvg(PICK_ICONS.sticker) });
   el.title = 'How much of an applied sticker’s price is added to the item’s value (an estimate: applied stickers resell for a fraction of their price, scraped ones for less). Charms always count in full.';
   return el;
 }
@@ -242,7 +246,7 @@ function invHistoryCard(d) {
   const el = invChart(pts, { W: 600, H: 150, tip: (p, prev) => [h('b', {}, invMoney(p.usd)), h('div', {}, fmtWhen(p.t)),
     h('div', { class: 'hint' }, `${fmtNum(p.n)} items`, prev ? [' · ', invChangeEl(invChange(p.usd, prev.usd), 'Since the point before')] : null)] });
   const first = pts[0];
-  return card('Value over time', el, { span: 2, cls: 'inv-history', extra: h('span', { class: 'hint' }, `${pts.length} points since ${new Date(first.t).toLocaleDateString()} · `, invChangeEl(invChange(pts[pts.length - 1].usd, first.usd), 'Since the first point')) });
+  return card('Value over time', el, { span: 2, cls: 'inv-history', extra: h('span', { class: 'hint' }, `${pts.length} points since ${new Date(first.t).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric' })} · `, invChangeEl(invChange(pts[pts.length - 1].usd, first.usd), 'Since the first point')) });
 }
 
 // ---- Storage units (your own inventory only)
@@ -250,7 +254,7 @@ const INV_BOX = '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z" fill="none" stroke=
 function invStorageCard(d) {
   const s = d.storage, su = state.inv.su;
   const signOut = h('button', { class: 'btn ghost', disabled: su.busy, title: 'Forget the Steam sign-in DemoLab keeps for storage units', onclick: invSignOut }, 'Sign out');
-  const read = label => h('button', { class: 'btn primary', disabled: su.busy, onclick: invReadStorage }, icon(INV_BOX), label);
+  const read = label => h('button', { class: `btn ${label === 'Read again' ? '' : 'primary'}`, disabled: su.busy, onclick: invReadStorage }, icon(INV_BOX), label);
   const busy = su.busy ? h('div', { class: 'inv-su-busy' }, spinner(12), h('span', { id: 'invSuProgress' },
     su.progress ? `Reading storage unit ${su.progress.done} of ${su.progress.total}…` : 'Signing in to CS2…'),
     h('button', { class: 'btn ghost', onclick: () => api.storageCancel().catch(() => {}) }, 'Stop')) : null;

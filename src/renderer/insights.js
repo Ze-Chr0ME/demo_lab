@@ -77,7 +77,7 @@ function roundStrip() {
     h('div', { class: 'rs-cells' }, ...cells),
     h('div', { class: 'rs-legend' },
       h('span', {}, h('i', { class: 'rs-key win' }), 'won'), h('span', {}, h('i', { class: 'rs-key loss' }), 'lost'),
-      h('span', { class: 'rs-pips demo' }, h('i', {})), 'kills of the point-of-view player',
+      h('span', {}, h('span', { class: 'rs-pips demo' }, h('i', {})), 'kills of the point-of-view player'),
       h('span', { class: 'rs-letters' }, 'P pistol · E eco · F force · B full buy (your team)')));
 }
 
@@ -92,7 +92,7 @@ function economyView() {
 
   // Loadout value per round: your team above the line, the opponents below.
   const W = 1000, H = 230, mid = H / 2, top = 14;
-  const n = v.rounds.length, bw = (W - 40) / n;
+  const n = v.rounds.length, bw = (W - 100) / n; // a right gutter holds the money scale
   const max = Math.max(5000, ...v.rounds.flatMap(r => [r.teams[me].equip, r.teams[them].equip]));
   const y = val => (mid - top) * val / max;
   const bars = v.rounds.map((r, i) => {
@@ -108,22 +108,24 @@ function economyView() {
   }).join('');
   const chart = h('div', { class: 'eco-chart', html: `<svg viewBox="0 0 ${W} ${H}">
     <text x="4" y="${top + 8}" class="et">${v.teamNames[me]}</text><text x="4" y="${H - 8}" class="et">${v.teamNames[them]}</text>
-    <line x1="30" x2="${W - 10}" y1="${mid}" y2="${mid}" class="em"/>${bars}</svg>` });
+    ${[0.5, 1].flatMap(f => [mid - y(max * f), mid + y(max * f)]).map(gy => `<line x1="30" x2="${W - 66}" y1="${gy}" y2="${gy}" class="eg"/>`).join('')}
+    <line x1="30" x2="${W - 66}" y1="${mid}" y2="${mid}" class="em"/>${bars}
+    ${[0.5, 1].map(f => `<text x="${W - 4}" y="${mid - y(max * f) + 4}" class="es">${money(Math.round(max * f / 100) * 100)}</text><text x="${W - 4}" y="${mid + y(max * f) + 4}" class="es">${money(Math.round(max * f / 100) * 100)}</text>`).join('')}<text x="${W - 4}" y="${mid + 4}" class="es">${money(0)}</text></svg>` });
   chart.addEventListener('click', e => { const g = e.target.closest('.eco-r'); if (g) jumpToRound(v.rounds[+g.dataset.i]); });
 
   const types = Object.keys(v.labels);
   const winRow = t => types.map(k => { const [w, p] = v.summary[t][k]; return { label: v.labels[k], note: `${w}/${p}`, value: p ? `${pct(w, p)}%` : '—', frac: p ? w / p : 0, fillCls: w / p >= 0.5 ? 'good' : 'bad' }; });
   const matrix = h('table', { class: 'sb eco-matrix' },
-    h('thead', {}, h('tr', {}, h('th', { class: 'team' }, 'Your buy ↓  vs  theirs →'), ...types.map(k => h('th', {}, v.labels[k])))),
+    h('thead', {}, h('tr', {}, h('th', { class: 'team lead' }, 'Your buy ↓  vs  theirs →'), ...types.map(k => h('th', {}, v.labels[k])))),
     h('tbody', {}, ...types.filter(a => types.some(b => v.matrix[a][b][1])).map(a => h('tr', {}, h('td', { class: 'name' }, v.labels[a]),
-      ...types.map(b => { const [w, p] = v.matrix[a][b]; return h('td', { class: p ? (w / p >= 0.5 ? 'good' : 'bad') : '', title: p ? `${w} won of ${p}` : '' }, p ? `${w}/${p}` : '·'); })))));
+      ...types.map(b => { const [w, p] = v.matrix[a][b]; return h('td', { class: p ? (w / p >= 0.5 ? 'good' : 'bad') : '', title: p ? `${w} won of ${p}` : '' }, p ? `${w}/${p}` : '—'); })))));
 
   const flags = v.flags.filter(f => f.steamid === pov);
   const broke = v.rounds.filter(r => r.teams[me].brokeAfterForce);
   const flagList = flags.length ? h('div', { class: 'integ-moments' }, ...flags.map(f => h('div', { class: 'integ-moment' },
-    h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, f.round), h('div', { class: 'l' }, f.side)),
+    h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, f.round), h('div', { class: 'l' }, sideTag(f.side))),
     h('div', { class: 'integ-text' }, f.text),
-    h('div', { class: 'integ-actions' }, h('button', { class: 'btn', onclick: () => showInReplay(pov, f.tick + 2 * 64) }, '2D replay')))))
+    h('div', { class: 'integ-actions' }, h('button', { class: 'btn', onclick: () => showInReplay(pov, f.tick + 2 * 64) }, icon(ICONS.play), '2D replay')))))
     : h('div', { class: 'integ-none' }, `No buy mistakes found for ${name}.`);
 
   const rows = v.rounds.map(r => {
@@ -143,7 +145,7 @@ function economyView() {
     h('div', { class: 'section-head' }, h('h3', {}, 'Economy'), h('span', { class: 'spacer' }),
       h('span', { class: 'hint' }, 'Loadout value when each round went live. Dots: who won the round. Click a round to open it in the 2D replay.')),
     chart,
-    h('div', { class: 'legend eco-legend' }, ...types.map(k => h('span', { class: `lg buy-${k}`, title: BUY_TIP[k] }, h('i', {}), v.labels[k])), h('span', { class: 'lg side-T' }, h('i', {}), 'T'), h('span', { class: 'lg side-CT' }, h('i', {}), 'CT')),
+    h('div', { class: 'legend eco-legend' }, ...types.map(k => h('span', { class: `lg buy-${k}`, title: BUY_TIP[k] }, h('i', {}), v.labels[k])), h('span', { class: 'lg side-T' }, h('i', {}), sideTag('T')), h('span', { class: 'lg side-CT' }, h('i', {}), sideTag('CT'))),
     h('div', { class: 'dash eco-cards' },
       card(`Win rate per buy · ${v.teamNames[me]}`, barList(winRow(me))),
       card(`Win rate per buy · ${v.teamNames[them]}`, barList(winRow(them))),
@@ -218,18 +220,20 @@ function aimView() {
     h('div', {}, 'Going through every tick of the match (the same pass as the Integrity tab, so that one is ready afterwards too). Only the first time for each match: about 10 seconds. ',
       h('b', { id: 'aim-progress' }, `${Math.round((state.aimProgress || 0) * 100)}%`)));
   if (st.error) return h('div', { class: 'empty' }, h('h2', {}, 'Could not measure this demo'), h('div', { class: 'err-box' }, st.error));
-  const { players } = st.value;
+  // You first, then your team, then the opponents (the same order as the Scoreboard); the order inside a group is kept.
+  const grp = p => (p.mine ? 0 : p.team != null && p.team === st.value.myTeam ? 1 : 2);
+  const players = [...st.value.players].sort((a, b) => grp(a) - grp(b));
   if (!players.length) return h('div', { class: 'empty' }, h('h2', {}, 'No shots in this demo'));
   const sel = players.find(p => p.steamid === state.aimPlayer) || players.find(p => p.steamid === povId()) || players[0];
   const cell = (s, p) => {
     const v = p[s.k], ok = v != null && p[s.n] >= s.min;
-    return h('td', { class: ok ? aimLevel(s, v) : 'muted', title: `${p[s.n]} sample${p[s.n] === 1 ? '' : 's'}` }, ok ? s.fmt(v) : '—');
+    return h('td', { class: ok ? aimLevel(s, v) : 'muted', title: ok ? `${p[s.n]} sample${p[s.n] === 1 ? '' : 's'}` : `Too few samples (${p[s.n]})` }, ok ? s.fmt(v) : '—');
   };
   const teamName = p => (p.team == null ? '' : p.team === st.value.myTeam ? 'Your team' : 'Opponents');
   const table = h('table', { class: 'sb integ aim-table' },
-    h('thead', {}, h('tr', {}, h('th', { class: 'team' }, 'Player'), ...AIM_STATS.map(s => h('th', { title: `${s.tip}\n\nGood: ${s.fmt(s.good)} or ${s.low ? 'less' : 'more'} · needs work: ${s.low ? 'over' : 'under'} ${s.fmt(s.bad)}` }, s.label)), h('th', { title: 'Bullets fired · bullets that hit an enemy' }, 'Shots · hits'))),
-    h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''}`, onclick: () => { state.aimPlayer = p.steamid; renderDetail(); } },
-      h('td', { class: 'name' }, avatar(p.name, p.steamid, 'sm'), p.name, h('span', { class: 'integ-team' }, teamName(p))),
+    h('thead', {}, h('tr', {}, h('th', { class: 'team lead' }, 'Player', h('span', { class: 'team-key' }, h('i', { class: 'ally' }), 'your team', h('i', { class: 'foe' }), 'opponents')), ...AIM_STATS.map(s => h('th', { title: `${s.tip}\n\nGood: ${s.fmt(s.good)} or ${s.low ? 'less' : 'more'} · needs work: ${s.low ? 'over' : 'under'} ${s.fmt(s.bad)}` }, s.label)), h('th', { title: 'Bullets fired · bullets that hit an enemy' }, 'Shots · hits'))),
+    h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''} ${p.team == null ? '' : p.team === st.value.myTeam ? 'ally' : 'foe'}`, onclick: () => { state.aimPlayer = p.steamid; renderDetail(); } },
+      h('td', { class: 'name', title: teamName(p) }, avatar(p.name, p.steamid, 'sm'), p.name),
       ...AIM_STATS.map(s => cell(s, p)),
       h('td', {}, `${p.shots} · ${p.hits}`)))));
 
@@ -251,7 +255,7 @@ function aimView() {
     h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, m.round), h('div', { class: 'l' }, fmtDur(m.clock))),
     h('div', { class: 'integ-text' }, h('span', { class: 'tag' }, tag), h('div', {}, text)),
     h('div', { class: 'integ-actions' },
-      h('button', { class: 'btn', onclick: () => showInReplay(sel.steamid, m.tick + tickOffset) }, '2D replay'),
+      h('button', { class: 'btn', onclick: () => showInReplay(sel.steamid, m.tick + tickOffset) }, icon(ICONS.play), '2D replay'),
       viewInCs2Button('View in CS2', 'btn', 'Opens the demo in CS2 in this player’s eyes 3 s before this moment and pauses on it',
         () => ({ tick: m.tick, lead: 3, pause: true, name: sel.name }), 'Paused on the moment in CS2. Use the demo controls (Shift+F2) to step back and forth.')));
   const weaponLabel = w => ({ ak47: 'AK-47', m4a1: 'M4A4', m4a1_silencer: 'M4A1-S', usp_silencer: 'USP-S', hkp2000: 'P2000', deagle: 'Deagle', awp: 'AWP', ssg08: 'Scout', glock: 'Glock' })[w] || w.toUpperCase();
@@ -259,7 +263,7 @@ function aimView() {
   const list = tab === 'moving' ? sel.moving : sel.caught;
   return [
     h('div', { class: 'section-head' }, h('h3', {}, 'Aim'), h('span', { class: 'spacer' }),
-      h('span', { class: 'hint' }, 'Green: better than three players in four of your lobbies; red: worse. Hover a column for what it measures, click a player for details.')),
+      h('span', { class: 'hint' }, 'Green: top quarter of your lobbies · red: bottom quarter · —: too few samples. Hover a header for what it measures.')),
     st.value.lineOfSight ? null : h('div', { class: 'integ-note' }, 'No map geometry for this map, so who could see whom comes from the in-game radar. Crosshair placement and time to damage are rougher than usual.'),
     h('div', { class: 'sb-wrap' }, table),
     h('div', { class: 'section-head' }, h('h3', { class: 'with-avatar' }, avatar(sel.name, sel.steamid, 'sm'), sel.name)),
@@ -466,7 +470,7 @@ function quizQuestion() {
   const x = state.ut.items.find(y => y.id === qq.id);
   if (!x) { q.i++; return quizQuestion(); }
   const head = h('div', { class: 'quiz-head' }, h('span', { class: 'pill' }, `${q.i + 1} / ${q.questions.length}`), h('span', { class: 'ut-dot', style: { '--c': NADE_COLOR[x.type] } }),
-    h('b', {}, `${utLabel(UT_TYPES, x.type)} · ${mapName(x.map)}`), x.side !== 'both' ? h('span', { class: `side-${x.side}` }, x.side) : null);
+    h('b', {}, `${utLabel(UT_TYPES, x.type)} · ${mapName(x.map)}`), x.side !== 'both' ? sideTag(x.side) : null);
   const answered = qq.answer != null;
   const next = h('button', { class: 'btn primary', onclick: () => { q.i++; quizQuestion(); } }, q.i + 1 < q.questions.length ? 'Next' : 'Finish');
   const result = answered ? h('div', { class: `quiz-result ${qq.right ? 'good' : 'bad'}` }, qq.right ? '✓ Right' : '✗ Not quite', qq.dist != null ? ` · ${fmtNum(qq.dist)} units off` : '', ` · ${x.name}`) : null;

@@ -197,7 +197,7 @@ const OverviewModules = (() => {
     ].filter(([, m]) => m);
     return card('Personal bests', h('div', { class: 'ov-records' }, ...rows.map(([label, m, value]) => h('button', {
       class: 'ov-record', type: 'button', onclick: () => openMatch(m), title: `${mapName(m.map)} ${m.score[0]}:${m.score[1]} · ${fmtDate(m.date)} · open the scoreboard`,
-    }, h('span', { class: 'ov-record-k' }, label), h('b', {}, value(m)), h('small', {}, `${mapName(m.map)} · ${new Date(m.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`)))));
+    }, h('span', { class: 'ov-record-k' }, label), h('b', {}, value(m)), h('small', {}, `${mapName(m.map)} · ${new Date(m.date).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short' })}`)))));
   }
   function ratingSpread({ list }) {
     const rated = list.filter(m => m.rating != null);
@@ -228,7 +228,7 @@ const OverviewModules = (() => {
     })), { extra: h('span', { class: 'hint' }, 'local time') });
   }
   function weekdays({ list }) {
-    const names = [1, 2, 3, 4, 5, 6, 0].map(d => [d, new Date(2024, 0, 7 + d).toLocaleDateString(undefined, { weekday: 'long' }).replace(/^./, c => c.toUpperCase())]);
+    const names = [1, 2, 3, 4, 5, 6, 0].map(d => [d, new Date(2024, 0, 7 + d).toLocaleDateString(UI_LOCALE, { weekday: 'long' }).replace(/^./, c => c.toUpperCase())]);
     return card('Weekdays', barList(names.map(([d, label]) => groupRow(label, byResult(list.filter(m => new Date(m.date).getDay() === d))))));
   }
   function modes({ list }) {

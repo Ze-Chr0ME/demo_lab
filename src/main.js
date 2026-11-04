@@ -147,6 +147,22 @@ function createWindow() {
       if (!process.env.DEMOLAB_KEEP_OPEN) app.quit();
     }, +(process.env.DEMOLAB_DELAY || 6000)));
   }
+  // Dev aid: DEMOLAB_SHOTS=<plan.json> captures several pages in one run. The plan is
+  // { "out": "<dir>", "shots": [{ "name": "overview", "eval": "showView('overview')", "wait": 2500 }] }.
+  if (process.env.DEMOLAB_SHOTS) {
+    const plan = JSON.parse(fs.readFileSync(process.env.DEMOLAB_SHOTS, 'utf8'));
+    fs.mkdirSync(plan.out, { recursive: true });
+    win.webContents.on('console-message', (_e, level, message) => { if (level >= 2) console.log('[renderer]', message); });
+    win.webContents.once('did-finish-load', () => setTimeout(async () => {
+      for (const shot of plan.shots) {
+        if (shot.eval) await win.webContents.executeJavaScript(shot.eval).catch(e => console.log(`[${shot.name}]`, e.message));
+        await new Promise(r => setTimeout(r, shot.wait ?? 2500));
+        fs.writeFileSync(path.join(plan.out, `${shot.name}.png`), (await win.webContents.capturePage()).toPNG());
+        console.log('shot', shot.name);
+      }
+      app.quit();
+    }, +(process.env.DEMOLAB_DELAY || 8000)));
+  }
 }
 
 // ---------- Demo discovery & parsing ----------

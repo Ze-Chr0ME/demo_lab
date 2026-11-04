@@ -106,9 +106,9 @@ const accuracyOf = r => (r.shots && r.type !== 'grenades' && r.type !== 'other' 
 const WP_METRICS = {
   general: [
     ['kills', 'Kills', 'Enemies killed', r => r.kills],
-    ['hsp', 'HS %', 'Share of the kills that were headshots', r => (r.kills ? r.hs / r.kills : -1), r => pctTxt(r.hs, r.kills, 0)],
+    ['hsp', 'Headshot kills', 'Headshot kills / kills: share of the kills that were headshots', r => (r.kills ? r.hs / r.kills : -1), r => pctTxt(r.hs, r.kills, 0)],
     ['dmg', 'Damage', 'Damage dealt to enemies (capped at the health they had left)', r => r.dmg, r => fmtNum(r.dmg)],
-    ['head', 'Head hit %', 'Share of the bullets that hit someone that hit the head', r => (r.bodyHits ? r.headHits / r.bodyHits : -1),
+    ['head', 'Hits to head', 'Head hits / hits: share of the bullets that hit someone that hit the head', r => (r.bodyHits ? r.headHits / r.bodyHits : -1),
       r => pctTxt(r.headHits, r.bodyHits), r => (r.bodyHits >= 10 ? aimLevel(AIM_STATS[3], r.headHits / r.bodyHits) : '')],
     ['dist', 'Avg dist', 'Average distance of the kills', r => (r.distN ? r.distSum / r.distN : -1), r => (r.distN ? `${(r.distSum / r.distN).toFixed(1)}m` : '—')],
   ],
@@ -135,7 +135,7 @@ function weaponsView() {
   if (st.error) return h('div', { class: 'empty' }, h('h2', {}, 'No weapon stats for this demo'), h('div', { class: 'err-box' }, st.error));
   const root = h('div', { class: 'wp' });
   paintWeapons(root, st.value);
-  return root;
+  return [h('div', { class: 'section-head' }, h('h3', {}, 'Weapons'), h('span', { class: 'hint' }, 'Every weapon used in this match. Pick a round, player or side to narrow it down.')), root];
 }
 
 function paintWeapons(root, v) {
@@ -157,8 +157,8 @@ function paintWeapons(root, v) {
       ['pistol', 'Pistol rounds'], ...v.rounds.map(r => [`r${r.num}`, `Round ${r.num}`])], x => setF('rounds', x), { seg: false, icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'clock' : 'timer']) }),
     select(f.player, [['all', 'All players', () => pickSvg(PICK_ICONS.users)], ...players.map(p => [p.steamid, `${p.name}${p.steamid === pov ? ' (point of view)' : ''}`, () => avatar(p.name, p.steamid, 'xs')])], x => setF('player', x), { seg: false, search: true, noun: 'players' }),
     select(f.team, [['all', 'Both teams'], ['mine', myTeam ? 'Your team' : 'Team of the point of view'], ['theirs', 'Opponents']], x => setF('team', x), { seg: true, icon: v => pickSvg(PICK_ICONS[v === 'theirs' ? 'swords' : 'users']) }),
-    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon }),
-    types.size > 1 ? select(f.type, [['all', 'All weapon types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x), { seg: false, icon: wpTypeIcon }) : null,
+    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon, iconOnly: true }) /* side pickers are icon-only everywhere */,
+    types.size > 1 ? select(f.type, [['all', 'All types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x), { seg: false, icon: wpTypeIcon }) : null,
     h('span', { class: 'spacer' }),
     Object.keys(wp.f).length ? h('button', { class: 'link-btn', onclick: () => { wp.f = {}; repaint(); } }, 'Reset filters') : null);
 
@@ -191,10 +191,11 @@ function weaponBoard(rows, wp, repaint, { kills: killsSub } = {}) {
   const grid = { style: { '--wp-cols': cols.length } };
   const share = r => (all.kills ? r.kills / all.kills : all.dmg ? r.dmg / all.dmg : 0);
   const toggle = w => { wp.sel.has(w) ? wp.sel.delete(w) : wp.sel.add(w); repaint(); };
-  const head = h('div', { class: 'wp-row wp-cols', ...grid }, h('span'), h('span', { class: 'wp-sel-info' },
-    sel.length ? [`${sel.length} selected · `, h('button', { class: 'link-btn', onclick: () => { wp.sel.clear(); repaint(); } }, 'clear')] : 'Click weapons to compare them'),
+  const selInfo = h('span', { class: 'wp-sel-info', title: 'The bar under each weapon is its share of the kills' },
+    sel.length ? [`${sel.length} selected · `, h('button', { class: 'link-btn', onclick: () => { wp.sel.clear(); repaint(); } }, 'clear')] : 'Select weapons to compare · Hits to head coloured against your lobbies');
+  const head = h('div', { class: 'wp-row wp-cols', ...grid }, h('span'), h('span'),
   ...cols.map(([k, label, tip]) => h('button', { class: `wp-th ${sort.col === k ? 'on' : ''}`, title: tip,
-    onclick: () => { wp.sort = { metric, col: k, dir: sort.col === k ? -sort.dir : -1 }; repaint(); } }, sort.col === k ? (sort.dir < 0 ? '▾ ' : '▴ ') : '', label)));
+    onclick: () => { wp.sort = { metric, col: k, dir: sort.col === k ? -sort.dir : -1 }; repaint(); } }, label, sort.col === k ? (sort.dir < 0 ? ' ▾' : ' ▴') : '')));
   const list = rows.map(r => h('div', { class: `wp-row ${wp.sel.has(r.w) ? 'on' : sel.length ? 'dim' : ''}`, ...grid, onclick: () => toggle(r.w), title: wp.sel.has(r.w) ? 'Click to unselect' : 'Click to select' },
     h('span', { class: 'wp-ic' }, weaponIcon(r.w)),
     h('span', { class: 'wp-name' },
@@ -203,7 +204,7 @@ function weaponBoard(rows, wp, repaint, { kills: killsSub } = {}) {
     ...cols.map(([, , , val, fmt, cls]) => h('span', { class: `wp-td ${cls ? cls(r) : ''}` }, fmt ? fmt(r) : val(r)))));
 
   const left = h('div', { class: 'wp-main' },
-    h('div', { class: 'wp-metrics' }, h('span', { class: 'wp-label' }, 'Metrics'), h('span', { class: 'spacer' }),
+    h('div', { class: 'wp-metrics' }, h('span', { class: 'wp-label' }, 'Metrics'), selInfo, h('span', { class: 'spacer' }),
       h('div', { class: 'tabs' }, ...WP_METRIC_TABS.map(([k, l]) => h('button', { class: metric === k ? 'on' : '', onclick: () => { wp.metric = k; repaint(); } }, l)))),
     head,
     ...(list.length ? list : [h('div', { class: 'muted-note' }, 'No kills, damage or shots with these filters.')]));
@@ -234,7 +235,7 @@ function hitPanel(t, sel, rows, wp) {
   const table = h('table', { class: 'wp-regions' },
     h('thead', {}, h('tr', {}, h('th', {}, 'Region'), h('th', {}, 'Hits'), h('th', {}, 'Dmg'), h('th', {}, '%'))),
     h('tbody', {}, ...regions.map(([g, label]) => { const [n, d] = t.groups[g] || [0, 0]; return h('tr', { 'data-g': g },
-      h('td', {}, h('i', { class: 'wp-dot', style: { background: fill(g) } }), label), h('td', {}, n), h('td', {}, fmtNum(d)), h('td', {}, pctTxt(n, total))); })));
+      h('td', {}, h('i', { class: 'wp-dot', style: { background: fill(g) } }), label), h('td', {}, fmtNum(n)), h('td', {}, fmtNum(d)), h('td', {}, pctTxt(n, total))); })));
 
   // Hovering a region lights its row and the other way round (no repaint).
   const panel = h('aside', { class: 'wp-panel' },
@@ -321,18 +322,17 @@ function renderAimPage() {
   const rows = aimPageRows(list, f);
   const setF = (k, val) => { ap.f = { ...ap.f, [k]: val }; repaint(); };
 
+  // Same header as Maps and Highlights: title, player picker, then the page's one-line description
   const head = h('div', { class: 'page-head' },
-    h('div', { class: 'dash-title' },
-      h('h2', {}, 'Aim', other ? h('span', { class: 'dash-tag', title: `SteamID ${v.steamid}` }, name) : null),
-      h('div', { class: 'sub' }, `Every weapon over ${list.length} match${list.length === 1 ? '' : 'es'}`,
-        pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null)),
-    h('span', { class: 'spacer' }), back);
+    h('h2', {}, 'Aim'), back,
+    h('span', { class: 'dl-head-info' }, `Every weapon over ${list.length} match${list.length === 1 ? '' : 'es'}`,
+      pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null));
   const filters = h('div', { class: 'filters wp-filters' },
-    modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], x => setF('mode', x), { icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'grid' : 'swords']) }) : null,
+    modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], x => setF('mode', x), { seg: false, icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'grid' : 'swords']) }) : null,
     maps.length > 1 ? select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], x => setF('map', x), { seg: false, icon: pickMap, noun: 'maps' }) : null,
     select(f.period, PERIODS, x => setF('period', x), { seg: false, icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'clock' : 'calendar']) }),
-    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon }),
-    types.size > 1 ? select(f.type, [['all', 'All weapon types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x), { seg: false, icon: wpTypeIcon }) : null,
+    select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon, iconOnly: true }) /* side pickers are icon-only everywhere */,
+    types.size > 1 ? select(f.type, [['all', 'All types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x), { seg: false, icon: wpTypeIcon }) : null,
     h('span', { class: 'spacer' }),
     Object.keys(ap.f).length ? h('button', { class: 'link-btn', onclick: () => { ap.f = {}; repaint(); } }, 'Reset filters') : null);
   if (!list.length) return page(head, filters, h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.')));

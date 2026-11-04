@@ -115,7 +115,7 @@ function renderTraining() {
 function hubPage() {
   const tr = state.tr;
   const head = h('div', { class: 'page-head' }, h('h2', {}, 'Training'),
-    h('span', { class: 'dl-head-info' }, 'Four ways to practise in CS2. Every session is recorded and scored from its demo.'));
+    h('span', { class: 'dl-head-info' }, 'Four ways to practise in CS2. Every session is recorded from its demo; the drills that can be measured get a score.'));
   // the map with the most lineups shows on the Utility card
   const lineups = state.ut?.items || [];
   const per = {};
@@ -124,7 +124,8 @@ function hubPage() {
   const utMaps = Object.keys(per).length;
   const utility = hubCard('utility', { name: 'Utility', art: mapShotUrl(utMap), onclick: () => showView('utility'),
     sub: lineups.length ? `${lineups.length} lineup${lineups.length === 1 ? '' : 's'} on ${utMaps} map${utMaps === 1 ? '' : 's'}` : 'No lineup saved yet',
-    about: 'Your smokes, flashes and molotovs, map by map. Quiz yourself, then throw them on a practice server.' });
+    about: 'Your smokes, flashes and molotovs, map by map. Quiz yourself, then throw them on a practice server.',
+    score: h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'Not scored · quiz and practice server')) });
   // the cards fill the window; the progress is under them
   return [h('div', { class: 'tr-hub' }, head, running() || ['done', 'error'].includes(tr.status?.phase) ? liveBar() : null,
     h('div', { class: 'tr-grid' }, utility, ...DRILL_ORDER.map(id => drillCard(id)))), progressSection()];
@@ -136,11 +137,12 @@ function drillCard(id) {
   const last = hist.at(-1), best = hist.reduce((m, e) => Math.max(m, e.score ?? -1), -1);
   const scMap = [...(state.sc?.items || [])].sort((a, b) => b.updated - a.updated)[0]?.map || last?.map || 'de_mirage';
   return hubCard(id, { name: d.name, about: d.about, art: TR_SHOTS[id] ? Promise.resolve(trShot(id, 0)) : mapShotUrl(scMap),
-    sub: last ? `${hist.length} session${hist.length === 1 ? '' : 's'} · last ${ago(last.date)}` : 'Not played yet',
+    sub: last ? `${hist.length} session${hist.length === 1 ? '' : 's'} · played ${ago(last.date)}` : 'Not played yet',
     onclick: () => { state.tr.drill = id; renderTraining(); },
-    score: hist.length ? h('div', { class: 'tr-card-score' },
-      h('span', {}, 'Last', h('b', {}, last.score ?? '—')), h('span', {}, 'Best', h('b', {}, best >= 0 ? best : '—')),
-      hist.length > 1 ? sparkline(hist.map(e => e.score)) : null) : null });
+    score: hist.length && !hist.some(e => e.score > 0) ? h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'Sessions here are not scored'))
+      : hist.length ? h('div', { class: 'tr-card-score' },
+      h('span', {}, 'Last', h('b', {}, last.score ?? '—'), last.score != null ? h('small', {}, '/100') : null), h('span', {}, 'Best', h('b', {}, best >= 0 ? best : '—'), best >= 0 ? h('small', {}, '/100') : null),
+      hist.length > 1 ? sparkline(hist.map(e => e.score)) : null) : h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'No sessions yet · each one is recorded from its demo')) });
 }
 
 // A hub card: a picture, the card's own colour and the line above its name.
@@ -153,7 +155,7 @@ function hubCard(id, { name, sub, about, art, onclick, score = null }) {
       h('div', { class: 'map-card-title' }, h('span', { class: 'tr-icon' }, icon(TR_ICONS[id])),
         h('div', { class: 'map-card-t' }, h('div', { class: 'map-card-name' }, name), h('div', { class: 'map-card-sub' }, sub))),
       h('div', { class: 'tr-card-about' }, about),
-      score));
+      score || h('div', { class: 'tr-card-score', 'aria-hidden': 'true' })));
 }
 
 // The live state of a running session, or how the last one ended.
@@ -331,7 +333,7 @@ function drillResults(id) {
     h('div', { class: 'tr-ws-sec' }, h('h3', {}, 'Last session'), h('span', { class: 'hint' }, `${ago(last.date)} · ${fmtDur(last.seconds || 0)}`),
       h('span', { class: 'spacer' }), h('button', { class: 'link-btn', onclick: () => openSession(last.id) }, 'Full results →')),
     h('div', { class: 'tr-stats' },
-      h('div', { class: 'tr-stat score' }, h('small', {}, 'Score'), h('b', {}, last.score ?? '—', h('small', {}, ' /100')),
+      h('div', { class: 'tr-stat score' }, h('small', {}, 'Score'), h('b', {}, last.score ?? '—', h('small', {}, '/100')),
         h('span', { class: 'tr-stat-prev' }, `best ${best} · ${hist.length} session${hist.length === 1 ? '' : 's'}`)),
       ...tiles),
     h('div', { class: 'dash' },

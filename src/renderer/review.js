@@ -52,15 +52,14 @@ function deathRow(x, { name, steamid, onReplay, cs2 = true, extra = null }) {
     h('div', { class: 'integ-text' },
       extra,
       h('div', { class: 'death-line' },
-        h('span', { class: `side-${x.side}` }, x.side), ' · killed by ', h('b', {}, x.killerName || '?'),
-        ` with the ${x.weapon}`, x.headshot ? ' (headshot)' : '', x.wallbang ? ' · wallbang' : '', x.smoke ? ' · through smoke' : '',
+        sideTag(x.side), ...(x.killerName === 'yourself' || x.killerName === 'the world' ? [' ', h('b', {}, x.weapon === 'World' ? 'Fall or world damage' : `Own ${x.weapon}`)] : [' Killed by ', h('b', {}, x.killerName || '?'), ` with the ${x.weapon}`]), x.headshot ? ' (headshot)' : '', x.wallbang ? ' · wallbang' : '', x.smoke ? ' · through smoke' : '',
         x.place ? ` · ${placeLabel(x.place)}` : ''),
       h('div', { class: 'death-tags' },
         ...DEATH_ORDER.filter(t => x.tags.includes(t)).map(t => deathPill(t, x)),
         x.traded ? h('span', { class: 'dtag good', title: 'A teammate killed your killer within 5 seconds' }, `Traded by ${x.traded.by}`, h('small', {}, `${x.traded.after} s later`)) : null,
         !x.tags.some(t => DEATH_TAGS[t]?.kind === 'bad') && !x.traded ? h('span', { class: 'dtag', title: 'None of the usual mistakes' }, 'Nothing to blame') : null)),
     h('div', { class: 'integ-actions' },
-      h('button', { class: 'btn', title: 'The last seconds before this death in the 2D replay', onclick: onReplay || (() => showInReplay(steamid, x.tick - 5 * 64)) }, '2D replay'),
+      h('button', { class: 'btn', title: 'The last seconds before this death in the 2D replay', onclick: onReplay || (() => showInReplay(steamid, x.tick - 5 * 64)) }, icon(ICONS.play), '2D replay'),
       cs2 ? viewInCs2Button('View in CS2', 'btn', 'Opens the demo in CS2 in this player’s eyes 6 s before this death and pauses on it',
         () => ({ tick: x.tick, lead: 6, pause: true, name }), 'Paused on the death in CS2. Use the demo controls (Shift+F2) to step back and forth.') : null));
 }
@@ -112,7 +111,7 @@ function deathsView() {
   }
   return [
     h('div', { class: 'section-head' }, h('h3', { class: 'with-avatar' }, avatar(name, povId(), 'sm'), `Deaths · ${name}`), h('span', { class: 'spacer' }),
-      h('span', { class: 'hint' }, `${bad} of ${v.deaths.length} deaths had something to fix. Hover a tag for what it means.`)),
+      h('span', { class: 'hint' }, `${bad} of ${v.deaths.length} deaths had something to fix. Red: something to fix · grey: context. Hover a tag for what it means.`)),
     measure,
     deathChips(v.deaths, f, k => { state.dv.filter = k; renderDetail(); }),
     list.length ? h('div', { class: 'integ-moments' }, ...list.map(x => deathRow(x, { name, steamid: povId() }))) : h('div', { class: 'integ-none' }, 'No death with this tag.'),
@@ -431,21 +430,21 @@ function renderCompare() {
       const n = Math.round(r * 100), hot = r >= 0.9, good = r >= 0.6, bad = r <= 0.25;
       return h('span', { class: `cmp-tier ${hot || good ? 'high' : bad ? 'low' : ''}`, title: `Better than ${r * 100}% of your lobbies${s.g === 'Aim' ? ' (estimated from quartiles)' : ''}` },
         hot || good || bad ? glyph(hot ? CMP_ICONS.flame : good ? CMP_ICONS.up : CMP_ICONS.down) : null,
-        hot ? 'Top 10%' : good ? `Top ${100 - n}%` : `~${n}%`);
+        `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'} percentile`);
     };
     const value = (side, v, r) => h('div', { class: `cmp-v ${side} ${win === side ? 'win' : ''}` },
       h('b', {}, win === side ? glyph(ICONS.check) : null, fmt(v)),
       h('div', { class: 'cmp-sub' },
-        win === side ? h('span', { class: 'cmp-delta', title: `${fmt(Math.abs(va - vb))} better than the other side${s.low ? ' (lower is better)' : ''}` }, `+${fmt(Math.abs(va - vb))}`) : null,
+        win === side ? h('span', { class: 'cmp-delta', title: `${fmt(Math.abs(va - vb))} better than the other side${s.low ? ' (lower is better)' : ''}` }, `${Math.abs(va - vb).toFixed(s.d)}${s.u === '%' ? ' pp' : s.u || ''} ${s.low ? 'lower' : 'higher'}`) : null,
         tier(r)));
-    const track = (side, w, r) => h('div', { class: `cmp-bar ${side}` },
+    const track = (side, w, r) => h('div', { class: `cmp-bar ${side}`, style: va == null || vb == null ? { visibility: 'hidden' } : undefined }, // no counterpart, no comparison bar
       h('i', { class: win === side ? 'win' : '', style: { width: `${clamp(w || 0, 0, 1) * 100}%` } }),
       r != null ? h('span', { class: 'cmp-median', title: 'Lobby median (50%)' }) : null);
     return h('div', { class: `cmp-row ${s.neutral ? 'neutral' : ''}`, title: tip || s.tip || '' },
       value('a', va, ra), track('a', wa, ra),
       h('div', { class: 'cmp-label' }, h('span', { class: 'cmp-stat-icon' }, glyph(s.icon || CMP_GROUP_ICONS[s.g])), h('span', {}, s.label),
         s.low ? h('span', { class: 'cmp-lower', title: 'Lower is better', 'aria-label': 'Lower is better' }, glyph(CMP_ICONS.down)) : null),
-      track('b', wb, rb), value('b', vb, rb));
+      track('b', wb, rb), value('b', vb, B ? rb : null)); // the lobby median is the 50th percentile by definition
   };
 
   const groups = new Map();
@@ -484,11 +483,12 @@ function renderCompare() {
     h('div', { class: 'cmp-heads' }, filters, who(A, la, aId, winsA > winsB, pickA), h('div', { class: 'cmp-score', title: 'Stats where each side is better (roles like “Opening duels taken” don’t count)' },
       glyph(CMP_ICONS.trophy),
       h('div', { class: 'cmp-nums' }, counted ? [h('b', { class: winsA > winsB ? 'cmp-ahead' : '' }, winsA), h('span', {}, '–'), h('b', { class: winsB > winsA ? 'cmp-ahead' : '' }, winsB)] : '—'),
-      h('small', {}, counted ? 'stats ahead' : ''),
+      h('small', {}, counted ? 'metrics ahead' : ''),
       h('div', { class: 'cmp-split', 'aria-hidden': 'true' }, h('i', { style: { width: `${counted ? winsA / counted * 100 : 50}%` } }), h('i', { style: { width: `${counted ? winsB / counted * 100 : 50}%` } })),
       swap), who(B, lb, c.b, winsB > winsA, pickB)),
     !lobby ? h('div', { class: 'hint' }, spinner(10), ' Reading everyone’s numbers in your demos (only the first time takes a few seconds)…') : null,
     lobby?.pending ? h('div', { class: 'hint' }, `${lobby.pending} demo${lobby.pending > 1 ? 's are' : ' is'} not read yet and not in the lobby numbers.`) : null,
+    !empty ? h('div', { class: 'cmp-key' }, h('span', {}, 'Bars: percentile within your lobbies'), h('span', {}, h('i', { class: 'cmp-key-median' }), 'lobby median'), h('span', {}, glyph(CMP_ICONS.down), 'lower is better')) : null,
     empty ? h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.'))
       : h('div', { class: 'cmp-groups' }, ...[...groups].map(([g, rows]) => {
         const [a, b] = tallies.get(g) || [0, 0];
