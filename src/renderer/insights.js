@@ -125,7 +125,7 @@ function economyView() {
   const flagList = flags.length ? h('div', { class: 'integ-moments' }, ...flags.map(f => h('div', { class: 'integ-moment' },
     h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, f.round), h('div', { class: 'l' }, sideTag(f.side))),
     h('div', { class: 'integ-text' }, f.text),
-    h('div', { class: 'integ-actions' }, h('button', { class: 'btn', onclick: () => showInReplay(pov, f.tick + 2 * 64) }, '2D replay')))))
+    h('div', { class: 'integ-actions' }, h('button', { class: 'btn', onclick: () => showInReplay(pov, f.tick + 2 * 64) }, icon(ICONS.play), '2D replay')))))
     : h('div', { class: 'integ-none' }, `No buy mistakes found for ${name}.`);
 
   const rows = v.rounds.map(r => {
@@ -255,7 +255,7 @@ function aimView() {
     h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, m.round), h('div', { class: 'l' }, fmtDur(m.clock))),
     h('div', { class: 'integ-text' }, h('span', { class: 'tag' }, tag), h('div', {}, text)),
     h('div', { class: 'integ-actions' },
-      h('button', { class: 'btn', onclick: () => showInReplay(sel.steamid, m.tick + tickOffset) }, '2D replay'),
+      h('button', { class: 'btn', onclick: () => showInReplay(sel.steamid, m.tick + tickOffset) }, icon(ICONS.play), '2D replay'),
       viewInCs2Button('View in CS2', 'btn', 'Opens the demo in CS2 in this player’s eyes 3 s before this moment and pauses on it',
         () => ({ tick: m.tick, lead: 3, pause: true, name: sel.name }), 'Paused on the moment in CS2. Use the demo controls (Shift+F2) to step back and forth.')));
   const weaponLabel = w => ({ ak47: 'AK-47', m4a1: 'M4A4', m4a1_silencer: 'M4A1-S', usp_silencer: 'USP-S', hkp2000: 'P2000', deagle: 'Deagle', awp: 'AWP', ssg08: 'Scout', glock: 'Glock' })[w] || w.toUpperCase();

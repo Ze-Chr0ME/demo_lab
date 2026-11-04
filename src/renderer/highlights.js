@@ -293,7 +293,7 @@ function renderHighlights(check = true) {
     }));
   const sideEmblem = team => h('img', { class: 'hl-team-emblem', src: `img/team-${team.toLowerCase()}.png`, alt: '', 'aria-hidden': 'true' });
   const sides = h('div', { class: 'hl-seg', role: 'group', 'aria-label': 'Team filter' },
-    ...[['T', 'T', 'Terrorists'], ['all', 'Both', 'Both teams'], ['CT', 'CT', 'Counter-Terrorists']].map(([v, l, label]) =>
+    ...[['all', 'Both', 'Both teams'], ['T', 'T', 'Terrorists'], ['CT', 'CT', 'Counter-Terrorists']].map(([v, l, label]) =>
       h('button', { class: `${st.side === v ? 'on' : ''} ${v !== 'all' ? `side-${v}` : ''}`, type: 'button',
         title: label, 'aria-label': label, 'aria-pressed': String(st.side === v), onclick: () => change({ side: v }) },
       v === 'all' ? h('span', { class: 'hl-team-pair', 'aria-hidden': 'true' }, sideEmblem('T'), sideEmblem('CT')) : sideEmblem(v), l)));

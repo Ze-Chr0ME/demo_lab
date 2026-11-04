@@ -59,7 +59,7 @@ function deathRow(x, { name, steamid, onReplay, cs2 = true, extra = null }) {
         x.traded ? h('span', { class: 'dtag good', title: 'A teammate killed your killer within 5 seconds' }, `Traded by ${x.traded.by}`, h('small', {}, `${x.traded.after} s later`)) : null,
         !x.tags.some(t => DEATH_TAGS[t]?.kind === 'bad') && !x.traded ? h('span', { class: 'dtag', title: 'None of the usual mistakes' }, 'Nothing to blame') : null)),
     h('div', { class: 'integ-actions' },
-      h('button', { class: 'btn', title: 'The last seconds before this death in the 2D replay', onclick: onReplay || (() => showInReplay(steamid, x.tick - 5 * 64)) }, '2D replay'),
+      h('button', { class: 'btn', title: 'The last seconds before this death in the 2D replay', onclick: onReplay || (() => showInReplay(steamid, x.tick - 5 * 64)) }, icon(ICONS.play), '2D replay'),
       cs2 ? viewInCs2Button('View in CS2', 'btn', 'Opens the demo in CS2 in this player’s eyes 6 s before this death and pauses on it',
         () => ({ tick: x.tick, lead: 6, pause: true, name }), 'Paused on the death in CS2. Use the demo controls (Shift+F2) to step back and forth.') : null));
 }

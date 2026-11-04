@@ -770,7 +770,7 @@ function scoreboardView() {
   return [
     h('div', { class: 'section-head' }, h('h3', {}, 'Scoreboard'),
       h('button', { class: 'chip-toggle sb-mode', 'aria-pressed': String(detailed), title: 'Switch scoreboard detail', onclick: () => { state.sbDetailed = !detailed; renderDetail(); } }, pickSvg(PICK_ICONS[detailed ? 'layers' : 'list']), detailed ? 'Advanced' : 'Simple'),
-      st.sides ? h('div', { class: 'tabs', title: 'Count everything, or only the rounds each player spent on one side' }, ...[[null, 'Both sides'], ['CT', 'CT side'], ['T', 'T side']].map(([v, l]) =>
+      st.sides ? h('div', { class: 'tabs', title: 'Count everything, or only the rounds each player spent on one side' }, ...[[null, 'Both sides'], ['T', 'T side'], ['CT', 'CT side']].map(([v, l]) =>
         h('button', { class: `${side === v ? 'on' : ''} ${v ? 'side-' + v : ''}`, 'aria-pressed': String(side === v), title: l, 'aria-label': l, onclick: () => { state.sbSide = v; renderDetail(); } }, sideIcon(v || 'both')))) : null,
       h('span', { class: 'spacer' }), h('span', { class: 'hint' }, 'Sort by any column · click a player to see the match as them · the bars icon opens their stats')),
     ...teams.map(t => h('div', { class: 'sb-wrap' }, table(t))),
@@ -887,7 +887,7 @@ function integrityMoments(p) {
     h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, m.round), h('div', { class: 'l' }, fmtDur(m.clock))),
     h('div', { class: 'integ-text' }, h('span', { class: `tag integ-${m.kind}` }, MOMENT_KIND[m.kind]), h('div', {}, m.text)),
     h('div', { class: 'integ-actions' },
-      h('button', { class: 'btn', title: 'Open the 2D replay 2 s before this moment, viewing the match as this player', onclick: () => showInReplay(p.steamid, m.tick) }, '2D replay'),
+      h('button', { class: 'btn', title: 'Open the 2D replay 2 s before this moment, viewing the match as this player', onclick: () => showInReplay(p.steamid, m.tick) }, icon(ICONS.play), '2D replay'),
       viewInCs2Button('View in CS2', 'btn', m.kind === 'snap'
         ? 'Opens the demo in CS2 in this player’s eyes 3 s before the snap and pauses right after it'
         : 'Opens the demo in CS2 in this player’s eyes 3 s before this moment',
@@ -4272,7 +4272,7 @@ state.hlaeUpdate = null; // { installed, latest, updateAvailable, ... } once che
 function hlaeUpdateCtl() {
   const u = state.hlaeUpdate;
   const status = h('span', { class: 'hint' },
-    !u ? 'Not checked yet' : u.updateAvailable ? `HLAE ${u.latest} is available (${new Date(u.published).toLocaleDateString(UI_LOCALE)})` : `Up to date (latest is ${u.latest})`);
+    !u ? 'Not checked yet' : u.updateAvailable ? `HLAE ${u.latest} is available (${new Date(u.published).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric' })})` : `Up to date (latest is ${u.latest})`);
   const checkBtn = h('button', { class: 'btn', onclick: async () => {
     status.textContent = 'Checking…';
     try { state.hlaeUpdate = await api.hlaeCheck(); } catch (e) { status.textContent = '✗ ' + e.message; return; }
@@ -4488,7 +4488,7 @@ function renderSettings() {
       row('Seconds before / after', h('div', { class: 'ctl' },
         h('span', { class: 'ctl-k' }, 'Before'), num(t.padBefore, v => save({ timing: { padBefore: v } }, true), { max: 15, step: 0.5 }), 's',
         h('span', { class: 'ctl-k' }, 'After'), num(t.padAfter, v => save({ timing: { padAfter: v } }, true), { max: 15, step: 0.5 }), 's'), 'Footage kept around each kill.'),
-      row('Cut gaps longer than', h('div', { class: 'ctl' }, num(t.mergeGap, v => save({ timing: { mergeGap: v } }, true), { max: 120, step: 1 }), 'seconds'), 'Long waits between kills are cut out. Set high (e.g. 60) to keep full sequences.'),
+      row('Cut gaps longer than', h('div', { class: 'ctl' }, num(t.mergeGap, v => save({ timing: { mergeGap: v } }, true), { max: 120, step: 1 }), 's'), 'Long waits between kills are cut out. Set high (e.g. 60) to keep full sequences.'),
     ),
 
     h('div', { class: 'card' },
@@ -4535,7 +4535,7 @@ function renderSettings() {
       row('Save clips to', h('div', { class: 'ctl' }, h('span', { class: 'mono', style: { flex: 1 } }, e.outputDir),
         h('button', { class: 'btn', onclick: async () => { const p = await api.pickFolder('Where to save clips'); if (p) { await save({ outputDir: p }); await refreshEnv(); renderSettings(); } } }, 'Change'))),
       row('Video encoder', select(st.encoder, [['auto', `Auto (using ${e.encoder})`], ['libx264', 'CPU (x264)'], ['h264_nvenc', 'NVIDIA (NVENC)'], ['h264_amf', 'AMD (AMF)'], ['h264_qsv', 'Intel (QuickSync)']], v => save({ encoder: v }).then(refreshEnv), { seg: false, icon: () => pickSvg(PICK_ICONS.chip) })),
-      row('Montage fade', h('div', { class: 'ctl' }, num(st.montage.fade, v => save({ montage: { fade: v } }), { max: 2, step: 0.05 }), 'seconds')),
+      row('Montage fade', h('div', { class: 'ctl' }, num(st.montage.fade, v => save({ montage: { fade: v } }), { max: 2, step: 0.05 }), 's')),
       row('Keep raw recordings', toggle('Keep', st.keepRaw, v => save({ keepRaw: v })), "Keeps HLAE's separate video and audio files in a _raw folder."),
       row('ffmpeg', h('div', { class: 'ctl' }, h('span', { class: 'mono', style: { flex: 1 } }, e.ffmpeg || 'not found'),
         h('button', { class: 'btn', onclick: async () => { const p = await api.pickFile('ffmpeg.exe', [{ name: 'ffmpeg', extensions: ['exe'] }]); if (p) { await save({ ffmpegPath: p }); await refreshEnv(); renderSettings(); } } }, 'Browse'))),
@@ -4550,7 +4550,7 @@ function renderSettings() {
     h('div', { class: 'card' },
       h('h3', {}, 'Advanced timing & commands'),
       h('div', { class: 'desc' }, 'Increase the startup wait if the first clip fails right after CS2 opens. Setup commands run once when CS2 starts, separated by ";".'),
-      row('CS2 startup wait', h('div', { class: 'ctl' }, num(t.startupWait, v => save({ timing: { startupWait: v } }), { max: 300 }), 'seconds')),
+      row('CS2 startup wait', h('div', { class: 'ctl' }, num(t.startupWait, v => save({ timing: { startupWait: v } }), { max: 300 }), 's')),
       row('Setup commands', text(st.commands.setup, v => save({ commands: { setup: v } }), { class: 'mono' })),
     ),
   ];

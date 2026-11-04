@@ -234,7 +234,7 @@ function hitPanel(t, sel, rows, wp) {
   const table = h('table', { class: 'wp-regions' },
     h('thead', {}, h('tr', {}, h('th', {}, 'Region'), h('th', {}, 'Hits'), h('th', {}, 'Dmg'), h('th', {}, '%'))),
     h('tbody', {}, ...regions.map(([g, label]) => { const [n, d] = t.groups[g] || [0, 0]; return h('tr', { 'data-g': g },
-      h('td', {}, h('i', { class: 'wp-dot', style: { background: fill(g) } }), label), h('td', {}, n), h('td', {}, fmtNum(d)), h('td', {}, pctTxt(n, total))); })));
+      h('td', {}, h('i', { class: 'wp-dot', style: { background: fill(g) } }), label), h('td', {}, fmtNum(n)), h('td', {}, fmtNum(d)), h('td', {}, pctTxt(n, total))); })));
 
   // Hovering a region lights its row and the other way round (no repaint).
   const panel = h('aside', { class: 'wp-panel' },
