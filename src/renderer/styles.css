@@ -257,7 +257,7 @@ main { flex: 1; min-width: 0; min-height: 0; position: relative; z-index: 1; }
 .sec .hint { white-space: nowrap; }
 
 /* ---------- Controls ---------- */
-.btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; font-weight: 600; white-space: nowrap; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; font-size: 13.5px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2); cursor: pointer; font-weight: 600; white-space: nowrap; }
 .btn:hover { background: var(--panel-3); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn.primary:hover { filter: brightness(1.08); }
@@ -981,14 +981,15 @@ canvas.zoomable.dragging { cursor: grabbing; }
 .radar-teams .rt, .radar-feed .rt { display: flex; align-items: center; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin: 6px 0 4px; color: var(--muted); }
 .radar-teams .rt.side-T { color: var(--t); }
 .radar-teams .rt.side-CT { color: var(--ct); }
-.rp { padding: 3px 0; }
+.rp { padding: 6px 0 2px; }
+.rp + .rp { border-top: 1px solid var(--line-soft); }
 .rp-top { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
 .rp.dead .avatar { filter: grayscale(1); opacity: .5; }
 .rp-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px; margin-right: auto; }
 .rp-hp { font-variant-numeric: tabular-nums; color: var(--muted); }
 .rp-bar { height: 3px; background: var(--bg); border-radius: 2px; overflow: hidden; margin: 2px 0; }
 .rp-bar div { height: 100%; }
-.rp-w { font-size: 11px; color: var(--dim); min-height: 14px; }
+.rp-w { font-size: 11px; color: var(--muted); min-height: 14px; margin-bottom: 4px; }
 .rp.dead { opacity: .4; }
 .rp.me .rp-name { color: var(--blue-2); }
 .radar-feed { max-height: 380px; overflow: auto; }
@@ -1529,6 +1530,7 @@ textarea:focus { border-color: color-mix(in srgb, var(--blue) 67%, transparent);
 .eco-legend .lg::before { display: none; }
 .eco-legend .lg.buy-eco i { opacity: .42; } .eco-legend .lg.buy-force i { opacity: .62; } .eco-legend .lg.buy-pistol i { opacity: .75; }
 .eco-legend .lg.side-T i { background: var(--t); } .eco-legend .lg.side-CT i { background: var(--ct); }
+.eco-legend .lg:is(.buy-eco, .buy-force, .buy-pistol, .buy-full) i { background: var(--text); }
 .eco-cards { margin-top: 14px; }
 .eco-matrix th:not(.team) { cursor: default; }
 .eco-matrix td.name { width: 30%; }
@@ -2661,7 +2663,6 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 
 /* Pass 11: one selected-row look (soft wash plus an accent edge on the name), calm "Normal", a plain "On your PC" */
 .sb.integ tr.on td.name, .sb.integ tr.on.ally td.name, .sb.integ tr.on.foe td.name { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--text) 45%, transparent); } /* accent edges mean "you"; a picked row is neutral */
-.sb tr.me td.name { background: color-mix(in srgb, var(--blue) 7%, var(--card-bg)); }
 .integ-normal { font-size: 13px; color: var(--muted); }
 .dl-have { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .dl-have svg { width: 14px; height: 14px; color: var(--win); }
@@ -2686,3 +2687,7 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 /* Downloads side cards: prose at body-small size, names stay bold */
 #view-downloads .info-box { font-size: 13.5px; line-height: 1.55; color: var(--muted); }
 #view-downloads .info-box b { color: var(--text); }
+/* Pass 14: even list rows, a focus ring on player search, muted card dates */
+.dl { min-height: 72px; }
+.psearch input[type=search]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+.hl-card-date { color: var(--muted); font-weight: 500; }

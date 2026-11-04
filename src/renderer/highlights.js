@@ -145,7 +145,7 @@ function weaponBuyButton(weapons, onclick) {
       : h('span', { class: 'hl-weapons-empty' },
         icon('<path d="M4 7h16M7 12h10M10 17h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>', 'aria-hidden="true"'),
         'Any weapon'),
-    icon('<path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>', 'class="hl-weapons-chevron" aria-hidden="true"'));
+    icon('<path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>', 'class="hl-weapons-chevron" aria-hidden="true"'));
 }
 
 const hlQueueKey = item => JSON.stringify([item.demo.id, item.player.steamid, item.highlight.id]);

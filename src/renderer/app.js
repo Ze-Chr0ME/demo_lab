@@ -638,7 +638,7 @@ function renderDetail() {
     h('div', { class: 'hero-foot' },
       roundStrip(),
       h('div', { class: 'player-pick' }, 'Point of view', playerSelect,
-        viewInCs2Button('View demo', 'btn', 'Opens this demo in CS2 (through HLAE) at the first round, in the eyes of the point-of-view player',
+        viewInCs2Button('View in CS2', 'btn', 'Opens this demo in CS2 (through HLAE) at the first round, in the eyes of the point-of-view player',
           () => ({ name: a.player?.name }), 'The demo is playing in the CS2 window.'))),
   );
 
@@ -3644,7 +3644,7 @@ function highlightCard(hl) {
     h('div', { class: 'check' }, icon(ICONS.check)),
     h('div', { class: 'round-box' }, h('div', { class: 'l' }, 'Round'), h('div', { class: 'n' }, hl.round), h('div', { class: 'l' }, sideTag(hl.side))),
     h('div', {},
-      h('div', { class: 'hl-title' }, ...hl.tags.map(t => h('span', { class: `tag ${t.type}`, title: tagTitle(t, hl.kills.length) }, tagLabel(t, hl.kills.length))), clipped),
+      h('div', { class: 'hl-title' }, ...hl.tags.filter(t => t.type !== 'special' || !hl.kills.some(k => k.flags.includes(t.label))).map(t => h('span', { class: `tag ${t.type}`, title: tagTitle(t, hl.kills.length) }, tagLabel(t, hl.kills.length))), clipped), // a special already on its kill line is not repeated
       h('div', { class: 'kills' }, ...hl.kills.map(k => h('div', { class: 'kill' },
         h('span', { class: 'w' }, k.weapon),
         k.headshot ? h('span', { class: 'hs' }, 'HS') : null,

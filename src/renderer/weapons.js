@@ -194,7 +194,7 @@ function weaponBoard(rows, wp, repaint, { kills: killsSub } = {}) {
   const head = h('div', { class: 'wp-row wp-cols', ...grid }, h('span'), h('span', { class: 'wp-sel-info', title: 'The bar under each weapon is its share of the kills' },
     sel.length ? [`${sel.length} selected · `, h('button', { class: 'link-btn', onclick: () => { wp.sel.clear(); repaint(); } }, 'clear')] : 'Click weapons to compare'),
   ...cols.map(([k, label, tip]) => h('button', { class: `wp-th ${sort.col === k ? 'on' : ''}`, title: tip,
-    onclick: () => { wp.sort = { metric, col: k, dir: sort.col === k ? -sort.dir : -1 }; repaint(); } }, sort.col === k ? (sort.dir < 0 ? '▾ ' : '▴ ') : '', label)));
+    onclick: () => { wp.sort = { metric, col: k, dir: sort.col === k ? -sort.dir : -1 }; repaint(); } }, label, sort.col === k ? (sort.dir < 0 ? ' ▾' : ' ▴') : '')));
   const list = rows.map(r => h('div', { class: `wp-row ${wp.sel.has(r.w) ? 'on' : sel.length ? 'dim' : ''}`, ...grid, onclick: () => toggle(r.w), title: wp.sel.has(r.w) ? 'Click to unselect' : 'Click to select' },
     h('span', { class: 'wp-ic' }, weaponIcon(r.w)),
     h('span', { class: 'wp-name' },

@@ -52,7 +52,7 @@ function deathRow(x, { name, steamid, onReplay, cs2 = true, extra = null }) {
     h('div', { class: 'integ-text' },
       extra,
       h('div', { class: 'death-line' },
-        sideTag(x.side), ...(x.killerName === 'yourself' || x.killerName === 'the world' ? [' ', h('b', {}, x.weapon === 'World' ? 'fall or world damage' : `own ${x.weapon}`)] : [' Killed by ', h('b', {}, x.killerName || '?'), ` with the ${x.weapon}`]), x.headshot ? ' (headshot)' : '', x.wallbang ? ' · wallbang' : '', x.smoke ? ' · through smoke' : '',
+        sideTag(x.side), ...(x.killerName === 'yourself' || x.killerName === 'the world' ? [' ', h('b', {}, x.weapon === 'World' ? 'Fall or world damage' : `Own ${x.weapon}`)] : [' Killed by ', h('b', {}, x.killerName || '?'), ` with the ${x.weapon}`]), x.headshot ? ' (headshot)' : '', x.wallbang ? ' · wallbang' : '', x.smoke ? ' · through smoke' : '',
         x.place ? ` · ${placeLabel(x.place)}` : ''),
       h('div', { class: 'death-tags' },
         ...DEATH_ORDER.filter(t => x.tags.includes(t)).map(t => deathPill(t, x)),
