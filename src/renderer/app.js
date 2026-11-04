@@ -330,7 +330,7 @@ function openMeMenu() {
   const e = state.env;
   const mine = state.view === 'overview' && !state.who;
   $('#meMenu').replaceChildren(
-    e?.mySteamId ? h('div', { class: 'me-menu-id' }, `SteamID ${e.mySteamId}`) : null,
+    e?.mySteamId ? h('div', { class: 'me-menu-id' }, state.profile?.name ? h('b', {}, state.profile.name) : null, `SteamID ${e.mySteamId}`) : null,
     ...ME_MENU.filter(([v]) => v !== 'customize' || e?.mySteamId).map(([v, label, d]) => h('button', {
       class: `me-item ${(v === 'overview' ? mine && !state.ovEdit : v === 'customize' ? state.view === 'overview' && state.ovEdit : state.view === v) ? 'on' : ''}`,
       onclick: () => {
@@ -779,7 +779,7 @@ function duelsView() {
   const verdict = (k, d) => !k && !d ? 'none' : k > d ? 'good' : k < d ? 'bad' : 'even';
   const cell = (a, b) => {
     const k = n(a.steamid, b.steamid), d = n(b.steamid, a.steamid);
-    return h('td', { class: `duel ${verdict(k, d)}`, title: `${a.name} killed ${b.name} ${k}×, died to them ${d}×` }, k || d ? `${k}–${d}` : '·');
+    return h('td', { class: `duel ${verdict(k, d)}`, title: `${a.name} killed ${b.name} ${k}×, died to them ${d}×` }, k || d ? `${k}–${d}` : '—');
   };
   const total = a => {
     let k = 0, d = 0;
@@ -1535,7 +1535,7 @@ function radarView() {
     playBtn,
     h('button', { class: 'icon-btn', title: 'Next round (↓)', disabled: R.round >= data.rounds.length, onclick: () => { setRadarRound(R.round + 1); renderDetail(); } }, icon('<path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2"/>')),
     timeline,
-    select(String(R.speed), [['0.25', '0.25×'], ['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }, { seg: true, icon: () => pickSvg(PICK_ICONS.speed) }),
+    select(String(R.speed), [['0.25', '0.25×'], ['0.5', '0.5×'], ['1', '1×'], ['2', '2×'], ['4', '4×'], ['8', '8×']], v => { R.speed = +v; }, { seg: true }),
   );
   const options = h('div', { class: 'radar-options' },
     toggle('Shots', R.shots, v => { R.shots = v; }, 'Bullet tracers, hits and damage numbers'),
@@ -2779,7 +2779,7 @@ async function renderPlayerSearch() {
       p.names.length > 1 ? h('span', { class: 'ps-aka' }, `aka ${p.names.slice(1, 3).join(', ')}${p.names.length > 3 ? '…' : ''}`) : null),
     h('span', { class: 'ps-sub' }, [`${p.matches} match${p.matches === 1 ? '' : 'es'}`, p.with ? `${p.with} with you` : null, p.against ? `${p.against} against you` : null,
       `last ${short(p.last)}`].filter(Boolean).join(' · ')))));
-  const title = q ? `${rows.length} player${rows.length === 1 ? '' : 's'}${rows.length > ps.rows.length ? `, showing ${ps.rows.length}` : ''}` : 'Players you met most';
+  const title = q ? `${rows.length} player${rows.length === 1 ? '' : 's'}${rows.length > ps.rows.length ? ` · top ${ps.rows.length}, type more to narrow` : ''}` : 'Players you met most';
   ps.list.replaceChildren(
     h('div', { class: 'ps-head' }, title),
     ...(body.length ? body : [h('div', { class: 'ps-note' }, id

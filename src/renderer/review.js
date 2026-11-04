@@ -52,8 +52,7 @@ function deathRow(x, { name, steamid, onReplay, cs2 = true, extra = null }) {
     h('div', { class: 'integ-text' },
       extra,
       h('div', { class: 'death-line' },
-        sideTag(x.side), ' · killed by ', h('b', {}, x.killerName || '?'),
-        ` with the ${x.weapon}`, x.headshot ? ' (headshot)' : '', x.wallbang ? ' · wallbang' : '', x.smoke ? ' · through smoke' : '',
+        sideTag(x.side), ...(x.killerName === 'yourself' || x.killerName === 'the world' ? [' · ', h('b', {}, x.weapon === 'World' ? 'fall or world damage' : `own ${x.weapon}`)] : [' · killed by ', h('b', {}, x.killerName || '?'), ` with the ${x.weapon}`]), x.headshot ? ' (headshot)' : '', x.wallbang ? ' · wallbang' : '', x.smoke ? ' · through smoke' : '',
         x.place ? ` · ${placeLabel(x.place)}` : ''),
       h('div', { class: 'death-tags' },
         ...DEATH_ORDER.filter(t => x.tags.includes(t)).map(t => deathPill(t, x)),
@@ -431,7 +430,7 @@ function renderCompare() {
       const n = Math.round(r * 100), hot = r >= 0.9, good = r >= 0.6, bad = r <= 0.25;
       return h('span', { class: `cmp-tier ${hot || good ? 'high' : bad ? 'low' : ''}`, title: `Better than ${r * 100}% of your lobbies${s.g === 'Aim' ? ' (estimated from quartiles)' : ''}` },
         hot || good || bad ? glyph(hot ? CMP_ICONS.flame : good ? CMP_ICONS.up : CMP_ICONS.down) : null,
-        hot ? 'Top 10%' : good ? `Top ${100 - n}%` : `~${n}%`);
+        hot ? 'Top 10%' : good ? `Top ${100 - n}%` : `${n}th pct`);
     };
     const value = (side, v, r) => h('div', { class: `cmp-v ${side} ${win === side ? 'win' : ''}` },
       h('b', {}, win === side ? glyph(ICONS.check) : null, fmt(v)),

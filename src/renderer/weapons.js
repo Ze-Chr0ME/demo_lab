@@ -158,7 +158,7 @@ function paintWeapons(root, v) {
     select(f.player, [['all', 'All players', () => pickSvg(PICK_ICONS.users)], ...players.map(p => [p.steamid, `${p.name}${p.steamid === pov ? ' (point of view)' : ''}`, () => avatar(p.name, p.steamid, 'xs')])], x => setF('player', x), { seg: false, search: true, noun: 'players' }),
     select(f.team, [['all', 'Both teams'], ['mine', myTeam ? 'Your team' : 'Team of the point of view'], ['theirs', 'Opponents']], x => setF('team', x), { seg: true, icon: v => pickSvg(PICK_ICONS[v === 'theirs' ? 'swords' : 'users']) }),
     select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon }),
-    types.size > 1 ? select(f.type, [['all', 'All weapon types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x), { seg: false, icon: wpTypeIcon }) : null,
+    types.size > 1 ? select(f.type, [['all', 'All types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x), { seg: false, icon: wpTypeIcon }) : null,
     h('span', { class: 'spacer' }),
     Object.keys(wp.f).length ? h('button', { class: 'link-btn', onclick: () => { wp.f = {}; repaint(); } }, 'Reset filters') : null);
 
@@ -326,13 +326,13 @@ function renderAimPage() {
       h('h2', {}, 'Aim', other ? h('span', { class: 'dash-tag', title: `SteamID ${v.steamid}` }, name) : null),
       h('div', { class: 'sub' }, `Every weapon over ${list.length} match${list.length === 1 ? '' : 'es'}`,
         pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null)),
-    h('span', { class: 'spacer' }), back);
+    back);
   const filters = h('div', { class: 'filters wp-filters' },
     modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], x => setF('mode', x), { icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'grid' : 'swords']) }) : null,
     maps.length > 1 ? select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], x => setF('map', x), { seg: false, icon: pickMap, noun: 'maps' }) : null,
     select(f.period, PERIODS, x => setF('period', x), { seg: false, icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'clock' : 'calendar']) }),
     select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon }),
-    types.size > 1 ? select(f.type, [['all', 'All weapon types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x), { seg: false, icon: wpTypeIcon }) : null,
+    types.size > 1 ? select(f.type, [['all', 'All types'], ...WP_TYPES.filter(([k]) => types.has(k) || k === f.type)], x => setF('type', x), { seg: false, icon: wpTypeIcon }) : null,
     h('span', { class: 'spacer' }),
     Object.keys(ap.f).length ? h('button', { class: 'link-btn', onclick: () => { ap.f = {}; repaint(); } }, 'Reset filters') : null);
   if (!list.length) return page(head, filters, h('div', { class: 'empty' }, h('h2', {}, 'No matches for these filters'), h('div', {}, 'Pick another period, map or mode.')));

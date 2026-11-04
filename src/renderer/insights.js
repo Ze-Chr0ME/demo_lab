@@ -77,7 +77,7 @@ function roundStrip() {
     h('div', { class: 'rs-cells' }, ...cells),
     h('div', { class: 'rs-legend' },
       h('span', {}, h('i', { class: 'rs-key win' }), 'won'), h('span', {}, h('i', { class: 'rs-key loss' }), 'lost'),
-      h('span', { class: 'rs-pips demo' }, h('i', {})), 'kills of the point-of-view player',
+      h('span', {}, h('span', { class: 'rs-pips demo' }, h('i', {})), 'kills of the point-of-view player'),
       h('span', { class: 'rs-letters' }, 'P pistol · E eco · F force · B full buy (your team)')));
 }
 
@@ -92,7 +92,7 @@ function economyView() {
 
   // Loadout value per round: your team above the line, the opponents below.
   const W = 1000, H = 230, mid = H / 2, top = 14;
-  const n = v.rounds.length, bw = (W - 40) / n;
+  const n = v.rounds.length, bw = (W - 100) / n; // a right gutter holds the money scale
   const max = Math.max(5000, ...v.rounds.flatMap(r => [r.teams[me].equip, r.teams[them].equip]));
   const y = val => (mid - top) * val / max;
   const bars = v.rounds.map((r, i) => {
@@ -108,7 +108,9 @@ function economyView() {
   }).join('');
   const chart = h('div', { class: 'eco-chart', html: `<svg viewBox="0 0 ${W} ${H}">
     <text x="4" y="${top + 8}" class="et">${v.teamNames[me]}</text><text x="4" y="${H - 8}" class="et">${v.teamNames[them]}</text>
-    <line x1="30" x2="${W - 10}" y1="${mid}" y2="${mid}" class="em"/>${bars}</svg>` });
+    ${[0.5, 1].flatMap(f => [mid - y(max * f), mid + y(max * f)]).map(gy => `<line x1="30" x2="${W - 66}" y1="${gy}" y2="${gy}" class="eg"/>`).join('')}
+    <line x1="30" x2="${W - 66}" y1="${mid}" y2="${mid}" class="em"/>${bars}
+    ${[0.5, 1].map(f => `<text x="${W - 4}" y="${mid - y(max * f) + 4}" class="es">${money(Math.round(max * f / 100) * 100)}</text><text x="${W - 4}" y="${mid + y(max * f) + 4}" class="es">${money(Math.round(max * f / 100) * 100)}</text>`).join('')}</svg>` });
   chart.addEventListener('click', e => { const g = e.target.closest('.eco-r'); if (g) jumpToRound(v.rounds[+g.dataset.i]); });
 
   const types = Object.keys(v.labels);
