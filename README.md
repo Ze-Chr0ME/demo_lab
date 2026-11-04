@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Ze-Chr0ME/demo_lab/releases/latest"><b>Download V1.03</b></a> ·
+  <a href="https://github.com/Ze-Chr0ME/demo_lab/releases/latest"><b>Download V1.04</b></a> ·
   <a href="#-features">Features</a> ·
   <a href="#-install">Install</a> ·
   <a href="#-making-clips">Making clips</a> ·
@@ -33,10 +33,10 @@ heatmaps and a 2D replay. It also spots your best moments (multi-kills, clutches
 and records them as clips through [HLAE](https://www.advancedfx.org/) while you keep using your PC.
 Analysis runs on your PC, with no subscription. Sharing clips, lineup pictures or short codes uses online hosting.
 
-**[V1.03](https://github.com/Ze-Chr0ME/demo_lab/releases/tag/v1.0.3)** values your CS2 storage units on the Inventory page
-(with an optional Steam sign-in), replaces dropdowns with icon pickers, and lets you customize the Overview layout.
-V1.02 added Training with custom scenarios, Aim Botz, a procedural training map and a Highlights page.
-The installer and updater use version `1.0.3`.
+**[V1.04](https://github.com/Ze-Chr0ME/demo_lab/releases/tag/v1.0.4)** adds 100 built-in training scenarios across 10 maps
+and gives every page one consistent look: shared headers, formats, side pickers, team marks and clearer chart keys.
+V1.03 added storage-unit values on the Inventory page, icon pickers and a customizable Overview layout.
+The installer and updater use version `1.0.4`.
 
 ## ✨ Features
 
@@ -82,7 +82,7 @@ The installer and updater use version `1.0.3`.
 
 ### Installer (recommended)
 
-1. Download **[CS2-DemoLab-Setup-1.0.3.exe](https://github.com/Ze-Chr0ME/demo_lab/releases/download/v1.0.3/CS2-DemoLab-Setup-1.0.3.exe)** (V1.03) and run it.
+1. Download **[CS2-DemoLab-Setup-1.0.4.exe](https://github.com/Ze-Chr0ME/demo_lab/releases/download/v1.0.4/CS2-DemoLab-Setup-1.0.4.exe)** (V1.04) and run it.
    Future versions appear on the [latest release page](https://github.com/Ze-Chr0ME/demo_lab/releases/latest).
    It installs for your Windows account only (no admin rights), with ffmpeg included.
 2. Open **Settings → Recording** and click **Check for updates → Install HLAE**.
