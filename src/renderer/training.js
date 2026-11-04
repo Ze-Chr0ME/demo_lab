@@ -333,7 +333,7 @@ function drillResults(id) {
     h('div', { class: 'tr-ws-sec' }, h('h3', {}, 'Last session'), h('span', { class: 'hint' }, `${ago(last.date)} · ${fmtDur(last.seconds || 0)}`),
       h('span', { class: 'spacer' }), h('button', { class: 'link-btn', onclick: () => openSession(last.id) }, 'Full results →')),
     h('div', { class: 'tr-stats' },
-      h('div', { class: 'tr-stat score' }, h('small', {}, 'Score'), h('b', {}, last.score ?? '—', h('small', {}, ' /100')),
+      h('div', { class: 'tr-stat score' }, h('small', {}, 'Score'), h('b', {}, last.score ?? '—', h('small', {}, '/100')),
         h('span', { class: 'tr-stat-prev' }, `best ${best} · ${hist.length} session${hist.length === 1 ? '' : 's'}`)),
       ...tiles),
     h('div', { class: 'dash' },

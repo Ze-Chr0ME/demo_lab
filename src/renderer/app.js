@@ -2592,7 +2592,7 @@ function renderOverview() {
     stats: () => h('div', { class: 'ov-stats' },
       h('div', { class: 'sec' }, h('h3', {}, 'Stats overview'),
         h('span', { class: 'hint legend-inline' }, h('i', { class: 'lg-avg' }), 'selection', list.length > 10 ? [h('i', { class: 'lg-rec' }), 'last 10'] : null,
-          h('b', { class: 'lg-dot good' }), 'better than a typical player', h('b', { class: 'lg-dot bad' }), 'worse'),
+          h('b', { class: 'lg-dot good' }), 'better than a typical player', h('b', { class: 'lg-dot mid' }), 'typical', h('b', { class: 'lg-dot bad' }), 'worse'),
         editing ? OverviewEditor.chips('stat', layout.stats) : null),
       statTiles.length ? tilesGrid()
         : h('div', { class: 'muted-note' }, editing ? 'Every stat is hidden. Add tiles back with the + buttons above.' : 'No stats selected. Choose your tiles in Customize overview.')),
@@ -4062,7 +4062,7 @@ function renderClips() {
         h('div', { class: 'grid' }, ...list.map(clipCard)));
     }));
   }
-  const hint = state.clips.some(c => c.kind === 'clip') ? h('div', { class: 'clips-hint' }, 'Click clips to select them for a montage — they will be joined in the order you click them.') : null;
+  const hint = state.clips.some(c => c.kind === 'clip') ? h('div', { class: 'clips-hint' }, 'Click clips to select them for a montage · joined in the order you click them') : null;
   view.replaceChildren(h('div', { class: `page clips-page ${state.montageSel.length ? 'has-montage' : ''}` }, head, hint, body), montageBar());
 }
 

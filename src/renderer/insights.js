@@ -110,7 +110,7 @@ function economyView() {
     <text x="4" y="${top + 8}" class="et">${v.teamNames[me]}</text><text x="4" y="${H - 8}" class="et">${v.teamNames[them]}</text>
     ${[0.5, 1].flatMap(f => [mid - y(max * f), mid + y(max * f)]).map(gy => `<line x1="30" x2="${W - 66}" y1="${gy}" y2="${gy}" class="eg"/>`).join('')}
     <line x1="30" x2="${W - 66}" y1="${mid}" y2="${mid}" class="em"/>${bars}
-    ${[0.5, 1].map(f => `<text x="${W - 4}" y="${mid - y(max * f) + 4}" class="es">${money(Math.round(max * f / 100) * 100)}</text><text x="${W - 4}" y="${mid + y(max * f) + 4}" class="es">${money(Math.round(max * f / 100) * 100)}</text>`).join('')}</svg>` });
+    ${[0.5, 1].map(f => `<text x="${W - 4}" y="${mid - y(max * f) + 4}" class="es">${money(Math.round(max * f / 100) * 100)}</text><text x="${W - 4}" y="${mid + y(max * f) + 4}" class="es">${money(Math.round(max * f / 100) * 100)}</text>`).join('')}<text x="${W - 4}" y="${mid + 4}" class="es">${money(0)}</text></svg>` });
   chart.addEventListener('click', e => { const g = e.target.closest('.eco-r'); if (g) jumpToRound(v.rounds[+g.dataset.i]); });
 
   const types = Object.keys(v.labels);

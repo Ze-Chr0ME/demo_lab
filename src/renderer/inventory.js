@@ -109,8 +109,8 @@ function renderInventory() {
     h('div', { class: 'dash-title' },
       h('h2', { class: 'inv-title' }, 'Inventory', back), // the player picker sits right after the title, as on the other pages
       h('div', { class: 'sub' }, `${fmtNum(d.count)} item${d.count === 1 ? '' : 's'}`,
-        ` · read ${ago(d.t)}`,
-        d.pricesAt ? ` · ${d.sources[d.source]} prices from ${ago(d.pricesAt)}` : null,
+        ' · ', h('span', { class: 'nowrap' }, `read ${ago(d.t)}`),
+        d.pricesAt ? [' · ', h('span', { class: 'nowrap' }, `${d.sources[d.source]} prices from ${ago(d.pricesAt)}`)] : null,
         st.loading ? h('span', {}, ' · ', spinner(11), ' updating') : null,
         (st.salesJob || d.sales?.job)?.steamid === d.steamid
           ? h('span', { style: { whiteSpace: 'nowrap' }, title: 'The most valuable items are priced from what they sold for on Steam (one item every few seconds, so Steam doesn’t block DemoLab)' },
@@ -179,9 +179,13 @@ function invChart(pts, { W = 800, H = 150, volume = false, tip }) {
   const x = t => padL + (W - padL - padR) * ((t - t0) / Math.max(1, t1 - t0));
   const y = v => padT + (plotB - padT) * (1 - (v - lo) / (hi - lo));
   const cents = hi < 20;
+  // Gridlines on round amounts in the shown currency (1, 2, 2.5 or 5 × 10ⁿ), so the axis reads €1,000 / €2,000 rather than thirds.
+  const rate = state.inv.data?.rates?.[invCurrency()] || 1;
+  const raw = (hi - lo) * rate / 3, mag = 10 ** Math.floor(Math.log10(raw || 1));
+  const step = ([1, 2, 2.5, 5, 10].find(m => m * mag >= raw) || 10) * mag / rate;
+  lo = Math.max(0, Math.floor(lo / step) * step); hi = Math.ceil(hi / step) * step;
   const grid = [];
-  for (let i = 0; i <= 3; i++) {
-    const v = lo + (hi - lo) * i / 3;
+  for (let v = lo; v <= hi + step / 1e6; v += step) {
     grid.push(`<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" class="g"/><text x="${padL - 6}" y="${y(v) + 4}" class="g-t">${invMoney(v, { cents }).replace(/[<&]/g, '')}</text>`);
   }
   const long = t1 - t0 > 300 * 864e5;

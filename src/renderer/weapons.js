@@ -192,7 +192,7 @@ function weaponBoard(rows, wp, repaint, { kills: killsSub } = {}) {
   const share = r => (all.kills ? r.kills / all.kills : all.dmg ? r.dmg / all.dmg : 0);
   const toggle = w => { wp.sel.has(w) ? wp.sel.delete(w) : wp.sel.add(w); repaint(); };
   const selInfo = h('span', { class: 'wp-sel-info', title: 'The bar under each weapon is its share of the kills' },
-    sel.length ? [`${sel.length} selected · `, h('button', { class: 'link-btn', onclick: () => { wp.sel.clear(); repaint(); } }, 'clear')] : 'Click weapons to compare');
+    sel.length ? [`${sel.length} selected · `, h('button', { class: 'link-btn', onclick: () => { wp.sel.clear(); repaint(); } }, 'clear')] : 'Click weapons to compare · Head hits % green or red against your lobbies');
   const head = h('div', { class: 'wp-row wp-cols', ...grid }, h('span'), h('span'),
   ...cols.map(([k, label, tip]) => h('button', { class: `wp-th ${sort.col === k ? 'on' : ''}`, title: tip,
     onclick: () => { wp.sort = { metric, col: k, dir: sort.col === k ? -sort.dir : -1 }; repaint(); } }, label, sort.col === k ? (sort.dir < 0 ? ' ▾' : ' ▴') : '')));

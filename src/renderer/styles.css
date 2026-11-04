@@ -949,6 +949,7 @@ canvas.zoomable.dragging { cursor: grabbing; }
 .heat-layers { margin-bottom: 10px; gap: 6px; }
 /* Filter chips that sit in a row of many: compact so the row stays on one line */
 :is(.heat-layers, .death-chips) .chip-toggle { padding: 4px 9px; font-size: 12px; }
+.death-chips .chip-toggle { padding: 4px 8px; }
 .heat-layers .chip-toggle.on::before { display: none; } /* the layer's colored dot and tint already mark it on */
 .rs-legend .rs-pips.demo { margin: 0; }
 .heat-chip { display: inline-flex; align-items: center; gap: 7px; }
@@ -1526,7 +1527,7 @@ textarea:focus { border-color: color-mix(in srgb, var(--blue) 67%, transparent);
 .eco-chart .en { fill: var(--text); font-size: 11px; font-weight: 600; text-anchor: middle; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
 .eco-chart .et { fill: var(--muted); font-size: 11px; font-weight: 600; }
 .eco-legend { margin: 8px 0 4px; }
-.eco-legend .lg i { display: inline-block; width: 14px; height: 11px; border-radius: 3px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 30%, transparent); background: linear-gradient(90deg, var(--t) 50%, var(--ct) 50%); margin-right: 6px; vertical-align: -1px; }
+.eco-legend .lg i { display: inline-block; width: 14px; height: 11px; border-radius: 3px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 45%, transparent); background: linear-gradient(90deg, var(--t) 50%, var(--ct) 50%); margin-right: 6px; vertical-align: -1px; }
 .eco-legend .lg::before { display: none; }
 .eco-legend .lg.buy-eco i { opacity: .3; } .eco-legend .lg.buy-force i { opacity: .55; } .eco-legend .lg.buy-pistol i { opacity: .78; }
 .eco-legend .lg.side-T i { background: var(--t); } .eco-legend .lg.side-CT i { background: var(--ct); }
@@ -1694,7 +1695,7 @@ table.sb.sb-score th.wide { width: 118px; }
 .death-line { color: var(--text); }
 .death-line .side-T { color: var(--t); font-weight: 700; } .death-line .side-CT { color: var(--ct); font-weight: 700; }
 .death-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.death-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; max-width: 980px; } /* wraps into two even rows instead of one orphan chip */
+.death-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 14px; }
 .dchip { display: inline-flex; align-items: center; gap: 6px; }
 .dchip.bad:not(.on) .tab-count { background: color-mix(in srgb, var(--loss) 15%, transparent); color: color-mix(in oklab, var(--loss), #fff 35%); }
 .death-note { display: flex; align-items: center; gap: 14px; justify-content: space-between; }
@@ -2642,11 +2643,11 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 .radar-head .radar-rounds { margin: 0 0 0 12px; }
 /* Pass 9: Aim and Integrity rows mark the team with a bar instead of a second line */
 .sb.integ tr.ally td.name { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--blue) 50%, transparent); }
-.sb.integ tr.foe td.name { box-shadow: inset 3px 0 0 var(--line-2); }
+.sb.integ tr.foe td.name { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--text) 45%, transparent); }
 .sb.integ tr.on.ally td.name { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--blue) 50%, transparent), inset 0 0 0 999px color-mix(in srgb, var(--text) 5%, transparent); }
-.sb.integ tr.on.foe td.name { box-shadow: inset 3px 0 0 var(--line-2), inset 0 0 0 999px color-mix(in srgb, var(--text) 5%, transparent); }
+.sb.integ tr.on.foe td.name { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--text) 45%, transparent), inset 0 0 0 999px color-mix(in srgb, var(--text) 5%, transparent); }
 .team-key { display: inline-flex; align-items: center; gap: 5px; margin-left: 14px; font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); }
-.team-key i { display: inline-block; width: 3px; height: 12px; border-radius: 1px; background: var(--line-2); }
+.team-key i { display: inline-block; width: 3px; height: 12px; border-radius: 1px; background: color-mix(in srgb, var(--text) 45%, transparent); }
 .team-key i.ally { background: color-mix(in srgb, var(--blue) 50%, transparent); }
 .team-key i + * , .team-key i.foe { margin-left: 6px; }
 .team-key i.ally { margin-left: 0; }
@@ -2669,7 +2670,7 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 .integ-ok-text { font-size: 13px; color: var(--muted); }
 .dl-have { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .dl-have svg { width: 14px; height: 14px; color: var(--win); }
-.settings input[type=number] { width: 72px; text-align: center; }
+.settings input[type=number], #view-settings input[type=number] { width: 64px; text-align: center; }
 .cmp-row { min-height: 64px; }
 /* Clips: official map emblems instead of colour dots (two maps shared one orange) */
 .clip-emblem { width: 16px; height: 16px; flex: none; object-fit: contain; vertical-align: -3px; }
@@ -2714,7 +2715,7 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 /* Pass 18: the team stripe stays on your row and on the picked row; quieter replay hint; Compare row rules */
 .sb.integ tr.me.ally td.name { box-shadow: inset 3px 0 0 var(--blue); }
 .sb.integ tr.on.ally td.name { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--blue) 50%, transparent); }
-.sb.integ tr.on.foe td.name { box-shadow: inset 3px 0 0 var(--line-2); }
+.sb.integ tr.on.foe td.name { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--text) 45%, transparent); }
 :root[data-scene=map] .radar-options .hint { background: none; padding: 0; color: var(--muted); text-shadow: 0 1px 3px #000d; }
 .cmp-group .cmp-row + .cmp-row { border-top: 1px solid var(--line-soft); }
 .inv-delta { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; } /* the change and what it is measured against read as one item */
@@ -2723,7 +2724,12 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 .hl-queue { padding-top: 8px; padding-bottom: 8px; }
 .tr-card .map-card-body { background: linear-gradient(0deg, #000000c8, #00000090 55%, transparent); }
 /* Pass 19 */
-.dl-side .info-box { font-size: 12.5px; line-height: 1.55; } /* side notes read smaller than the list they explain */
+#view-downloads .dl-side .info-box { font-size: 12.5px; line-height: 1.55; } /* side notes read smaller than the list they explain */
 .map-card-sub .side-tag { vertical-align: -.12em; color: inherit; gap: 4px; } /* counts sit on the text baseline, the icon carries the side */
 .map-card-sub .side-tag .pick-side { width: .95em; height: .95em; }
 .hl-chip-word { font-weight: 600; margin-left: -1px; }
+#view-matches .detail .section-head h3 { font: var(--label); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); } /* the active tab already names the section; this is an eyebrow */
+.wp-filters .pick-seg + .pick-seg { margin-left: 8px; } /* team and side pickers read as two controls */
+.legend-inline .lg-dot.mid { background: var(--text); }
+.tr-card-score b + small { margin-left: -5px; } /* 44/100 reads as one value */
+.nowrap { white-space: nowrap; }
