@@ -872,7 +872,7 @@ function integrityView() {
 
   return [
     h('div', { class: 'section-head' }, h('h3', {}, 'Integrity'), h('span', { class: 'spacer' }),
-      h('span', { class: 'hint' }, 'Red flags read from the demo, not proof. Watch the moments before judging anyone. Hover a column for what it measures.')),
+      h('span', { class: 'hint' }, 'Red flags read from the demo, not proof · pick a player to see their moments below · hover a column for what it measures')),
     st.value.lineOfSight ? null : h('div', { class: 'integ-note' }, 'No map geometry for this map (or it could not be downloaded), so who could see whom comes from the in-game radar, which lags behind quick peeks. The wall-related numbers are rougher than usual.'),
     h('div', { class: 'sb-wrap' }, table),
     ...integrityMoments(sel),
@@ -2364,6 +2364,8 @@ function histogram(items, avg, recent, fmt) {
   const hits = bins.map((b, i) => b.length ? `<rect class="hit" data-b="${i}" x="${(i * bw).toFixed(1)}" width="${bw.toFixed(1)}" y="0" height="${H}"/>` : '').join('');
   const mark = (v, cls) => (v == null ? '' : `<line x1="${x(v)}" x2="${x(v)}" y1="0" y2="${H}" class="${cls}"/>`);
   const el = h('div', { class: 'tile-chart', html: `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="histo">${bars}<line x1="0" x2="${W}" y1="${H - 1}" y2="${H - 1}" class="base"/>${mark(avg, 'avg')}${mark(recent, 'rec')}${hits}</svg>` });
+  // The scale: where the bars start and end (the 3rd and 97th percentile), so the shape has numbers.
+  el.append(h('div', { class: 'histo-range', 'aria-hidden': 'true' }, h('span', {}, fmt(lo)), h('span', {}, fmt(hi))));
   el.addEventListener('mouseover', e => { const b = e.target.dataset?.b; if (b !== undefined) showHistPop(el, +b, n, bins[+b], fmt); });
   el.addEventListener('mouseleave', hideHistPopSoon);
   return el;
@@ -2880,7 +2882,7 @@ function renderMaps() {
             mapEmblem(e.map, 'map-card-icon'),
             h('div', { class: 'map-card-t' },
               h('div', { class: 'map-card-name' }, mapName(e.map)),
-              h('div', { class: 'map-card-sub' }, `${e.demos} match${e.demos === 1 ? '' : 'es'} · last ${new Date(e.last).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short' })}`))),
+              h('div', { class: 'map-card-sub' }, `${e.demos} demo${e.demos === 1 ? '' : 's'}${me && me.played !== e.demos ? ` · ${me.played} played` : ''} · last ${new Date(e.last).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short' })}`))),
           me ? h('div', { class: 'map-card-rec' },
             h('span', {}, `${me.won} W · ${me.lost} L${me.played > me.won + me.lost ? ` · ${me.played - me.won - me.lost} D` : ''}`), h('b', { class: wr >= 50 ? 'good' : 'bad' }, `${wr}%`),
             h('div', { class: 'bar-track' }, h('div', { class: `bar-fill ${wr >= 50 ? 'good' : 'bad'}`, style: { width: `${wr}%` } }))) : h('div', { class: 'map-card-rec muted' }, state.who ? 'This player is in none of these demos' : 'You are in none of these demos'),
@@ -4687,7 +4689,7 @@ function renderDownloads() {
       h('div', { class: 'dl-main' },
         d.error ? h('div', { class: 'err-box' }, d.error) : null,
         d.notes?.length && !d.error ? h('div', { class: 'warn-box' }, d.notes.join('\n')) : null,
-        items.length ? h('div', { class: 'dl-list' }, ...items)
+        items.length ? h('div', { class: 'dl-list' }, h('div', { class: 'dl dl-cols', 'aria-hidden': 'true' }, h('span', {}, 'Date'), h('span', {}, 'Match'), h('span', { class: 'sc' }, 'Score'), h('span', { class: 'act' }, 'Status')), ...items)
           : h('div', { class: 'empty' }, h('h2', {}, 'No matches yet'), h('div', {}, signedIn ? 'Click "Check now" to look for your latest matches.' : 'Sign in to Steam, then click "Check now".')))),
   ));
 }

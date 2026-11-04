@@ -818,7 +818,7 @@ code { background: var(--bg-2); padding: 1px 6px; border-radius: 5px; font-famil
 :root:is([data-scene=map], [data-scene=team]) .hero { backdrop-filter: blur(16px) saturate(1.2); }
 .hero::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 0% 0%, color-mix(in srgb, var(--hero-c) 18%, transparent), transparent 55%); }
 .hero > * { position: relative; z-index: 1; }
-.hero-top { display: flex; align-items: center; gap: 12px 28px; flex-wrap: wrap; padding: 10px 18px 8px; }
+.hero-top { display: flex; align-items: center; gap: 12px 28px; flex-wrap: wrap; padding: 8px 18px 6px; }
 .hero-title { flex: 1 1 260px; min-width: 0; }
 .hero-kicker { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
 .result-pill { padding: 2px 9px; border-radius: 6px; letter-spacing: .05em; font-size: 11px; }
@@ -903,7 +903,7 @@ table.sb { border-collapse: collapse; width: 100%; font-size: 15px; font-variant
 .sb .team-score { font-size: 22px; font-weight: 800; min-width: 26px; }
 .sb .side { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 5px; background: var(--panel-3); margin-left: 10px; }
 .sb .side.side-tag { padding: 2px 4px 2px 8px; gap: 4px; vertical-align: 2px; }
-.sb td { padding: 9px 8px; text-align: center; border-top: 1px solid var(--line-soft); white-space: nowrap; font-weight: 550; }
+.sb td { padding: 8px 8px; text-align: center; border-top: 1px solid var(--line-soft); white-space: nowrap; font-weight: 550; }
 .sb td.name { text-align: left; font-weight: 650; font-size: 14.5px; padding-left: 16px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; }
 .sb tbody tr { cursor: pointer; }
 .sb-profile { display: inline-grid; place-items: center; width: 22px; height: 22px; margin-left: 8px; padding: 0; vertical-align: middle; border: 0; border-radius: 5px;
@@ -1798,14 +1798,14 @@ table.sb.sb-score th.wide { width: 118px; }
 .cmp-sub:empty { display: none; }
 .cmp-v.b .cmp-sub { justify-content: flex-end; }
 .cmp-v.win b { color: var(--accent-2); }
-.cmp-delta { color: var(--text); font-weight: 700; }
+.cmp-delta { color: var(--text); font-weight: 550; }
 .cmp-tier { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); white-space: nowrap; }
 .cmp-tier svg { width: 11px; height: 11px; }
 .cmp-tier.high { color: color-mix(in srgb, var(--accent-2) 75%, var(--muted)); }
 .cmp-tier.low { color: var(--loss); }
-.cmp-label { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; text-align: center; font-size: 12px; color: var(--muted); line-height: 1.35; overflow-wrap: anywhere; }
+.cmp-label { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; text-align: center; font-size: 13px; font-weight: 600; color: color-mix(in srgb, var(--text) 85%, transparent); line-height: 1.35; overflow-wrap: anywhere; }
 .cmp-label > span:nth-child(2) { min-width: 0; }
-.cmp-stat-icon { display: inline-flex; color: var(--dim); opacity: .8; }
+.cmp-stat-icon { display: inline-flex; color: var(--muted); }
 .cmp-stat-icon svg { width: 14px; height: 14px; }
 .cmp-lower { display: inline-flex; color: var(--dim); }
 .cmp-lower svg { width: 11px; height: 11px; }
@@ -2680,7 +2680,7 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 #view-clips .clip-score { color: var(--dim); }
 /* Over a map photo, a match tab's heading row gets a soft panel fade behind it, so its hint reads on bright spots */
 :root[data-scene=map] #view-matches .detail-scroll .section-head { padding: 6px 12px; margin-left: -12px; border-radius: 10px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--panel) 82%, transparent), color-mix(in srgb, var(--panel) 50%, transparent) 60%, transparent 92%); }
+  background: color-mix(in srgb, var(--panel) 88%, transparent); backdrop-filter: blur(10px); }
 .me-menu { box-shadow: 0 16px 40px #000b; border-color: var(--line-2); }
 .dl .when small { display: inline; margin-left: 6px; }
 #invSales { white-space: nowrap; }
@@ -2688,6 +2688,14 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 #view-downloads .info-box { font-size: 13.5px; line-height: 1.55; color: var(--muted); }
 #view-downloads .info-box b { color: var(--text); }
 /* Pass 14: even list rows, a focus ring on player search, muted card dates */
-.dl { min-height: 72px; }
+.dl .act { min-height: 38px; } /* rows with only a status pill match the rows with a button */
 .psearch input[type=search]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
 .hl-card-date { color: var(--muted); font-weight: 500; }
+/* Pass 15: histogram scale under the bars, inside the same tile height */
+.tile-chart:has(.histo-range) svg { inset: 0 0 auto 0; height: calc(100% - 13px); }
+.histo-range { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; font-size: 10px; line-height: 12px; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
+.tile-chart:has(.histo-range) { min-height: 46px; }
+.hl-side .hl-weapons-btn { min-height: 40px; padding: 6px 12px; }
+#view-clips .clip-score { color: color-mix(in srgb, var(--muted) 70%, transparent); }
+.dl.dl-cols { min-height: 0; padding: 0 16px; background: none; border: 0; font: var(--label); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.dl.dl-cols .sc { font: inherit; }
