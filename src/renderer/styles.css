@@ -890,14 +890,14 @@ code { background: var(--bg-2); padding: 1px 6px; border-radius: 5px; font-famil
 /* Scoreboard & duels */
 .sb-wrap { overflow-x: auto; margin-bottom: 16px; background: var(--card-bg); border: 1px solid var(--line); border-radius: var(--radius); }
 table.sb { border-collapse: collapse; width: 100%; font-size: 15px; font-variant-numeric: tabular-nums; }
-.sb th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; padding: 13px 8px; text-align: center; white-space: nowrap; cursor: pointer; border-bottom: 1px solid var(--line); }
+.sb th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; padding: 10px 8px; text-align: center; white-space: nowrap; cursor: pointer; border-bottom: 1px solid var(--line); }
 .sb th:hover, .sb th.sorted { color: var(--text); }
 .sb th.team { text-align: left; text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--text); cursor: default; padding-left: 16px; white-space: nowrap; width: 250px; }
 .sb th.team > * { margin-right: 8px; vertical-align: middle; }
 .sb .team-score { font-size: 22px; font-weight: 800; min-width: 26px; }
 .sb .side { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 5px; background: var(--panel-3); margin-left: 10px; }
 .sb .side.side-tag { padding: 2px 4px 2px 8px; gap: 4px; vertical-align: 2px; }
-.sb td { padding: 11px 8px; text-align: center; border-top: 1px solid var(--line-soft); white-space: nowrap; font-weight: 550; }
+.sb td { padding: 9px 8px; text-align: center; border-top: 1px solid var(--line-soft); white-space: nowrap; font-weight: 550; }
 .sb td.name { text-align: left; font-weight: 650; font-size: 14.5px; padding-left: 16px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; }
 .sb tbody tr { cursor: pointer; }
 .sb-profile { display: inline-grid; place-items: center; width: 22px; height: 22px; margin-left: 8px; padding: 0; vertical-align: middle; border: 0; border-radius: 5px;
@@ -911,7 +911,7 @@ table.sb { border-collapse: collapse; width: 100%; font-size: 15px; font-variant
 .sb td.good { color: var(--win); font-weight: 650; }
 .sb td.bad { color: var(--loss); font-weight: 650; }
 .sb.duels th.duel-head { vertical-align: bottom; padding: 12px 6px 10px; cursor: default; white-space: normal; text-transform: none; letter-spacing: 0; }
-.sb.duels th.duel-head .avatar { width: 36px; height: 36px; margin: 0 auto 7px; font-size: 15px; }
+.sb.duels th.duel-head .avatar { width: 30px; height: 30px; margin: 0 auto 5px; font-size: 15px; }
 .duel-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere;
   font-size: 12px; font-weight: 650; line-height: 1.25; color: var(--text); }
 .sb.duels th.duel-head.me .duel-name { color: var(--blue-2); }
@@ -2474,11 +2474,11 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 .hl-card-when { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .hl-card-map { display: flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 600; color: var(--muted); }
 .hl-card-map b { color: var(--text); font-weight: 650; }
-.hl-card-date { font-size: 17px; font-weight: 700; letter-spacing: -.2px; font-variant-numeric: tabular-nums; }
-.hl-card-file { font-size: 11px; color: var(--muted); opacity: .55; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hl-card-date { font-size: 14px; font-weight: 650; letter-spacing: -.2px; font-variant-numeric: tabular-nums; }
+.hl-card-file { font-size: 11.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hl-card-stars { color: var(--accent); font-size: 14px; letter-spacing: 1px; white-space: nowrap; }
 .hl-card-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-height: 22px; }
-.hl-card-tags b { font-size: 15px; font-weight: 750; color: var(--accent); }
+.hl-card-tags b { font-size: 16px; font-weight: 700; color: var(--accent); }
 .hl-card-tags .hl-mark-img { width: 22px; height: 22px; }
 .hl-card-tags .hl-mark .wp-img { max-width: 40px; max-height: 20px; }
 .hl-feed { display: flex; flex-direction: column; gap: 3px; }
@@ -2490,7 +2490,9 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 .hl-card-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); }
 .hl-open { border: 0; padding: 5px 0 5px 8px; background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
 .hl-open:hover { text-decoration: underline; }
-.hl-queue-status { display: inline-flex; align-items: center; gap: 5px; padding: 5px 0; border: 0; background: none; color: inherit; font: inherit; font-size: 11px; cursor: pointer; }
+.hl-queue-status { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 3px 9px; border: 1px solid var(--line-2); border-radius: 8px; background: none; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.hl-queue-status:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line-2)); color: var(--text); }
+.hl-queue-status.on { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); }
 .hl-queue-status svg { width: 13px; height: 13px; }
 .hl-queue-status.on { color: var(--accent); font-weight: 650; }
 .hl-queue { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 14px; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
