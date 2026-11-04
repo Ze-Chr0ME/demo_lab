@@ -249,7 +249,7 @@ const INV_BOX = '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z" fill="none" stroke=
 function invStorageCard(d) {
   const s = d.storage, su = state.inv.su;
   const signOut = h('button', { class: 'btn ghost', disabled: su.busy, title: 'Forget the Steam sign-in DemoLab keeps for storage units', onclick: invSignOut }, 'Sign out');
-  const read = label => h('button', { class: 'btn primary', disabled: su.busy, onclick: invReadStorage }, icon(INV_BOX), label);
+  const read = label => h('button', { class: `btn ${label === 'Read again' ? '' : 'primary'}`, disabled: su.busy, onclick: invReadStorage }, icon(INV_BOX), label);
   const busy = su.busy ? h('div', { class: 'inv-su-busy' }, spinner(12), h('span', { id: 'invSuProgress' },
     su.progress ? `Reading storage unit ${su.progress.done} of ${su.progress.total}…` : 'Signing in to CS2…'),
     h('button', { class: 'btn ghost', onclick: () => api.storageCancel().catch(() => {}) }, 'Stop')) : null;

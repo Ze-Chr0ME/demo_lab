@@ -620,7 +620,7 @@ function renderDetail() {
   const hero = h('div', { class: 'hero', style: { '--hero-c': mapColor(a.map) } },
     h('div', { class: 'hero-top' },
       h('div', { class: 'hero-title' },
-        h('div', { class: 'hero-kicker' }, mapName(a.map), a.playerFound ? h('span', { class: `result-pill r-${res}` }, res === 'w' ? 'Win' : res === 'l' ? 'Loss' : 'Draw') : null),
+        h('div', { class: 'hero-kicker' }, d.customName ? mapName(a.map) : /^match730_/.test(d.name) ? 'Valve match' : 'Demo', a.playerFound ? h('span', { class: `result-pill r-${res}` }, res === 'w' ? 'Win' : res === 'l' ? 'Loss' : 'Draw') : null),
         h('div', { class: 'title-row' },
           h('h1', {}, d.customName || mapName(a.map)),
           h('button', { class: 'icon-btn rename', title: 'Rename this match (only in DemoLab, the file keeps its name)', onclick: e => editName(d, e.currentTarget.previousSibling) }, icon(PENCIL))),
@@ -721,7 +721,7 @@ const SB_COLS = [
   ['ADR', 'Average damage per round', p => p.adr, p => p.adr.toFixed(1)],
   ['HS%', 'Share of kills that were headshots', p => p.hsPct, p => p.hsPct + '%'],
   ['KAST', 'Rounds with a Kill, Assist, Survival or Trade', p => p.kast, p => p.kast.toFixed(0) + '%'],
-  ['Rating', 'Approximation of HLTV Rating 2.0 (HLTV does not publish its formula; usually within ±0.02)', p => p.rating ?? 0, p => p.rating == null ? '—' : '≈' + p.rating.toFixed(2), p => ratingClass(p.rating)],
+  ['Rating', 'Approximation of HLTV Rating 2.0 (HLTV does not publish its formula; usually within ±0.02)', p => p.rating ?? 0, p => p.rating == null ? '—' : p.rating.toFixed(2), p => ratingClass(p.rating)],
   ['FK', 'First kills (opening duels won)', p => p.firstKills],
   ['FD', 'First deaths (opening duels lost)', p => p.firstDeaths],
   ['Multi', 'Rounds with 2 / 3 / 4 / 5 kills', p => p.multi[2] + 2 * p.multi[3] + 4 * p.multi[4] + 8 * p.multi[5], p => [2, 3, 4, 5].map(n => p.multi[n]).join(' / ')],
@@ -865,7 +865,7 @@ function integrityView() {
       h('th', { title: 'Kills and headshot percentage, for context' }, 'K · HS%'))),
     h('tbody', {}, ...players.map(p => h('tr', { class: `${p.steamid === sel.steamid ? 'on' : ''} ${p.mine ? 'me' : ''} ${p.team == null ? '' : p.team === st.value.myTeam ? 'ally' : 'foe'}`, title: 'Show this player’s moments', onclick: () => { state.integPlayer = p.steamid; renderDetail(); } },
       h('td', { class: 'name', title: teamName(p) }, steamAvatar(p.name, p.steamid, 'sm'), p.name),
-      h('td', {}, h('span', { class: `pill ${INTEG_LEVEL[p.level][1]}` }, INTEG_LEVEL[p.level][0])),
+      h('td', {}, p.level === 'normal' ? h('span', { class: 'integ-normal' }, 'Normal') : h('span', { class: `pill ${INTEG_LEVEL[p.level][1]}` }, INTEG_LEVEL[p.level][0])),
       ...p.signals.map(s => { const m = /^(.*) · ([\d.]+×)$/.exec(s.display || '');
         return h('td', { class: `integ-${s.level}`, title: `Normal: ${s.normal}` }, m ? [m[1], h('small', { class: 'integ-x' }, `${m[2]} normal`)] : s.display); }),
       h('td', {}, `${p.context.kills} · ${p.context.hsPct}%`)))));
@@ -2804,7 +2804,7 @@ async function renderPlayerSearch() {
       p.names.length > 1 ? h('span', { class: 'ps-aka' }, `aka ${p.names.slice(1, 3).join(', ')}${p.names.length > 3 ? '…' : ''}`) : null),
     h('span', { class: 'ps-sub' }, [`${p.matches} match${p.matches === 1 ? '' : 'es'}`, p.with ? `${p.with} with you` : null, p.against ? `${p.against} against you` : null,
       `last ${short(p.last)}`].filter(Boolean).join(' · ')))));
-  const title = q ? `${rows.length} player${rows.length === 1 ? '' : 's'}${rows.length > ps.rows.length ? ` · top ${ps.rows.length}, type more to narrow` : ''}` : 'Players you met most';
+  const title = q ? `${rows.length} player${rows.length === 1 ? '' : 's'}${rows.length > ps.rows.length ? ` · showing ${ps.rows.length}, type more to narrow` : ''}` : 'Players you met most';
   ps.list.replaceChildren(
     h('div', { class: 'ps-head' }, title),
     ...(body.length ? body : [h('div', { class: 'ps-note' }, id
@@ -4048,7 +4048,7 @@ function renderClips() {
         h('div', { class: 'clip-day-head' },
           h('h3', {}, clipDayLabel(day, now)),
           h('span', { class: 'clips-stats' }, `${list.length} clip${list.length === 1 ? '' : 's'} · ${fmtDur(list.reduce((s, c) => s + (c.duration || 0), 0))}`),
-          ...maps.map(m => h('span', { class: 'clip-day-map' }, h('i', { style: { background: mapColor(m) } }), mapName(m))),
+          ...maps.map(m => h('span', { class: 'clip-day-map' }, mapEmblem(m, 'clip-emblem'), mapName(m))),
           h('span', { class: 'clip-day-rule' }),
           clips.length ? h('button', { class: 'link-btn clip-day-select', onclick: () => {
             const ids = new Set(clips.map(c => c.id));
@@ -4102,7 +4102,7 @@ function clipCard(c) {
       h('div', { class: 'clip-title', title: c.title }, c.title),
       rating ? h('span', { class: 'clip-score', title: `Score ${Math.round(c.score)}` }, ...starRow(rating)) : null),
     h('div', { class: 'clip-meta' },
-      c.kind === 'clip' ? h('i', { class: 'clip-dot' }) : null,
+      c.kind === 'clip' && c.map ? mapEmblem(c.map, 'clip-emblem') : null,
       h('span', {}, c.kind === 'share' ? shareBadge(c) : c.kind === 'montage' ? `${c.tags?.[0] || 'Montage'} · ${(c.map || '').split(',').map(m => mapName(m.trim())).join(', ')}` : `${mapName(c.map)} · Round ${c.round ?? '?'}`),
       ms ? h('time', { datetime: new Date(ms).toISOString(), title: fmtDate(ms) }, new Date(ms).toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' })) : null),
     c.kind === 'clip' && weapons.length ? h('div', { class: 'clip-weapons' }, ...weapons.map((w, i) => h('span', { class: i ? '' : 'main' }, w))) : null,
@@ -4676,7 +4676,7 @@ function renderDownloads() {
         h('span', { class: 'mode-name' }, m.mode), m.mapLabel ? ` · ${m.mapLabel}` : '', m.durationMin ? ` · ${m.durationMin} min` : '',
         renamed ? h('div', { class: 'hint' }, `Already on your PC as ${m.file.split(/[\\/]/).pop()}`) : null),
       h('div', { class: `sc ${m.score?.length === 2 ? '' : 'none'}` }, m.score?.length === 2 ? `${m.score[0]} – ${m.score[1]}` : '—'),
-      h('div', { class: 'act' }, h('span', { class: `pill ${cls}` }, label), action),
+      h('div', { class: 'act' }, m.status === 'downloaded' ? h('span', { class: 'dl-have' }, icon(ICONS.check), label) : h('span', { class: `pill ${cls}` }, label), action),
     );
   });
   // The match list, with the Steam sign-in and how checking works beside it (above it in narrow windows).

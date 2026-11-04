@@ -191,7 +191,7 @@ function hlQueueBar() {
     h('span', { class: 'spacer' }),
     h('button', { class: 'btn ghost', type: 'button', disabled: !queued.length,
       onclick: () => { state.hl.queue.clear(); renderHighlights(false); } }, 'Clear queue'),
-    h('button', { class: 'btn primary', type: 'button', disabled: !queued.length || !!state.recording || !!state.recordStarting,
+    h('button', { class: `btn ${queued.length ? 'primary' : 'ghost'}`, type: 'button', disabled: !queued.length || !!state.recording || !!state.recordStarting,
       onclick: hlRecordQueue }, icon(ICONS.rec), `Record queue (${queued.length})`));
 }
 
@@ -322,7 +322,7 @@ function renderHighlights(check = true) {
     h('div', { class: 'hl-main' },
       h('div', { class: 'page-head' }, h('h2', {}, 'Highlights'), playerMenu(), h('span', { class: 'hl-summary', 'aria-live': 'polite' }, `${items.length} of ${all.length}`),
         h('span', { class: 'spacer' }), select(st.sort, [['score', 'Best rated', () => pickSvg(PICK_ICONS.sort)], ['date', 'Newest match', () => pickSvg(PICK_ICONS.calendar)]], sort => change({ sort }), { seg: true, title: 'Sort highlights' }),
-        h('button', { class: 'btn ghost', disabled: st.loading, onclick: () => loadHighlights() }, st.loading ? spinner(14) : null, 'Refresh')),
+        h('button', { class: 'btn', disabled: st.loading, onclick: () => loadHighlights() }, st.loading ? spinner(14) : icon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/>'), 'Refresh')),
       st.parsed < st.total ? h('div', { class: 'hl-progress', role: 'status' }, `${st.parsed} of ${st.total} matches parsed · Refresh to include newly parsed matches.`) : null,
       st.error ? h('div', { class: 'hl-error', role: 'alert' }, `Could not load highlights: ${st.error}`, h('button', { class: 'link-btn', onclick: () => loadHighlights() }, 'Try again')) : null,
       hlQueueBar(),

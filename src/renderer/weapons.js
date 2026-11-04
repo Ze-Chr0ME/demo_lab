@@ -327,7 +327,7 @@ function renderAimPage() {
     h('span', { class: 'dl-head-info' }, `Every weapon over ${list.length} match${list.length === 1 ? '' : 'es'}`,
       pending ? h('span', {}, ' · ', spinner(11), ` reading ${pending} more`) : null));
   const filters = h('div', { class: 'filters wp-filters' },
-    modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], x => setF('mode', x), { icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'grid' : 'swords']) }) : null,
+    modes.length > 1 ? select(f.mode, [['all', 'All modes'], ...modes.map(m => [m, m])], x => setF('mode', x), { seg: false, icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'grid' : 'swords']) }) : null,
     maps.length > 1 ? select(f.map, [['all', 'All maps'], ...maps.map(m => [m, mapName(m)])], x => setF('map', x), { seg: false, icon: pickMap, noun: 'maps' }) : null,
     select(f.period, PERIODS, x => setF('period', x), { seg: false, icon: v => pickSvg(PICK_ICONS[v === 'all' ? 'clock' : 'calendar']) }),
     select(f.side, [['all', 'Both sides'], ['T', 'T side'], ['CT', 'CT side']], x => setF('side', x), { seg: true, icon: sideIcon }),
