@@ -143,7 +143,8 @@ function renderInventory() {
   const summary = h('div', { class: 'inv-summary', style: { '--inv-stats': stats.length } },
     h('div', { class: 'tile inv-stat inv-hero' }, h('div', { class: 'tile-k' }, 'Inventory value'),
       h('div', { class: 'tile-row' }, h('div', { class: 'tile-v inv-total' }, invMoney(d.total)),
-        d.trend30 ? invChangeEl(invChange(d.trend30.now, d.trend30.then), `Against the same items at their 30-day average price (${invMoney(d.trend30.then)})`) : null),
+        d.trend30 ? invChangeEl(invChange(d.trend30.now, d.trend30.then), `Against the same items at their 30-day average price (${invMoney(d.trend30.then)})`) : null,
+        d.trend30 ? h('span', { class: 'inv-vs' }, 'vs 30-day avg') : null),
       h('div', { class: 'tile-sub' }, 'Total estimated value')), ...stats);
 
   const byType = new Map();
@@ -227,7 +228,7 @@ const INV_SHARES = [0, 0.05, 0.1, 0.2, 0.35, 0.5, 1];
 function invShareSelect(d, setInv) {
   const cur = d.stickerShare ?? 0.1;
   const opts = [...new Set([...INV_SHARES, cur])].sort((a, b) => a - b);
-  const el = select(String(cur), opts.map(v => [String(v), v ? `Stickers at ${Math.round(v * 100)}%` : 'Stickers not counted']), v => { setInv({ stickerShare: +v }).then(() => loadInventory()); }, { seg: false, icon: () => pickSvg(PICK_ICONS.sticker) });
+  const el = select(String(cur), opts.map(v => [String(v), v ? `Applied stickers at ${Math.round(v * 100)}%` : 'Applied stickers: 0%']), v => { setInv({ stickerShare: +v }).then(() => loadInventory()); }, { seg: false, icon: () => pickSvg(PICK_ICONS.sticker) });
   el.title = 'How much of an applied sticker’s price is added to the item’s value (an estimate: applied stickers resell for a fraction of their price, scraped ones for less). Charms always count in full.';
   return el;
 }

@@ -2507,7 +2507,7 @@ function scorePanel(t, last10, list, layout = OverviewLayout.normalize(state.set
     editing && !rows.length ? h('div', { class: 'sp-breakdown-empty muted-note' }, 'No breakdown stats. Add them with the + buttons above.') : null,
     h('div', { class: 'sp-label' }, 'Form'),
     h('div', { class: 'form' }, ...last.map(m => h('button', { class: `form-m r-${m.result}`, onclick: () => openMatch(m),
-      title: `${mapName(m.map)} · ${m.score[0]}:${m.score[1]} · ${fmtDate(m.date)}${m.rating != null ? `\nRating ${m.rating.toFixed(2)}` : ''}` }, m.result))),
+      title: `${mapName(m.map)} · ${m.score[0]}:${m.score[1]} · ${fmtDate(m.date)}${m.rating != null ? `\nRating ${m.rating.toFixed(2)}` : ''}` }, m.result === 'T' ? 'D' : m.result))), // a draw is D, as on Maps (T reads as the T side)
   );
 }
 

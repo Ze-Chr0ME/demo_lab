@@ -1498,13 +1498,13 @@ textarea:focus { border-color: color-mix(in srgb, var(--blue) 67%, transparent);
 .rs-cell:hover { border-color: var(--line-2); background: var(--panel-2); }
 .rs-cell.win { background: color-mix(in srgb, var(--win) 15%, var(--panel)); border-color: color-mix(in srgb, var(--win) 35%, var(--line)); }
 .rs-cell.loss { background: color-mix(in srgb, var(--loss) 12%, var(--panel)); border-color: color-mix(in srgb, var(--loss) 30%, var(--line)); }
-.rs-n { font-size: 9.5px; color: var(--muted); line-height: 1; }
+.rs-n { font-size: 11px; color: var(--muted); line-height: 1; }
 .rs-ic svg { width: 14px; height: 14px; display: block; }
 .rs-cell.side-T .rs-ic { color: var(--t); } .rs-cell.side-CT .rs-ic { color: var(--ct); }
 .rs-pips { display: flex; gap: 1.5px; height: 4px; }
 .rs-pips i { width: 4px; height: 4px; border-radius: 50%; background: var(--text); }
 .rs-pips.demo { display: inline-flex; margin: 0 4px 0 10px; vertical-align: middle; }
-.rs-buy { font-size: 8.5px; font-weight: 700; color: var(--dim); line-height: 1; margin-top: auto; padding-bottom: 3px; }
+.rs-buy { font-size: 10px; font-weight: 700; color: var(--dim); line-height: 1; margin-top: auto; padding-bottom: 3px; }
 .rs-buy.buy-full { color: var(--text); }
 .rs-half { width: 2px; margin: 4px 5px; border-radius: 2px; background: var(--line-2); }
 .rs-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; font-size: 12px; color: var(--muted); }
@@ -1518,7 +1518,7 @@ textarea:focus { border-color: color-mix(in srgb, var(--blue) 67%, transparent);
 .eco-chart svg { width: 100%; height: auto; display: block; }
 .eco-chart .eb { cursor: pointer; }
 .eco-chart .eb.side-T { fill: var(--t); } .eco-chart .eb.side-CT { fill: var(--ct); }
-.eco-chart .eb.buy-eco { opacity: .42; } .eco-chart .eb.buy-force { opacity: .62; } .eco-chart .eb.buy-pistol { opacity: .75; } .eco-chart .eb.buy-full { opacity: 1; }
+.eco-chart .eb.buy-eco { opacity: .3; } .eco-chart .eb.buy-force { opacity: .55; } .eco-chart .eb.buy-pistol { opacity: .78; } .eco-chart .eb.buy-full { opacity: 1; }
 .eco-chart .eco-r:hover .eb { opacity: 1; }
 .eco-chart .ew { fill: var(--win); } .eco-chart .el { fill: var(--loss); }
 .eco-chart .em { stroke: var(--line-2); stroke-width: 1; } .eco-chart .eg { stroke: var(--line-soft); stroke-width: 1; stroke-dasharray: 2 4; }
@@ -1528,9 +1528,9 @@ textarea:focus { border-color: color-mix(in srgb, var(--blue) 67%, transparent);
 .eco-legend { margin: 8px 0 4px; }
 .eco-legend .lg i { display: inline-block; width: 14px; height: 11px; border-radius: 3px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 30%, transparent); background: linear-gradient(90deg, var(--t) 50%, var(--ct) 50%); margin-right: 6px; vertical-align: -1px; }
 .eco-legend .lg::before { display: none; }
-.eco-legend .lg.buy-eco i { opacity: .42; } .eco-legend .lg.buy-force i { opacity: .62; } .eco-legend .lg.buy-pistol i { opacity: .75; }
+.eco-legend .lg.buy-eco i { opacity: .3; } .eco-legend .lg.buy-force i { opacity: .55; } .eco-legend .lg.buy-pistol i { opacity: .78; }
 .eco-legend .lg.side-T i { background: var(--t); } .eco-legend .lg.side-CT i { background: var(--ct); }
-.eco-legend .lg:is(.buy-eco, .buy-force, .buy-pistol, .buy-full) i { background: var(--text); }
+.eco-legend .lg:is(.buy-eco, .buy-force, .buy-pistol, .buy-full) i { width: 18px; } /* T|CT halves at the bar opacity, so each swatch looks like the bars */
 .eco-cards { margin-top: 14px; }
 .eco-matrix th:not(.team) { cursor: default; }
 .eco-matrix td.name { width: 30%; }
@@ -1637,7 +1637,7 @@ table.sb.sb-score th.wide { width: 118px; }
 .wp-name-top b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wp-chip { font: 650 10px/1 "Segoe UI", sans-serif; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-2); border-radius: 4px; padding: 3px 7px; flex: none; }
 .wp-share { display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.wp-track { flex: 1; max-width: 240px; height: 3px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.wp-track { flex: 1; max-width: 160px; height: 3px; border-radius: 2px; background: var(--track); overflow: hidden; }
 .wp-track i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
 .wp-panel { position: sticky; top: 12px; background: var(--card-bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
 .wp-ptitle { font-weight: 700; font-size: 15px; margin-top: 8px; }
@@ -2360,7 +2360,7 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 .ut-map-grid .ut-add-card { align-self: stretch; min-height: 0; }
 .ut-map-card { aspect-ratio: 16 / 9.5; }
 .ut-add-card { min-height: 150px; align-self: start; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
-  border: 1.5px dashed var(--line-2); border-radius: var(--radius); background: color-mix(in srgb, var(--card-bg) 50%, transparent); color: var(--muted); font-size: 13px; transition: border-color .15s, color .15s; }
+  border: 1.5px dashed color-mix(in srgb, var(--text) 24%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 6%, color-mix(in srgb, var(--card-bg) 50%, transparent)); color: var(--muted); font-size: 13px; transition: border-color .15s, color .15s; }
 .ut-add-card svg { width: 26px; height: 26px; margin-bottom: 4px; }
 .ut-add-card b { font-size: 15px; color: var(--text); }
 .ut-add-card:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line-2)); color: var(--accent-2); }
@@ -2709,3 +2709,13 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 .dl-list { gap: 6px; }
 #view-clips .clip-rating { height: 36px; padding: 0 10px; border-radius: 9px; background: var(--card-bg); border: 1px solid var(--line); }
 #view-clips .clip-stars-pick button { font-size: 17px; }
+/* Pass 18: the team stripe stays on your row and on the picked row; quieter replay hint; Compare row rules */
+.sb.integ tr.me.ally td.name { box-shadow: inset 3px 0 0 var(--blue); }
+.sb.integ tr.on.ally td.name { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--blue) 50%, transparent); }
+.sb.integ tr.on.foe td.name { box-shadow: inset 3px 0 0 var(--line-2); }
+:root[data-scene=map] .radar-options .hint { background: none; padding: 0; color: var(--muted); text-shadow: 0 1px 3px #000d; }
+.cmp-group .cmp-row + .cmp-row { border-top: 1px solid var(--line-soft); }
+.inv-vs { margin-left: 6px; font-size: 12px; color: var(--muted); }
+#view-highlights .clip-stars-pick button { color: var(--muted); }
+.hl-queue { padding-top: 8px; padding-bottom: 8px; }
+.tr-card .map-card-body { background: linear-gradient(0deg, #000000c8, #00000090 55%, transparent); }

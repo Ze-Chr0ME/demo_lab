@@ -124,7 +124,8 @@ function hubPage() {
   const utMaps = Object.keys(per).length;
   const utility = hubCard('utility', { name: 'Utility', art: mapShotUrl(utMap), onclick: () => showView('utility'),
     sub: lineups.length ? `${lineups.length} lineup${lineups.length === 1 ? '' : 's'} on ${utMaps} map${utMaps === 1 ? '' : 's'}` : 'No lineup saved yet',
-    about: 'Your smokes, flashes and molotovs, map by map. Quiz yourself, then throw them on a practice server.' });
+    about: 'Your smokes, flashes and molotovs, map by map. Quiz yourself, then throw them on a practice server.',
+    score: h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'Not scored · quiz and practice server')) });
   // the cards fill the window; the progress is under them
   return [h('div', { class: 'tr-hub' }, head, running() || ['done', 'error'].includes(tr.status?.phase) ? liveBar() : null,
     h('div', { class: 'tr-grid' }, utility, ...DRILL_ORDER.map(id => drillCard(id)))), progressSection()];
@@ -141,7 +142,7 @@ function drillCard(id) {
     score: hist.length && !hist.some(e => e.score > 0) ? h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'Sessions here are not scored'))
       : hist.length ? h('div', { class: 'tr-card-score' },
       h('span', {}, 'Last', h('b', {}, last.score ?? '—'), last.score != null ? h('small', {}, '/100') : null), h('span', {}, 'Best', h('b', {}, best >= 0 ? best : '—'), best >= 0 ? h('small', {}, '/100') : null),
-      hist.length > 1 ? sparkline(hist.map(e => e.score)) : null) : null });
+      hist.length > 1 ? sparkline(hist.map(e => e.score)) : null) : h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'No sessions yet · each one is recorded from its demo')) });
 }
 
 // A hub card: a picture, the card's own colour and the line above its name.
