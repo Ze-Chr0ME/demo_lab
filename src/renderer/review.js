@@ -444,7 +444,7 @@ function renderCompare() {
       value('a', va, ra), track('a', wa, ra),
       h('div', { class: 'cmp-label' }, h('span', { class: 'cmp-stat-icon' }, glyph(s.icon || CMP_GROUP_ICONS[s.g])), h('span', {}, s.label),
         s.low ? h('span', { class: 'cmp-lower', title: 'Lower is better', 'aria-label': 'Lower is better' }, glyph(CMP_ICONS.down)) : null),
-      track('b', wb, rb), value('b', vb, rb));
+      track('b', wb, rb), value('b', vb, B ? rb : null)); // the lobby median is the 50th percentile by definition
   };
 
   const groups = new Map();

@@ -1341,9 +1341,8 @@ input[type=number] { height: 36px; }
 .ut-head .ut-maps { gap: 6px; }
 .ut-head .ut-maps .chip-toggle { padding: 5px 9px; }
 .ut-head > .btn.primary { height: 36px; }
-.ut-toolbar { display: inline-flex; align-items: stretch; height: 36px; background: var(--card-bg); border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.ut-toolbar .btn { border: 0; border-radius: 0; background: none; padding: 0 10px; gap: 6px; text-shadow: inherit; }
-.ut-toolbar .btn + .btn { border-left: 1px solid var(--line); }
+.ut-toolbar { display: inline-flex; align-items: stretch; height: 36px; gap: 8px; }
+.ut-toolbar .btn { padding: 0 12px; gap: 6px; text-shadow: inherit; }
 .ut-toolbar .btn:hover { background: var(--panel-3); }
 :root:is([data-scene=map], [data-scene=team]) .ut-toolbar { backdrop-filter: blur(16px) saturate(1.2); }
 .ut-filters { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
@@ -2059,7 +2058,6 @@ table.sb.sb-score th.wide { width: 118px; }
 .tr-note { font-size: 13px; color: var(--muted); line-height: 1.5; margin-top: 8px; }
 .tr-start { display: flex; align-items: center; gap: 16px; margin-top: auto; padding-top: 12px; flex-wrap: wrap; }
 .btn.big-btn { padding: 11px 22px; font-size: 15px; }
-.btn:disabled { opacity: .5; cursor: default; }
 .tr-prog { display: flex; flex-direction: column; gap: 4px; }
 .tr-prog-row { display: grid; grid-template-columns: 28px 1fr auto 44px 48px; align-items: center; gap: 12px; padding: 6px 4px; border: 0; background: none; color: inherit; cursor: pointer; border-radius: 8px; text-align: left; }
 .tr-prog-row:hover { background: var(--panel-2); }
@@ -2662,7 +2660,7 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 #view-matches .detail-scroll .section-head { margin-top: 18px; }
 
 /* Pass 11: one selected-row look (soft wash plus an accent edge on the name), calm "Normal", a plain "On your PC" */
-.sb.integ tr.on td.name, .sb.integ tr.on.ally td.name, .sb.integ tr.on.foe td.name { box-shadow: inset 3px 0 0 var(--accent); }
+.sb.integ tr.on td.name, .sb.integ tr.on.ally td.name, .sb.integ tr.on.foe td.name { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--text) 45%, transparent); } /* accent edges mean "you"; a picked row is neutral */
 .sb tr.me td.name { background: color-mix(in srgb, var(--blue) 7%, var(--card-bg)); }
 .integ-normal { font-size: 13px; color: var(--muted); }
 .dl-have { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
@@ -2682,3 +2680,9 @@ button.sc-prev-wrap:hover::after { opacity: 1; }
 /* Over a map photo, a match tab's heading row gets a soft panel fade behind it, so its hint reads on bright spots */
 :root[data-scene=map] #view-matches .detail-scroll .section-head { padding: 6px 12px; margin-left: -12px; border-radius: 10px;
   background: linear-gradient(90deg, color-mix(in srgb, var(--panel) 82%, transparent), color-mix(in srgb, var(--panel) 50%, transparent) 60%, transparent 92%); }
+.me-menu { box-shadow: 0 16px 40px #000b; border-color: var(--line-2); }
+.dl .when small { display: inline; margin-left: 6px; }
+#invSales { white-space: nowrap; }
+/* Downloads side cards: prose at body-small size, names stay bold */
+#view-downloads .info-box { font-size: 13.5px; line-height: 1.55; color: var(--muted); }
+#view-downloads .info-box b { color: var(--text); }

@@ -49,7 +49,7 @@ const MAPS = {
 };
 const mapName = m => MAPS[m]?.[0] || (m || '?').replace(/^(de|cs|ar)_/, '').replace(/^\w/, c => c.toUpperCase());
 const mapColor = m => MAPS[m]?.[1] || '#7a8494';
-const fmtDate = ms => new Date(ms).toLocaleString(UI_LOCALE, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fmtDate = ms => new Date(ms).toLocaleString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 // Short form for lists: the year only when it isn't this year ("3 Nov · 21:50")
 const fmtShort = ms => { const d = new Date(ms), y = d.getFullYear() !== new Date().getFullYear();
   return `${d.toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', ...(y ? { year: 'numeric' } : {}) })} · ${d.toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' })}`; };
@@ -627,8 +627,8 @@ function renderDetail() {
         h('div', { class: 'sub' }, `${fmtDate(d.date)} · ${a.rounds} rounds · ${fmtSize(d.size)}`),
       ),
       a.playerFound ? h('div', { class: 'stat-row' },
-        stat('Score', `${a.score.mine} : ${a.score.enemy}`, `score-${res}`),
-        stat('K – D', sb ? `${sb.kills} – ${sb.deaths}` : `${a.stats.kills} – ${a.stats.deaths}`),
+        stat('Score', `${a.score.mine}:${a.score.enemy}`, `score-${res}`),
+        stat('K–D', sb ? `${sb.kills}–${sb.deaths}` : `${a.stats.kills}–${a.stats.deaths}`),
         sb ? stat('ADR', sb.adr.toFixed(0)) : null,
         stat('HS %', `${sb ? sb.hsPct : a.stats.hsPct}%`),
         sb ? stat('Rating', sb.rating == null ? '—' : sb.rating.toFixed(2), ratingClass(sb.rating)) : null,
@@ -2590,7 +2590,7 @@ function renderOverview() {
     stats: () => h('div', { class: 'ov-stats' },
       h('div', { class: 'sec' }, h('h3', {}, 'Stats overview'),
         h('span', { class: 'hint legend-inline' }, h('i', { class: 'lg-avg' }), 'selection', list.length > 10 ? [h('i', { class: 'lg-rec' }), 'last 10'] : null,
-          h('b', { class: 'lg-dot good' }), 'above your lobbies', h('b', { class: 'lg-dot bad' }), 'below'),
+          h('b', { class: 'lg-dot good' }), 'better than a typical player', h('b', { class: 'lg-dot bad' }), 'worse'),
         editing ? OverviewEditor.chips('stat', layout.stats) : null),
       statTiles.length ? tilesGrid()
         : h('div', { class: 'muted-note' }, editing ? 'Every stat is hidden. Add tiles back with the + buttons above.' : 'No stats selected. Choose your tiles in Customize overview.')),
@@ -4012,7 +4012,7 @@ function renderClips() {
   const starPicker = h('div', { class: `clip-stars-pick ${sf ? 'set' : ''}` }, ...[5, 4, 3, 2, 1].map(n =>
     h('button', { class: n <= sf ? 'on' : '', title: sf === n ? 'Show all ratings' : `${n}-star clips (${perStar[n]})`,
       onclick: () => { state.starFilter = sf === n ? 0 : n; renderClips(); } }, '★')));
-  const starGroup = h('div', { class: 'clip-rating' }, h('span', { class: 'clip-rating-k' }, sf ? `Rating · ${sf}★` : 'Rating'), starPicker);
+  const starGroup = h('div', { class: 'clip-rating' }, h('span', { class: 'clip-rating-k' }, sf ? `Only ${sf}★` : 'Filter by rating'), starPicker);
 
   const head = h('div', { class: 'page-head' },
     h('div', { class: 'clips-heading' }, h('h2', {}, 'Clips'),
@@ -4484,8 +4484,8 @@ function renderSettings() {
         select(String(d.minClutch), [['1', 'from 1v1'], ['2', 'from 1v2'], ['3', 'from 1v3'], ['4', 'from 1v4'], ['5', '1v5 only']], v => save({ detection: { minClutch: +v } }, true), { seg: true, icon: false }))),
       row('Special kills', h('div', { class: 'chips' }, ...Object.entries(SPECIAL_LABELS).map(([k, l]) => toggle(l, d.specials[k], v => save({ detection: { specials: { [k]: v } } }, true))))),
       row('Seconds before / after', h('div', { class: 'ctl' },
-        h('span', { class: 'ctl-k' }, 'Before'), num(t.padBefore, v => save({ timing: { padBefore: v } }, true), { max: 15, step: 0.5 }),
-        h('span', { class: 'ctl-k' }, 'After'), num(t.padAfter, v => save({ timing: { padAfter: v } }, true), { max: 15, step: 0.5 })), 'Footage kept around each kill.'),
+        h('span', { class: 'ctl-k' }, 'Before'), num(t.padBefore, v => save({ timing: { padBefore: v } }, true), { max: 15, step: 0.5 }), 's',
+        h('span', { class: 'ctl-k' }, 'After'), num(t.padAfter, v => save({ timing: { padAfter: v } }, true), { max: 15, step: 0.5 }), 's'), 'Footage kept around each kill.'),
       row('Cut gaps longer than', h('div', { class: 'ctl' }, num(t.mergeGap, v => save({ timing: { mergeGap: v } }, true), { max: 120, step: 1 }), 'seconds'), 'Long waits between kills are cut out. Set high (e.g. 60) to keep full sequences.'),
     ),
 
@@ -4670,12 +4670,12 @@ function renderDownloads() {
     else if (m.status === 'downloading') action = h('div', { class: 'mini-progress' }, h('div', { 'data-dl-progress': m.id, style: { width: prog?.total ? `${Math.round(100 * prog.received / prog.total)}%` : '3%' } }));
     const renamed = m.status === 'downloaded' && m.file && m.fileBase && !m.file.endsWith(m.fileBase + '.dem');
     return h('div', { class: `dl ${m.status === 'expired' ? 'stale' : ''}` },
-      h('div', { class: 'when' }, m.time ? new Date(m.time).toLocaleDateString(UI_LOCALE, { day: '2-digit', month: 'short', year: 'numeric' }) : '?',
+      h('div', { class: 'when' }, m.time ? new Date(m.time).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric' }) : '?',
         h('small', {}, m.time ? new Date(m.time).toLocaleTimeString(UI_LOCALE, { hour: '2-digit', minute: '2-digit' }) : '')),
       h('div', { class: 'mode' },
         h('span', { class: 'mode-name' }, m.mode), m.mapLabel ? ` · ${m.mapLabel}` : '', m.durationMin ? ` · ${m.durationMin} min` : '',
         renamed ? h('div', { class: 'hint' }, `Already on your PC as ${m.file.split(/[\\/]/).pop()}`) : null),
-      h('div', { class: `sc ${m.score?.length === 2 ? '' : 'none'}` }, m.score?.length === 2 ? `${m.score[0]} – ${m.score[1]}` : '—'),
+      h('div', { class: `sc ${m.score?.length === 2 ? '' : 'none'}` }, m.score?.length === 2 ? `${m.score[0]}:${m.score[1]}` : '—'),
       h('div', { class: 'act' }, m.status === 'downloaded' ? h('span', { class: 'dl-have' }, icon(ICONS.check), label) : h('span', { class: `pill ${cls}` }, label), action),
     );
   });

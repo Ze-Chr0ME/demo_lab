@@ -118,7 +118,7 @@ function economyView() {
   const matrix = h('table', { class: 'sb eco-matrix' },
     h('thead', {}, h('tr', {}, h('th', { class: 'team' }, 'Your buy ↓  vs  theirs →'), ...types.map(k => h('th', {}, v.labels[k])))),
     h('tbody', {}, ...types.filter(a => types.some(b => v.matrix[a][b][1])).map(a => h('tr', {}, h('td', { class: 'name' }, v.labels[a]),
-      ...types.map(b => { const [w, p] = v.matrix[a][b]; return h('td', { class: p ? (w / p >= 0.5 ? 'good' : 'bad') : '', title: p ? `${w} won of ${p}` : '' }, p ? `${w}/${p}` : '·'); })))));
+      ...types.map(b => { const [w, p] = v.matrix[a][b]; return h('td', { class: p ? (w / p >= 0.5 ? 'good' : 'bad') : '', title: p ? `${w} won of ${p}` : '' }, p ? `${w}/${p}` : '—'); })))));
 
   const flags = v.flags.filter(f => f.steamid === pov);
   const broke = v.rounds.filter(r => r.teams[me].brokeAfterForce);
@@ -220,7 +220,9 @@ function aimView() {
     h('div', {}, 'Going through every tick of the match (the same pass as the Integrity tab, so that one is ready afterwards too). Only the first time for each match: about 10 seconds. ',
       h('b', { id: 'aim-progress' }, `${Math.round((state.aimProgress || 0) * 100)}%`)));
   if (st.error) return h('div', { class: 'empty' }, h('h2', {}, 'Could not measure this demo'), h('div', { class: 'err-box' }, st.error));
-  const { players } = st.value;
+  // You first, then your team, then the opponents (the same order as the Scoreboard); the order inside a group is kept.
+  const grp = p => (p.mine ? 0 : p.team != null && p.team === st.value.myTeam ? 1 : 2);
+  const players = [...st.value.players].sort((a, b) => grp(a) - grp(b));
   if (!players.length) return h('div', { class: 'empty' }, h('h2', {}, 'No shots in this demo'));
   const sel = players.find(p => p.steamid === state.aimPlayer) || players.find(p => p.steamid === povId()) || players[0];
   const cell = (s, p) => {

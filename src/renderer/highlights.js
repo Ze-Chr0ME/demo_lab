@@ -217,7 +217,7 @@ function hlCard(item) {
     h('div', { class: 'hl-card-stats' }, `${kills.length} kill${kills.length === 1 ? '' : 's'} · ${fmtDur(hl.duration)}`)),
     h('div', { class: 'hl-card-foot' },
       h('button', { class: `hl-queue-status ${queued ? 'on' : ''}`, type: 'button', 'aria-pressed': String(queued),
-        onclick: () => hlToggleQueue(item) }, queued ? icon(ICONS.check) : icon(ICONS.rec), queued ? 'Queued' : 'Add to queue'),
+        onclick: () => hlToggleQueue(item) }, queued ? icon(ICONS.check) : icon(PLUS), queued ? 'Queued' : 'Add to queue'),
       h('button', { class: 'hl-open', type: 'button', onclick: e => { e.stopPropagation(); openHighlight(item); } }, 'Match page →')));
 }
 
