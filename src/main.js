@@ -197,6 +197,12 @@ function readCache(file) {
   return store.readCore(store.idOf(file));
 }
 
+// Which demo parser build ships (see src/lib/parser.js), read without loading it: demos it rejected
+// are tried again once the build changes.
+function parserBuild() {
+  try { return fs.readFileSync(path.join(__dirname, '..', 'vendor', 'demoparser2', 'BASE_COMMIT'), 'utf8').trim(); } catch { return ''; }
+}
+
 function failMessage(f) {
   return /^rush/i.test(f.map || '')
     ? `This Rush match (${f.map}) could not be read (${f.error}), so its highlights can't be found.`
@@ -2083,7 +2089,7 @@ app.whenReady().then(() => {
   if (app.isPackaged) app.setAppUserModelId('com.demolab.cs2');
   settings = new Settings(app.getPath('userData'));
   parserThreads(settings.get().lowEnd);
-  store = new DemoStore(app.getPath('userData'), DATA_VERSION);
+  store = new DemoStore(app.getPath('userData'), DATA_VERSION, parserBuild());
   utility = new UtilityStore(app.getPath('userData'));
   avatars = new AvatarStore(app.getPath('userData'), { fetch: net.fetch, steamPath: () => env?.steamPath, onUpdate: v => send('avatars:update', v), log });
   // The inventory request carries the Steam Community sign-in (Downloads tab), so a private inventory of your own still works.
