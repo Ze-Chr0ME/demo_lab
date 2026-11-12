@@ -35,21 +35,22 @@ Analysis runs on your PC, with no subscription. Sharing clips, lineup pictures o
 
 **[V1.05](https://github.com/Ze-Chr0ME/demo_lab/releases/tag/v1.0.5)** reads demos recorded after the 2026-11-11 CS2 update,
 adds result, map, mode, period, rating, highlight and source filters to the match list, and shows per-storage-unit value history on the Inventory page.
-V1.04 added 100 built-in training scenarios across 10 maps and one consistent look across every page.
+The rewritten UI brings a consistent look across every page, a customizable Overview, a dedicated
+Highlights browser, and Training with 100 built-in scenarios across 10 maps.
 The installer and updater use version `1.0.5`.
 
 ## ✨ Features
 
 | Feature | What you get |
 | --- | --- |
-| 📊 **Overview** | ≈ HLTV 2.0 rating, K/D, ADR, KAST, opening duels, clutches, maps, weapons and teammates, with a histogram for every stat |
-| 🧾 **Match pages** | Scoreboard, duels, economy, deaths, aim, weapons, heatmap, 2D replay and an integrity check for every match |
+| 📊 **Overview** | Customizable dashboard with ≈ HLTV 2.0 rating, stat histograms, recent form, opening duels, clutches, maps, weapons and teammates |
+| 🧾 **Match pages** | Filterable match list; scoreboard, duels, economy, deaths, aim, weapons, heatmap, 2D replay and an integrity check for every match |
 | 🎥 **2D replay** | Every round with players, view directions, utility, the bomb and a kill feed |
 | 🗺️ **Maps** | Zoomable heatmaps of kills, deaths, damage and grenades over all your matches on a map |
 | 💀 **Death review** | Every death checked for what went wrong: died alone, not traded, grenades unused, caught off guard… |
 | ⚖️ **Compare** | You against any player from your demos, or against the median of your lobbies |
-| 💰 **Inventory** | Steam Market or Skinport prices in your currency, floats, patterns, stickers, trade-protected items and value over time |
-| 🎯 **Training** | Warm-up in Aim Botz, a procedural training map, custom bot scenarios and session results |
+| 💰 **Inventory** | Steam Market or Skinport prices in your currency, floats, patterns, stickers, trade-protected items, storage units and value history |
+| 🎯 **Training** | 100 built-in scenarios across 10 maps, custom bot scenarios, Aim Botz warm-up, a procedural training map and session results |
 | 💨 **Utility** | Your grenade lineups under Training, with a practice quiz and share codes including screenshots |
 | ⭐ **Highlights** | Highlights from every parsed match, with weapon, map, kill-type and star filters and a recording queue |
 | 🎬 **Clips & montages** | Record in the background, choose a target file size, make montages and publish a shareable highlights page |
@@ -57,6 +58,9 @@ The installer and updater use version `1.0.5`.
 | 🎨 **Themes** | Neon team logos and map backdrops taken from your own CS2 install |
 
 ## 📸 Screenshots
+
+Captured from the current desktop UI. Use the player card at the top right for **Theme**, **Settings**
+and **Customize overview**; the lineup library lives under **Training → Utility**.
 
 <table>
   <tr>
@@ -68,8 +72,12 @@ The installer and updater use version `1.0.5`.
     <td width="50%"><img src="docs/screenshots/deaths.jpg" alt="Death review"><p align="center"><b>Death review</b>: what keeps killing you</p></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/screenshots/clips.jpg" alt="Highlights and clips"><p align="center"><b>Highlights</b> ready to record</p></td>
-    <td width="50%"><img src="docs/screenshots/utility.jpg" alt="Utility lineups"><p align="center"><b>Utility</b> lineup library</p></td>
+    <td width="50%"><img src="docs/screenshots/clips.jpg" alt="Highlights browser with filters and recording queue"><p align="center"><b>Highlights</b>: browse moments and build a recording queue</p></td>
+    <td width="50%"><img src="docs/screenshots/utility.jpg" alt="Utility lineup library under Training"><p align="center"><b>Training → Utility</b>: lineup library</p></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/training.jpg" alt="Training hub with utility, scenarios, warm-up and procedural map"><p align="center"><b>Training</b>: scenarios, warm-up and practice results</p></td>
+    <td width="50%"><img src="docs/screenshots/aim.jpg" alt="Aim dashboard with weapon statistics and hit distribution"><p align="center"><b>Aim</b>: weapon stats and hit distribution</p></td>
   </tr>
 
   <tr>
@@ -85,8 +93,9 @@ The installer and updater use version `1.0.5`.
 1. Download **[CS2-DemoLab-Setup-1.0.5.exe](https://github.com/Ze-Chr0ME/demo_lab/releases/download/v1.0.5/CS2-DemoLab-Setup-1.0.5.exe)** (V1.05) and run it.
    Future versions appear on the [latest release page](https://github.com/Ze-Chr0ME/demo_lab/releases/latest).
    It installs for your Windows account only (no admin rights), with ffmpeg included.
-2. Open **Settings → Recording** and click **Check for updates → Install HLAE**.
-3. Check that the status panel shows **CS2**, **Steam**, **ffmpeg** and **HLAE** in green.
+2. Open the **player card → Settings → Recording** and click **Check for updates → Install HLAE**.
+3. Hover the status dots in the top bar to check **CS2**, **ffmpeg** and **Recorder** (HLAE).
+   CS2 shows amber when installed but closed; ffmpeg and Recorder should be green.
 
 > [!NOTE]
 > You also need **Steam**, **CS2** and the [Visual C++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe)
@@ -157,7 +166,7 @@ The page opens in a browser, and individual clip links can be shared in Discord.
   [CStrike](https://cstrike.gg/cs2-stats); other references are app estimates, not measured global averages.
   These fixed references do not depend on your last 10 matches or adjust to rank or mode.
 - **Below:** rating per match, recent matches, clutches (1v1…1v5), opening duels and rounds won per side,
-  multi-kills, maps, weapons and the teammates you play with most.
+  and multi-kills. Add maps, weapons, teammates and more through **Customize overview**.
 - Filter by mode (5v5, Wingman, Rush), map and period. Click a result or a point on the chart to open the match.
 - **Customize overview** (in the menu under your player card) turns the Overview into an editor. Drag
   sections, the modules inside them and individual stat tiles to reorder them (or focus a grip and use
@@ -168,7 +177,8 @@ The page opens in a browser, and individual clip links can be shared in Discord.
   **Squad** modules (frequent teammates, best duos) and seven **Habits & records** modules (streaks,
   personal bests, rating spread, close games, time of day, weekdays, game modes). Spacing and stat
   histograms preview live. **Save layout** keeps your choices on this computer for every player's
-  Overview; **Cancel** (or Escape) discards edits and **Reset to default** restores the original layout
+  Overview. Drag a section or module's edges to resize it; double-click a resize handle to reset its size.
+  **Cancel** (or Escape) discards edits and **Reset to default** restores the original layout
   when saved.
 
 **Compare** puts you next to any player from your demos, or next to **your lobbies** (the median of every
@@ -182,11 +192,17 @@ player in every demo you have). Each stat shows how many of your lobbies' player
 
 <br>
 
+Use the funnel beside **Search matches or maps** to filter the match list by result, map, mode,
+period, rating, highlights and source. Open a match to switch between its analysis tabs:
+
 | Tab | What it shows |
 | --- | --- |
 | **Scoreboard** | K/D/A, ADR, HS%, KAST and **≈ HLTV Rating 2.0** for every player. **Detailed** adds opening kills/deaths, multi-kills, clutches, trades, utility damage and flash assists |
 | **Duels** | Who killed whom, for all kills or only each round's opening duel |
+| **Economy** | Round-by-round money, equipment and buy types for both teams |
 | **Deaths** | Your deaths in that match with their [death review](#death-review) tags, the killer, weapon and callout |
+| **Aim** | Reaction time, time to damage and crosshair placement from measured engagements |
+| **Weapons** | Per-weapon kills, damage, accuracy, headshots and hit locations |
 | **Heatmap** | Kills, deaths, shots, damage and grenades, split by side. This match or every match on that map. Floor switch on Nuke, Train and Vertigo |
 | **2D Replay** | Players, view directions, health, weapons, smokes, fires, flashes, HEs, the bomb and a kill feed. `Space` play/pause · `←/→` 5 s · `↑/↓` round |
 | **Integrity** | Red flags for cheating, per player, with the moments behind them ([details](#integrity-checks)) |
@@ -220,8 +236,8 @@ All radars zoom with the **mouse wheel**, **drag** to pan, and **double-click** 
 
 <br>
 
-The Overview adds your deaths up under **Deaths**; click a line to see those deaths, each one opening in its
-match's 2D replay.
+Open a match's **Deaths** tab to review its deaths and filter by tag. Each death can open in the
+match's 2D replay or in CS2, paused on the death.
 
 | Tag | Meaning |
 | --- | --- |
