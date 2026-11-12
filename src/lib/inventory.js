@@ -14,6 +14,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { loadCatalogue, itemDescription } = require('./itemNames');
 
+const round2 = v => Math.round(v * 100) / 100;
 const PRICE_TTL = 6 * 3600e3;
 const INV_TTL = 10 * 60e3;       // a fresh inventory is reused for 10 min unless a refresh is asked for
 const HISTORY_GAP = 3600e3;
@@ -298,7 +299,9 @@ class InventoryStore {
       unit.value += (r.value || 0) * r.count;
       if (r.value != null) unit.priced += r.count;
     }
-    const history = this.record(steamid, inv, total, items.reduce((n, r) => n + r.count, 0), useSales ? 'steam-sales' : source);
+    // Once storage units have been read, each point also keeps their value: all of them and each unit by id.
+    const su = stored?.t ? { usd: round2(storage.value), units: Object.fromEntries(storage.units.map(u => [u.id, round2(u.value)])) } : null;
+    const history = this.record(steamid, inv, total, items.reduce((n, r) => n + r.count, 0), useSales ? 'steam-sales' : source, su);
     const icons = [...items.map(r => r.icon), ...items.flatMap(r => r.applied.map(x => x.img))];
     this.queueImages(icons);
     return {
@@ -489,14 +492,15 @@ class InventoryStore {
   // One point per hour at most (a newer one replaces the last if it's closer than that).
   // Each point remembers how it was priced (m): only points priced the same way are compared, so switching
   // the price source doesn't draw a fake jump. (Points from before m existed used the plain price list.)
-  record(steamid, inv, usd, n, m) {
+  // su: the storage units' value at that time ({ usd, units: { id: usd } }), once they have been read.
+  record(steamid, inv, usd, n, m, su = null) {
     const file = this.file(`history-${steamid}.json`);
     const all = (readJson(file) || []).filter(p => p.m);
     const hist = all.filter(p => p.m === m);
     if (usd > 0) {
       const last = hist[hist.length - 1];
-      const point = { t: inv.t, usd: Math.round(usd * 100) / 100, n, m };
-      if (last && last.t === point.t && Math.abs(last.usd - point.usd) < 0.005) return hist;
+      const point = { t: inv.t, usd: round2(usd), n, m, ...(su ? { su } : {}) };
+      if (last && last.t === point.t && Math.abs(last.usd - point.usd) < 0.005 && JSON.stringify(last.su) === JSON.stringify(point.su)) return hist;
       if (last && point.t - last.t < HISTORY_GAP) all[all.indexOf(last)] = hist[hist.length - 1] = point;
       else { all.push(point); hist.push(point); }
       try { writeJson(file, all); } catch (err) { this.log('inventory history:', err.message); }

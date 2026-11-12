@@ -82,6 +82,7 @@ function openInventory(steamid, name) {
 }
 
 function renderInventory() {
+  invClosePanel(true); // a panel left open is opened again on the new page below
   const view = $('#view-inventory');
   const st = state.inv, me = state.env?.mySteamId;
   if (st.who !== state.who) { st.who = state.who; st.data = null; st.error = null; st.loading = false; }
@@ -104,6 +105,7 @@ function renderInventory() {
   const currencies = Object.keys(d.rates).sort();
   const setInv = patch => api.setSettings({ inventory: patch }).then(s => { state.settings = s; }).catch(e => toast(e.message, 'error'));
 
+  const su = st.su;
   const head = h('div', { class: 'dash-head' },
     steamAvatar(name, d.steamid, 'large'),
     h('div', { class: 'dash-title' },
@@ -115,55 +117,21 @@ function renderInventory() {
         (st.salesJob || d.sales?.job)?.steamid === d.steamid
           ? h('span', { style: { whiteSpace: 'nowrap' }, title: 'The most valuable items are priced from what they sold for on Steam (one item every few seconds, so Steam doesn’t block DemoLab)' },
             ' · ', spinner(11), h('span', { id: 'invSales' }, ` checking Steam sales ${(st.salesJob || d.sales.job).done}/${(st.salesJob || d.sales.job).total}`))
-          : null)),
+          : null,
+        su.busy ? h('span', { class: 'nowrap' }, ' · ', spinner(11), ' ', h('span', { id: 'invSuProgress' },
+          su.progress ? `Reading storage unit ${su.progress.done} of ${su.progress.total}…` : 'Signing in to CS2…'),
+        h('button', { class: 'link-btn', onclick: () => api.storageCancel().catch(() => {}) }, 'Stop')) : null)),
     h('span', { class: 'spacer' }),
     h('div', { class: 'filters' },
-      select(d.source, Object.entries(d.sources).map(([k, l]) => [k, l]), v => { setInv({ source: v }).then(() => loadInventory()); }, { seg: true, icon: () => pickSvg(PICK_ICONS.coin) }),
       select(cur, currencies.map(c => [c, c, () => { let symbol = c; try { symbol = new Intl.NumberFormat(UI_LOCALE, { style: 'currency', currency: c }).formatToParts(0).find(p => p.type === 'currency')?.value || c; } catch {} return h('span', { class: 'muted' }, symbol); }]), v => { setInv({ currency: v }).then(() => renderInventory()); }, { seg: false, search: true, noun: 'currencies', right: true }),
       invShareSelect(d, setInv)),
     h('button', { class: 'btn', disabled: st.loading, title: 'Read the inventory from Steam again', onclick: () => loadInventory(true) },
       icon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/>'), 'Refresh'));
 
   const notes = d.notes.length ? h('div', { class: 'info-box' }, ...d.notes.map(n => h('div', {}, n))) : null;
-
-  // ---- summary cards
-  const unpriced = d.count - d.priced;
-  const tradable = d.items.reduce((n, r) => n + r.tradable, 0);
-  const tradableValue = d.items.reduce((n, r) => n + (r.value || 0) * r.tradable, 0);
-  const stat = (label, value, detail, title) => h('div', { class: 'tile inv-stat', title },
-    h('div', { class: 'tile-k' }, label), h('div', { class: 'tile-v' }, value), detail ? h('div', { class: 'tile-sub' }, detail) : null);
-  const stats = [
-    stat('Tradable now', invMoney(tradableValue), `${fmtNum(tradable)} of ${fmtNum(d.count)} items`, 'Items you can trade or sell right now (new items have a 7-day trade hold)'),
-    stat('Priced items', [fmtNum(d.priced), h('small', {}, `of ${fmtNum(d.count)}`)], unpriced > 0 ? h('span', { title: 'Medals, coins, badges and other items that cannot be sold' }, `${fmtNum(unpriced)} without a price`) : null),
-    stat('Average per priced item', invMoney(d.priced ? d.total / d.priced : 0)),
-    d.applied > 0.005 ? stat('Stickers & charms on items', `+${invMoney(d.applied)}`, 'Included in inventory value', `Included in the value: charms at their full price (they come off), applied stickers at ${Math.round(d.stickerShare * 100)}% of theirs, less when scraped`) : null,
-    d.storage?.count ? stat('In storage units', invMoney(d.storage.value), `${fmtNum(d.storage.count)} items in ${d.storage.units.length} unit${d.storage.units.length === 1 ? '' : 's'}`, 'Included in the inventory value') : null,
-    d.sales?.items ? stat('Priced from Steam sales', invMoney(d.sales.value), `${fmtNum(d.sales.items)} items`, 'These items are priced from their own Steam Market sales over the last day (the last week for rarely sold items). The rest use the price list.') : null,
-  ].filter(Boolean);
-  const summary = h('div', { class: 'inv-summary', style: { '--inv-stats': stats.length } },
-    h('div', { class: 'tile inv-stat inv-hero' }, h('div', { class: 'tile-k' }, 'Inventory value'),
-      h('div', { class: 'tile-row' }, h('div', { class: 'tile-v inv-total' }, invMoney(d.total)),
-        d.trend30 ? h('span', { class: 'inv-delta' }, invChangeEl(invChange(d.trend30.now, d.trend30.then), `Against the same items at their 30-day average price (${invMoney(d.trend30.then)})`),
-          h('span', { class: 'inv-vs' }, 'vs 30-day avg')) : null),
-      h('div', { class: 'tile-sub' }, 'Total estimated value')), ...stats);
-
-  const byType = new Map();
-  for (const r of d.items) {
-    const x = byType.get(r.type) || byType.set(r.type, { v: 0, n: 0 }).get(r.type);
-    x.v += (r.value || 0) * r.count; x.n += r.count;
-  }
-  const types = [...byType].sort((a, b) => b[1].v - a[1].v || invTypeRank(a[0]) - invTypeRank(b[0]));
-  const maxType = Math.max(1e-9, ...types.map(([, x]) => x.v));
-  const typeCard = card('By type', barList(types.filter(([, x]) => x.v > 0).slice(0, 8).map(([t, x]) => ({
-    label: t, note: `${fmtNum(x.n)} item${x.n === 1 ? '' : 's'}`, value: invMoney(x.v, { cents: false }), frac: x.v / maxType,
-    title: `Show only ${t}`, onclick: () => { st.type = st.type === t ? 'all' : t; renderInventory(); },
-  })), { empty: 'No priced items' }), { span: 2, cls: 'inv-types' });
-
-  const units = isMe && d.storage ? invStorageCard(d) : null;
-  page(head, notes, summary,
-    units ? null : h('div', { class: 'hint inv-storage' }, isMe ? 'Storage unit contents are not part of the Steam inventory and are not counted.' : 'Storage unit contents are only visible to their owner and are not counted.'),
-    h('div', { class: 'dash inv-dash' }, invHistoryCard(d), typeCard, units),
-    invItemsSection(d));
+  const err = su.error ? h('div', { class: 'err-box' }, su.error) : null;
+  page(head, notes, err, invItemsSection(d, setInv));
+  if (st.panel && view.classList.contains('active')) invShowPanel($('#view-inventory .inv-pill'));
 }
 
 // A line of dollar values over time (pts: [{ t, usd, n? }]) with a crosshair and a tooltip on the nearest
@@ -237,54 +205,149 @@ function invShareSelect(d, setInv) {
   return el;
 }
 
-// The inventory's value each time it was read (in today's currency rate, with that day's prices).
-function invHistoryCard(d) {
-  const pts = d.history.filter(p => p.usd > 0);
-  if (pts.length < 2) {
-    return card('Value over time', h('div', { class: 'muted-note inv-history-empty' }, 'A point is added each time DemoLab reads this inventory (at most one an hour). Come back in a while to see the curve.'), { span: 2, cls: 'inv-history' });
-  }
-  const el = invChart(pts, { W: 600, H: 150, tip: (p, prev) => [h('b', {}, invMoney(p.usd)), h('div', {}, fmtWhen(p.t)),
-    h('div', { class: 'hint' }, `${fmtNum(p.n)} items`, prev ? [' · ', invChangeEl(invChange(p.usd, prev.usd), 'Since the point before')] : null)] });
-  const first = pts[0];
-  return card('Value over time', el, { span: 2, cls: 'inv-history', extra: h('span', { class: 'hint' }, `${pts.length} points since ${new Date(first.t).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric' })} · `, invChangeEl(invChange(pts[pts.length - 1].usd, first.usd), 'Since the first point')) });
+// A storage unit's value at each history point that recorded it.
+const invUnitHistory = (d, id) => d.history.filter(p => p.su?.units?.[id] != null).map(p => ({ t: p.t, usd: p.su.units[id] }));
+// The storage unit open in the page (state.inv.where 'su:<id>'), or null; a unit that is gone resets it.
+function invUnitOf(d) {
+  const st = state.inv;
+  const units = d.storage?.units?.length && d.items.some(r => r.storage) ? d.storage.units : [];
+  const unit = units.find(u => `su:${u.id}` === st.where) || null;
+  if (!unit) st.where = 'inv';
+  return unit;
 }
 
 // ---- Storage units (your own inventory only)
 const INV_BOX = '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M3 7.5 12 12l9-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>';
-function invStorageCard(d) {
-  const s = d.storage, su = state.inv.su;
-  const signOut = h('button', { class: 'btn ghost', disabled: su.busy, title: 'Forget the Steam sign-in DemoLab keeps for storage units', onclick: invSignOut }, 'Sign out');
-  const read = label => h('button', { class: `btn ${label === 'Read again' ? '' : 'primary'}`, disabled: su.busy, onclick: invReadStorage }, icon(INV_BOX), label);
-  const busy = su.busy ? h('div', { class: 'inv-su-busy' }, spinner(12), h('span', { id: 'invSuProgress' },
-    su.progress ? `Reading storage unit ${su.progress.done} of ${su.progress.total}…` : 'Signing in to CS2…'),
-    h('button', { class: 'btn ghost', onclick: () => api.storageCancel().catch(() => {}) }, 'Stop')) : null;
-  const err = su.error ? h('div', { class: 'err-box' }, su.error) : null;
-  const what = [h('b', {}, 'Optional.'), ' Everything else on this page works without it: only storage unit contents need it. Steam shows what is inside storage units to CS2 alone, so signing in here is the only way to read them. DemoLab then reads them like a second PC, only when you ask. Close CS2 first: reading them would kick your game.'];
-  let body, extra;
-  if (!s.signedIn) {
-    extra = null;
-    body = h('div', { class: 'inv-su-empty' }, icon(INV_BOX, 'class="big"'),
-      h('div', {}, h('b', {}, 'Count your storage units too (optional)'), h('p', { class: 'hint' }, what)),
-      h('button', { class: 'btn primary', onclick: () => invSignInDialog() }, 'Sign in to Steam'));
-  } else if (!s.mine) {
-    extra = signOut;
-    body = h('div', { class: 'inv-su-empty' }, icon(INV_BOX, 'class="big"'),
-      h('div', {}, h('b', {}, `Signed in as ${s.account || 'another account'}`), h('p', { class: 'hint' }, 'That Steam account is not the one this inventory belongs to. Sign out and sign in with this one to count its storage units.')));
-  } else if (!s.t) {
-    extra = signOut;
-    body = h('div', { class: 'inv-su-empty' }, icon(INV_BOX, 'class="big"'),
-      h('div', {}, h('b', {}, `Signed in as ${s.account}`), h('p', { class: 'hint' }, 'Close CS2, then read your storage units. Their contents are added to the inventory value.')),
-      su.busy ? null : read('Read storage units'));
+// The figures behind the Total pill (the open storage unit's when one is open): its value, the value over
+// time, the other figures, and the storage unit sign-in and read controls.
+function invPanelBody(d) {
+  const unit = invUnitOf(d), isMe = d.steamid === state.env?.mySteamId;
+  const scope = unit ? d.items.filter(r => r.storage?.id === unit.id) : d.items;
+  const sum = f => scope.reduce((n, r) => n + f(r), 0);
+  const count = unit ? sum(r => r.count) : d.count;
+  const priced = unit ? sum(r => (r.value != null ? r.count : 0)) : d.priced;
+  const total = unit ? unit.value : d.total;
+  const applied = unit ? sum(r => (r.appliedValue || 0) * r.count) : d.applied;
+  const trend30 = !unit ? d.trend30 : (() => {
+    const now = sum(r => (r.avg30 != null ? r.price * r.count : 0)), then = sum(r => (r.avg30 != null ? r.avg30 * r.count : 0));
+    return now ? { now, then } : null;
+  })();
+  const sales = !unit ? d.sales : { items: sum(r => (r.priceFrom === 'sales' ? r.count : 0)), value: sum(r => (r.priceFrom === 'sales' ? r.price * r.count : 0)) };
+  const unpriced = count - priced;
+  const tradable = sum(r => r.tradable);
+  const fig = (k, v, sub, title) => h('div', { class: 'inv-fig', title }, h('span', {}, k), h('b', {}, v), sub ? h('small', {}, sub) : null);
+  const figs = [
+    unit ? fig('Share of the inventory', `${d.total ? (100 * total / d.total).toFixed(1) : 0}%`, `of ${invMoney(d.total)}`, 'This unit’s part of the whole inventory value')
+      : fig('Tradable now', invMoney(sum(r => (r.value || 0) * r.tradable)), `${fmtNum(tradable)} of ${fmtNum(count)} items`, 'Items you can trade or sell right now (new items have a 7-day trade hold)'),
+    fig('Priced items', fmtNum(priced), unpriced > 0 ? `of ${fmtNum(count)} · ${fmtNum(unpriced)} without a price` : `of ${fmtNum(count)}`, unpriced > 0 ? 'Medals, coins, badges and other items that cannot be sold have no price' : null),
+    fig('Average per priced item', invMoney(priced ? total / priced : 0)),
+    applied > 0.005 ? fig('Stickers & charms on items', `+${invMoney(applied)}`, 'Included in the value', `Charms at their full price (they come off), applied stickers at ${Math.round(d.stickerShare * 100)}% of theirs, less when scraped`) : null,
+    !unit && d.storage?.count ? fig('In storage units', invMoney(d.storage.value), `${fmtNum(d.storage.count)} items in ${d.storage.units.length} unit${d.storage.units.length === 1 ? '' : 's'}`, 'Included in the value') : null,
+    sales?.items ? fig('Priced from Steam sales', invMoney(sales.value), `${fmtNum(sales.items)} items`, 'These items are priced from their own Steam Market sales over the last day (the last week for rarely sold items). The rest use the price list.') : null,
+  ];
+
+  // The value each time the inventory was read (one point an hour at most); a storage unit's since its
+  // value was first recorded (its contents as last read, priced with each point's prices).
+  const pts = unit ? invUnitHistory(d, unit.id) : d.history.filter(p => p.usd > 0);
+  let chart;
+  if (pts.length < 2 || !pts.some(p => p.usd > 0)) {
+    chart = h('div', { class: 'muted-note inv-panel-empty' }, `A point is added each time DemoLab reads this inventory (at most one an hour)${unit ? ', with the value of each storage unit' : ''}. Come back in a while to see the curve.`);
   } else {
-    extra = [h('span', { class: 'hint' }, `${s.account} · read ${ago(s.t)}`), su.busy ? null : read('Read again'), signOut];
-    const max = Math.max(1e-9, ...s.units.map(u => u.value || 0));
-    body = s.units.length ? barList(s.units.map(u => ({
-      label: u.name, note: `${fmtNum(u.count)} item${u.count === 1 ? '' : 's'}${u.priced < u.count ? ` · ${fmtNum(u.count - u.priced)} without a price` : ''}`,
-      value: invMoney(u.value, { cents: false }), frac: (u.value || 0) / max,
-      title: `Open “${u.name}”`, onclick: () => invOpenUnit(u.id),
-    }))) : h('div', { class: 'muted-note' }, 'You have no storage units.');
+    chart = [invChart(pts, { W: 600, H: 170, tip: (p, prev) => [h('b', {}, invMoney(p.usd)), h('div', {}, fmtWhen(p.t)),
+      h('div', { class: 'hint' }, p.n != null ? `${fmtNum(p.n)} items` : null, p.n != null && prev ? ' · ' : null, prev ? invChangeEl(invChange(p.usd, prev.usd), 'Since the point before') : null)] }),
+    h('div', { class: 'hint' }, `${pts.length} points since ${new Date(pts[0].t).toLocaleDateString(UI_LOCALE, { day: 'numeric', month: 'short', year: 'numeric' })} · `,
+      invChangeEl(invChange(pts[pts.length - 1].usd, pts[0].usd), 'Since the first point'))];
   }
-  return card('Storage units', [busy, err, body], { span: 4, cls: 'inv-units', extra });
+  return [
+    h('div', { class: 'inv-panel-head' },
+      h('div', { class: 'inv-panel-k' }, unit ? [icon(INV_BOX), `Container · ${unit.name}`] : 'Inventory value'),
+      h('div', { class: 'inv-panel-v' }, h('span', {}, invMoney(total)),
+        trend30 ? h('span', { class: 'inv-delta' }, invChangeEl(invChange(trend30.now, trend30.then), `Against the same items at their 30-day average price (${invMoney(trend30.then)})`),
+          h('span', { class: 'inv-vs' }, 'vs 30-day avg')) : null)),
+    h('div', { class: 'inv-panel-chart' }, chart),
+    h('div', { class: 'inv-figs' }, ...figs),
+    isMe ? invStorageRow(d) : h('div', { class: 'inv-panel-foot hint' }, 'Storage unit contents are only visible to their owner and are not counted.'),
+  ];
+}
+
+// Storage units: reading them needs a separate Steam sign-in (only CS2 can see inside them).
+const INV_SU_WHY = 'Optional. Steam shows what is inside storage units to CS2 alone, so signing in here is the only way to read them. DemoLab then reads them like a second PC, only when you ask. Close CS2 first: reading them would kick your game.';
+function invStorageRow(d) {
+  const s = d.storage, su = state.inv.su;
+  if (!s) return null;
+  const btn = (label, onclick, cls = 'btn ghost', title) => h('button', { class: cls, disabled: su.busy, onclick, title }, label);
+  const text = !s.signedIn ? 'Not counted. Sign in to Steam to read what is inside them.'
+    : !s.mine ? `Signed in as ${s.account || 'another account'}, not the account this inventory belongs to.`
+      : !s.t ? `Signed in as ${s.account}. Close CS2, then read them.`
+        : `${s.account} · read ${ago(s.t)} · ${fmtNum(s.count)} item${s.count === 1 ? '' : 's'} in ${s.units.length} unit${s.units.length === 1 ? '' : 's'}`;
+  const actions = !s.signedIn ? [btn('Sign in to Steam', () => { invClosePanel(); invSignInDialog(); }, 'btn primary', INV_SU_WHY)]
+    : !s.mine ? [btn('Sign out', invSignOut, 'btn ghost', 'Forget the Steam sign-in DemoLab keeps for storage units')]
+      : [btn(s.t ? 'Read again' : 'Read storage units', invReadStorage, s.t ? 'btn' : 'btn primary', 'Close CS2 first: reading storage units would kick your game'),
+        btn('Sign out', invSignOut, 'btn ghost', 'Forget the Steam sign-in DemoLab keeps for storage units')];
+  return h('div', { class: 'inv-panel-foot' },
+    h('div', { class: 'inv-panel-su' }, icon(INV_BOX), h('div', {}, h('b', {}, 'Storage units'), h('span', { class: 'hint' }, text))),
+    h('div', { class: 'inv-panel-actions' }, ...actions));
+}
+
+// The panel under the Total pill, in a body portal so the page can't clip it. It stays open across
+// re-renders (state.inv.panel) and closes on a click outside, Escape, or leaving the page.
+let invPanelEl = null, invPanelOff = null;
+function invClosePanel(keep = false) {
+  invPanelOff?.();
+  invPanelOff = null;
+  invPanelEl?.remove();
+  invPanelEl = null;
+  if (!keep) state.inv.panel = false;
+  for (const b of document.querySelectorAll('.inv-pill.open')) { b.classList.remove('open'); b.setAttribute('aria-expanded', 'false'); }
+}
+function invShowPanel(btn) {
+  const d = state.inv.data;
+  invClosePanel(true);
+  if (!btn || !d) return;
+  state.inv.panel = true;
+  btn.classList.add('open');
+  btn.setAttribute('aria-expanded', 'true');
+  const el = invPanelEl = h('div', { class: 'inv-panel', role: 'dialog', 'aria-label': 'Value over time' }, ...invPanelBody(d));
+  document.body.append(el);
+  const view = $('#view-inventory');
+  const place = () => {
+    if (!btn.isConnected || !view.classList.contains('active')) { invClosePanel(); return; }
+    const r = btn.getBoundingClientRect(), w = document.documentElement.clientWidth, ht = document.documentElement.clientHeight;
+    if (r.bottom < 0 || r.top > ht) { invClosePanel(); return; }
+    el.style.maxHeight = `${Math.max(240, ht - r.bottom - 16)}px`;
+    el.style.left = `${Math.max(8, Math.min(r.right - el.offsetWidth, w - el.offsetWidth - 8))}px`;
+    el.style.top = `${r.bottom + 8}px`;
+  };
+  const outside = e => { if (!el.contains(e.target) && !btn.contains(e.target)) invClosePanel(); };
+  const key = e => { if (e.key === 'Escape') { e.stopPropagation(); invClosePanel(); btn.focus({ preventScroll: true }); } };
+  const scroll = e => { if (!el.contains(e.target)) place(); };
+  const observer = new MutationObserver(() => { if (!view.classList.contains('active')) invClosePanel(); });
+  document.addEventListener('pointerdown', outside, true);
+  document.addEventListener('keydown', key, true);
+  window.addEventListener('resize', place);
+  window.addEventListener('scroll', scroll, true);
+  observer.observe(view, { attributes: true, attributeFilter: ['class'] });
+  invPanelOff = () => {
+    document.removeEventListener('pointerdown', outside, true);
+    document.removeEventListener('keydown', key, true);
+    window.removeEventListener('resize', place);
+    window.removeEventListener('scroll', scroll, true);
+    observer.disconnect();
+  };
+  place();
+}
+
+// First in the grid until storage units are read: a way in to counting them (your own inventory only).
+function invStorageSlot(d) {
+  const s = d.storage, su = state.inv.su;
+  if (!s || !s.mine && s.signedIn || s.signedIn && s.t) return null;
+  const [title, sub, onclick] = !s.signedIn
+    ? ['Count your storage units', 'Optional: sign in to Steam to read what is inside them', () => invSignInDialog()]
+    : ['Read your storage units', 'Close CS2 first: reading them would kick your game', invReadStorage];
+  return h('button', { class: 'inv-item inv-su-slot', style: { '--rar': 'var(--line-2)' }, disabled: su.busy, onclick, title: !s.signedIn ? INV_SU_WHY : sub },
+    h('div', { class: 'inv-art' }, su.busy ? spinner(28) : icon(INV_BOX, 'class="inv-unit-ic"')),
+    h('div', { class: 'inv-foot' }, h('span', { class: 'inv-tag' }, 'Storage units'), h('div', { class: 'inv-nm' }, su.busy ? 'Reading…' : title),
+      h('div', { class: 'inv-slot-sub' }, sub)));
 }
 
 async function invReadStorage() {
@@ -424,14 +487,15 @@ function invPriceGraph(r) {
   return box;
 }
 
-function invItemsSection(d) {
+const INV_ARROW = '<path d="M12 5v14m-6-6 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+const INV_CHEVRON = '<path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+function invItemsSection(d, setInv) {
   const st = state.inv;
   const q = st.q.trim().toLowerCase();
   // Stored items stay inside their storage unit: the inventory shows one card per unit (its value and name),
   // and opening a unit lists what is inside. A search also finds stored items, tagged with their unit.
   const units = d.storage?.units?.length && d.items.some(r => r.storage) ? d.storage.units : [];
-  const unit = units.find(u => `su:${u.id}` === st.where) || null;
-  if (!unit) st.where = 'inv';
+  const unit = invUnitOf(d);
   // The storage unit items themselves are replaced by the unit cards (their picture is reused there).
   const isUnitItem = r => !r.storage && units.length && /^Storage Unit$/i.test(r.hash || r.name);
   const base = d.items.filter(r => (unit ? r.storage?.id === unit.id : !r.storage && !isUnitItem(r)));
@@ -440,8 +504,9 @@ function invItemsSection(d) {
   const pool = !unit && q ? [...base, ...d.items.filter(r => r.storage)] : base;
   let list = pool.filter(r => (st.type === 'all' || r.type === st.type) && (!st.hideFree || r.value != null)
     && (!q || `${r.hash || r.name} ${r.type} ${r.collection || ''} ${r.nameTag || ''} ${r.stickers.join(' ')} ${r.storage?.name || ''}`.toLowerCase().includes(q)));
-  const unitCards = !unit && !q && st.type === 'all' ? [...units].sort((a, b) => (b.value || 0) - (a.value || 0)) : [];
-  const unitPic = d.items.find(isUnitItem)?.icon || null;
+  const plain = !unit && !q && st.type === 'all';
+  const unitCards = plain ? [...units].sort((a, b) => (b.value || 0) - (a.value || 0)) : [];
+  const unitPic = d.items.find(r => !r.storage && /^Storage Unit$/i.test(r.hash || r.name))?.icon || null;
   const by = {
     total: (a, b) => (b.value || 0) * b.count - (a.value || 0) * a.count,
     price: (a, b) => (b.value ?? -1) - (a.value ?? -1),
@@ -452,10 +517,12 @@ function invItemsSection(d) {
     float: (a, b) => (a.copies[0]?.float ?? 9) - (b.copies[0]?.float ?? 9),
   }[st.sort] || (() => 0);
   list = [...list].sort((a, b) => by(a, b) || (a.hash || a.name).localeCompare(b.hash || b.name));
+  if (st.asc) list.reverse();
+  const filtered = q || st.type !== 'all' || st.hideFree;
   const shownValue = list.reduce((n, r) => n + (r.value || 0) * r.count, 0) + unitCards.reduce((n, u) => n + (u.value || 0), 0);
   const shownCount = list.reduce((n, r) => n + r.count, 0) + unitCards.reduce((n, u) => n + u.count, 0);
 
-  const search = h('input', { type: 'search', class: 'inv-search', placeholder: 'Search items, collections, stickers…', value: st.q, oninput: e => {
+  const search = h('input', { type: 'search', class: 'inv-search', placeholder: unit ? `Search “${unit.name}”…` : 'Search items, collections, stickers…', value: st.q, oninput: e => {
     st.q = e.target.value;
     clearTimeout(invItemsSection.timer);
     invItemsSection.timer = setTimeout(() => {
@@ -465,42 +532,50 @@ function invItemsSection(d) {
       if (box) { box.focus(); box.setSelectionRange(at, at); }
     }, 180);
   } });
-  const filters = h('div', { class: 'filters inv-filters' }, search,
-    types.length > 1 ? select(st.type, [['all', 'All types'], ...types.map(t => [t, t])], v => { st.type = v; renderInventory(); }, { seg: false, icon: () => pickSvg(PICK_ICONS.layers) }) : null,
-    select(st.sort, INV_SORTS, v => { st.sort = v; renderInventory(); }, { seg: false, label: 'Sort', icon: () => pickSvg(PICK_ICONS.sort) }),
-    toggle('Only priced items', st.hideFree, v => { st.hideFree = v; renderInventory(); }, 'Hide medals, coins and other items that have no market price'),
+  // Total, or Container inside a storage unit: its value, and the value over time when clicked.
+  const pill = h('button', { class: `inv-pill${st.panel ? ' open' : ''}`, 'aria-haspopup': 'dialog', 'aria-expanded': String(!!st.panel),
+    title: unit ? `“${unit.name}”: its value over time and figures` : 'The inventory’s value over time and figures',
+    onclick: e => (st.panel ? invClosePanel() : invShowPanel(e.currentTarget)) },
+  h('span', { class: 'inv-pill-k' }, unit ? 'Container' : 'Total'), h('b', {}, invMoney(unit ? unit.value : d.total, { cents: false })), icon(INV_CHEVRON));
+  const bar = h('div', { class: 'inv-bar' },
+    select(d.source, Object.entries(d.sources).map(([k, l]) => [k, l]), v => { setInv({ source: v }).then(() => loadInventory()); }, { seg: true, icon: () => pickSvg(PICK_ICONS.coin) }),
+    search,
     h('span', { class: 'spacer' }),
-    h('span', { class: 'hint' }, `${fmtNum(shownCount)} item${shownCount === 1 ? '' : 's'} · ${invMoney(shownValue)}`));
+    filtered ? h('span', { class: 'hint nowrap' }, `${fmtNum(shownCount)} shown · ${invMoney(shownValue, { cents: false })}`) : null,
+    select(st.sort, INV_SORTS, v => { st.sort = v; renderInventory(); }, { seg: false, label: 'Sort', icon: () => pickSvg(PICK_ICONS.sort) }),
+    h('button', { class: `btn inv-dir${st.asc ? ' asc' : ''}`, title: st.asc ? 'Reversed order: click for the usual order' : 'Click to reverse the order', 'aria-pressed': String(!!st.asc),
+      onclick: () => { st.asc = !st.asc; renderInventory(); } }, icon(INV_ARROW)),
+    types.length > 1 ? select(st.type, [['all', 'All types'], ...types.map(t => [t, t])], v => { st.type = v; renderInventory(); }, { seg: false, icon: () => pickSvg(PICK_ICONS.layers) }) : null,
+    toggle('Only priced', st.hideFree, v => { st.hideFree = v; renderInventory(); }, 'Hide medals, coins and other items that have no market price'),
+    unit ? h('button', { class: 'inv-unit-chip', title: 'Back to the whole inventory', onclick: () => invOpenUnit(null, false) },
+      icon(INV_BOX), h('span', {}, unit.name), h('i', { 'aria-hidden': 'true' }, '✕')) : null,
+    pill);
 
-  const head = unit
-    ? h('div', { class: 'sec inv-crumbs' },
-      h('button', { class: 'btn ghost', title: 'Back to the inventory', onclick: () => invOpenUnit(null) },
-        icon('<path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2"/>'), 'Items'),
-      h('span', { class: 'inv-crumb-unit' }, icon(INV_BOX), h('b', {}, unit.name)),
-      h('span', { class: 'hint' }, `${fmtNum(unit.count)} item${unit.count === 1 ? '' : 's'} · ${invMoney(unit.value)}`))
-    : h('div', { class: 'sec' }, h('h3', {}, 'Items'));
+  const slot = plain && d.steamid === state.env?.mySteamId ? invStorageSlot(d) : null;
   const empty = unit && !base.length ? ['This storage unit is empty', ''] : ['No items match', 'Try another search or type.'];
-  return h('section', { class: 'ov-sec', id: 'invItems' }, head, filters,
-    list.length || unitCards.length ? h('div', { class: 'inv-grid' }, ...unitCards.map(u => invUnitCard(u, unitPic)), ...list.map(invItemCard))
+  return h('section', { class: 'inv-items', id: 'invItems' }, bar,
+    list.length || unitCards.length || slot ? h('div', { class: 'inv-grid' }, slot, ...unitCards.map(u => invUnitCard(u, unitPic, d)), ...list.map(invItemCard))
       : h('div', { class: 'empty' }, h('h2', {}, empty[0]), empty[1] ? h('div', {}, empty[1]) : null));
 }
 
-// Open a storage unit's contents in the item grid (null: back to the inventory), keeping the grid in view.
-function invOpenUnit(id) {
+// Open a storage unit (null: back to the inventory): the grid, the pill and its panel then cover that unit
+// alone. scroll: bring the toolbar into view (when opened from the grid).
+function invOpenUnit(id, scroll = true) {
   Object.assign(state.inv, { where: id == null ? 'inv' : `su:${id}`, q: '', type: 'all' });
   renderInventory();
-  $('#invItems')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (scroll) $('#invItems')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
-function invUnitCard(u, pic) {
+function invUnitCard(u, pic, d) {
   const unpriced = u.count - (u.priced ?? u.count);
-  return h('button', { class: 'inv-item inv-unit', style: { '--rar': 'var(--accent)' }, onclick: () => invOpenUnit(u.id), title: `Open “${u.name}” to see what is inside` },
+  const pts = invUnitHistory(d, u.id);
+  return h('button', { class: 'inv-item inv-unit', style: { '--rar': 'var(--accent)' }, onclick: () => invOpenUnit(u.id), title: `Open “${u.name}” to see what is inside${unpriced > 0 ? `\n${fmtNum(unpriced)} without a price` : ''}` },
     h('div', { class: 'inv-art' }, pic ? invPic({ icon: pic }) : icon(INV_BOX, 'class="inv-unit-ic"'),
-      h('span', { class: 'inv-count' }, fmtNum(u.count))),
-    h('div', { class: 'inv-name' }, h('small', {}, 'Storage unit'), h('b', {}, u.name)),
-    h('div', { class: 'inv-meta' }, `${fmtNum(u.count)} item${u.count === 1 ? '' : 's'}`, unpriced > 0 ? h('span', { class: 'inv-float' }, `${fmtNum(unpriced)} without a price`) : null),
-    h('div', { class: 'inv-price' }, h('div', { class: 'inv-price-value' }, h('b', {}, invMoney(u.value)))),
-    h('div', { class: 'inv-extra inv-unit-open' }, 'Open ›'));
+      h('span', { class: 'inv-corner' }, icon(INV_BOX))),
+    h('div', { class: 'inv-foot' }, h('span', { class: 'inv-tag su' }, 'Storage unit'), h('div', { class: 'inv-nm' }, u.name),
+      h('div', { class: 'inv-row' }, h('span', { class: 'inv-ext' }, `${fmtNum(u.count)} item${u.count === 1 ? '' : 's'}`),
+        pts.length > 1 ? invChangeEl(invChange(u.value, pts[0].usd), `Since ${fmtWhen(pts[0].t)}`) : null,
+        h('b', { class: 'inv-val' }, invMoney(u.value)))));
 }
 
 function invPic(r, cls = '', key = r.icon) {
@@ -514,24 +589,25 @@ function invNames(r) {
 }
 const fmtFloat = f => (f == null ? null : f.toFixed(f < 0.01 ? 6 : 4));
 
+const INV_LOCK = '<rect x="5" y="11" width="14" height="9" rx="2" fill="currentColor"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/>';
+const INV_WEAR = / \((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)$/;
 function invItemCard(r) {
-  const [top, main] = invNames(r);
   const c = r.copies[0];
-  const ch = invChange(r.price, r.avg30);
-  const badge = /StatTrak/.test(r.quality || r.name) ? h('span', { class: 'inv-badge st' }, 'StatTrak™') : /Souvenir/.test(r.quality || r.name) ? h('span', { class: 'inv-badge sv' }, 'Souvenir') : null;
+  const what = `${r.quality || ''} ${r.name}`;
+  const tag = /StatTrak/.test(what) ? ['st', 'StatTrak™'] : /Souvenir/.test(what) ? ['sv', 'Souvenir'] : /^★/.test(r.name) ? ['sp', '★ Special'] : null;
+  const name = r.name.replace(INV_WEAR, '').replace(/^(★\s*)?(StatTrak™\s*|Souvenir\s*)/, '$1');
+  const corner = r.storage && state.inv.where === 'inv' ? h('span', { class: 'inv-corner', title: `In storage unit “${r.storage.name}”` }, icon(INV_BOX))
+    : !r.storage && r.tradable < r.count ? h('span', { class: 'inv-corner', title: `${r.count - r.tradable} not tradable yet (trade hold) or never tradable` }, icon(INV_LOCK)) : null;
   return h('button', { class: 'inv-item', style: { '--rar': r.rarity?.color || 'var(--line-2)' }, onclick: () => invItemModal(r),
-    title: [r.hash || r.name, r.collection, r.stickers.length ? r.stickers.join('\n') : null].filter(Boolean).join('\n') },
-  h('div', { class: 'inv-art' }, invPic(r), r.count > 1 ? h('span', { class: 'inv-count' }, `×${r.count}`) : null, badge,
-    r.storage && state.inv.where === 'inv' ? h('span', { class: 'inv-su', title: `In storage unit “${r.storage.name}”` }, icon(INV_BOX), h('span', {}, r.storage.name)) : null,
-    !r.storage && r.tradable < r.count ? h('span', { class: 'inv-lock', title: `${r.count - r.tradable} not tradable yet (trade hold) or never tradable` }, icon('<rect x="5" y="11" width="14" height="9" rx="2" fill="currentColor"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/>')) : null,
+    title: [r.hash || r.name, r.collection, c?.float != null ? `Float ${fmtFloat(c.float)}` : null, r.storage ? `In storage unit “${r.storage.name}”` : null,
+      r.appliedValue >= 0.005 ? `incl. +${invMoney(r.appliedValue)} ${invAppliedWhat(r)}` : null, r.stickers.length ? r.stickers.join('\n') : null].filter(Boolean).join('\n') },
+  h('div', { class: 'inv-art' }, invPic(r), r.count > 1 ? h('span', { class: 'inv-count' }, `×${r.count}`) : null, corner,
     r.applied.length ? h('span', { class: 'inv-stk', title: r.applied.map(invAppliedLine).join('\n') }, ...r.applied.map(x => invPic(r, 'stk', x.img))) : null),
-  h('div', { class: 'inv-name' }, h('small', {}, top), h('b', { style: { color: r.nameColor && !/^#d2d2d2$/i.test(r.nameColor) ? r.nameColor : null } }, main)),
-  h('div', { class: 'inv-meta' }, r.exterior || r.rarity?.name || r.type, c?.float != null ? h('span', { class: 'inv-float' }, fmtFloat(c.float)) : null),
-  h('div', { class: 'inv-price' }, invChangeEl(ch, `Item price now against its 30-day average (${invMoney(r.avg30)})`),
-    h('div', { class: 'inv-price-value' }, h('b', {}, invMoney(r.value == null ? null : r.value * r.count)),
-      r.count > 1 && r.value != null ? h('small', {}, `${invMoney(r.value)} each`) : null)),
-  h('div', { class: 'inv-extra', title: r.appliedValue >= 0.005 ? r.applied.map(invAppliedLine).join('\n') : null },
-    r.appliedValue >= 0.005 ? `incl. +${invMoney(r.appliedValue)} ${invAppliedWhat(r)}` : null));
+  h('div', { class: 'inv-foot' },
+    tag ? h('span', { class: `inv-tag ${tag[0]}` }, tag[1]) : null,
+    h('div', { class: 'inv-nm', style: { color: r.nameColor && !/^#d2d2d2$/i.test(r.nameColor) ? r.nameColor : null } }, name),
+    h('div', { class: 'inv-row' }, h('span', { class: 'inv-ext' }, r.exterior || r.rarity?.name || r.type),
+      h('b', { class: `inv-val${r.value == null ? ' none' : ''}` }, invMoney(r.value == null ? null : r.value * r.count)))));
 }
 const invAppliedWhat = r => {
   const k = new Set(r.applied.map(x => x.kind));

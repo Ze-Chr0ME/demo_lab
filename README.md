@@ -422,18 +422,19 @@ regenerate them with `node scripts/extract-radars.js <Source2Viewer-CLI.exe> <..
 
 <br>
 
-The official `@laihoe/demoparser2` (0.42.0) can't read Rush (`rush_001`) demos, so DemoLab ships its own build
-in `vendor/demoparser2/`: upstream master `45ca85a` plus `rush-fixes.patch`, which
+The official `@laihoe/demoparser2` (0.42.0) can't read Rush (`rush_001`) demos, nor any demo recorded after the
+2026-11-11 CS2 update (build 14197, `fixed8` encoder), so DemoLab ships its own build in `vendor/demoparser2/`:
+upstream master `dd71c09` plus `rush-fixes.patch`, which
 
 1. looks serializers up by name **and version** (Rush maps send several versions of `CBodyComponentBaseModelEntity`), and
 2. decodes 32-bit `qangle_precise` fields (used by Rush's conveyor belts) as 3 raw floats.
 
 On 53 non-Rush demos the output is byte-for-byte identical to the npm package, and all 10 Rush demos parse.
 `src/lib/parser.js` falls back to the npm package if the vendored build can't load (for example without the
-Visual C++ runtime); `DEMOLAB_PARSER=npm` forces it.
+Visual C++ runtime); `DEMOLAB_PARSER=npm` forces it. Demos the parser rejected are tried again when `BASE_COMMIT` changes.
 
 To rebuild: install Rust, clone LaihoE/demoparser, apply the patch, make `src/csgoproto/build.rs` an empty
-`fn main() {}` (otherwise it needs `protoc`), remove `features = ["voice"]` from `src/node/Cargo.toml`, run
+`fn main() {}` (otherwise it needs `protoc`), remove `features = ["voice"]` from `src/node/Cargo.toml` if present, run
 `cargo build --release` in `src/node`, and copy `target/release/laihoe_demoparser2.dll` to
 `vendor/demoparser2/demoparser2.win32-x64-msvc.node`.
 

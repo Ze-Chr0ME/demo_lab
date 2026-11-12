@@ -126,36 +126,46 @@ function hubPage() {
     sub: lineups.length ? `${lineups.length} lineup${lineups.length === 1 ? '' : 's'} on ${utMaps} map${utMaps === 1 ? '' : 's'}` : 'No lineup saved yet',
     about: 'Your smokes, flashes and molotovs, map by map. Quiz yourself, then throw them on a practice server.',
     score: h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'Not scored · quiz and practice server')) });
-  // the cards fill the window; the progress is under them
+  // Progress and recent sessions live in each drill's card.
   return [h('div', { class: 'tr-hub' }, head, running() || ['done', 'error'].includes(tr.status?.phase) ? liveBar() : null,
-    h('div', { class: 'tr-grid' }, utility, ...DRILL_ORDER.map(id => drillCard(id)))), progressSection()];
+    h('div', { class: 'tr-grid' }, utility, ...DRILL_ORDER.map(id => drillCard(id))))];
 }
 
 function drillCard(id) {
   const d = drillDef(id);
   const hist = historyOf(id);
   const last = hist.at(-1), best = hist.reduce((m, e) => Math.max(m, e.score ?? -1), -1);
+  const scores = hist.filter(e => Number.isFinite(e.score)).map(e => e.score);
+  const avg = a => Math.round(a.reduce((sum, n) => sum + n, 0) / a.length);
+  const delta = scores.length >= 4 ? avg(scores.slice(-3)) - avg(scores.slice(0, 3)) : null;
   const scMap = [...(state.sc?.items || [])].sort((a, b) => b.updated - a.updated)[0]?.map || last?.map || 'de_mirage';
   return hubCard(id, { name: d.name, about: d.about, art: TR_SHOTS[id] ? Promise.resolve(trShot(id, 0)) : mapShotUrl(scMap),
     sub: last ? `${hist.length} session${hist.length === 1 ? '' : 's'} · played ${ago(last.date)}` : 'Not played yet',
     onclick: () => { state.tr.drill = id; renderTraining(); },
-    score: hist.length && !hist.some(e => e.score > 0) ? h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'Sessions here are not scored'))
+    sessions: hist.slice(-3).reverse(),
+    score: hist.length && !scores.length ? h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'Sessions here are not scored'))
       : hist.length ? h('div', { class: 'tr-card-score' },
       h('span', {}, 'Last', h('b', {}, last.score ?? '—'), last.score != null ? h('small', {}, '/100') : null), h('span', {}, 'Best', h('b', {}, best >= 0 ? best : '—'), best >= 0 ? h('small', {}, '/100') : null),
-      hist.length > 1 ? sparkline(hist.map(e => e.score)) : null) : h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'No sessions yet · each one is recorded from its demo')) });
+      delta != null ? h('span', { class: `tr-card-trend ${delta >= 0 ? 'good' : 'bad'}`, title: 'Average of the last 3 scored sessions versus the first 3' }, `${delta >= 0 ? '+' : ''}${delta} pts`) : null,
+      scores.length > 1 ? sparkline(scores) : null) : h('div', { class: 'tr-card-score' }, h('span', { class: 'muted' }, 'No sessions yet · each one is recorded from its demo')) });
 }
 
 // A hub card: a picture, the card's own colour and the line above its name.
-function hubCard(id, { name, sub, about, art, onclick, score = null }) {
+function hubCard(id, { name, sub, about, art, onclick, score = null, sessions = [] }) {
   const look = TR_LOOK[id];
-  return h('button', { class: `map-card tr-card tr-card-${id}`, style: { '--c': look.c }, onclick },
+  return h('article', { class: `map-card tr-card tr-card-${id}`, style: { '--c': look.c } },
     artImg('map-card-photo', art),
-    look.tag ? h('span', { class: 'tr-card-tag' }, look.tag) : null,
-    h('div', { class: 'map-card-body' },
-      h('div', { class: 'map-card-title' }, h('span', { class: 'tr-icon' }, icon(TR_ICONS[id])),
-        h('div', { class: 'map-card-t' }, h('div', { class: 'map-card-name' }, name), h('div', { class: 'map-card-sub' }, sub))),
-      h('div', { class: 'tr-card-about' }, about),
-      score || h('div', { class: 'tr-card-score', 'aria-hidden': 'true' })));
+    h('button', { class: 'tr-card-main', onclick, 'aria-label': `Open ${name}` },
+      look.tag ? h('span', { class: 'tr-card-tag' }, look.tag) : null,
+      h('div', { class: 'map-card-body' },
+        h('div', { class: 'map-card-title' }, h('span', { class: 'tr-icon' }, icon(TR_ICONS[id])),
+          h('div', { class: 'map-card-t' }, h('div', { class: 'map-card-name' }, name), h('div', { class: 'map-card-sub' }, sub))),
+        h('div', { class: 'tr-card-about' }, about),
+        score || h('div', { class: 'tr-card-score', 'aria-hidden': 'true' }))),
+    sessions.length ? h('div', { class: 'tr-card-history' },
+      h('div', { class: 'tr-card-history-head' }, h('span', {}, 'Recent sessions'),
+        h('button', { class: 'link-btn', onclick }, 'View all')),
+      sessionList(sessions)) : null);
 }
 
 // The live state of a running session, or how the last one ended.
@@ -188,27 +198,6 @@ function liveBar() {
 }
 
 function trGuard(fn) { return fn().catch(e => toast(e.message.replace(/^.*(HLAE_MISSING|WORKSHOP_MISSING):\s*/, ''), 'error')); }
-
-// Scores over time, per drill.
-function progressSection() {
-  const hist = state.tr.info.history || [];
-  if (!hist.length) return null;
-  const rows = DRILL_ORDER.map(id => [id, historyOf(id)]).filter(([, l]) => l.length);
-  return h('section', { class: 'ov-sec' }, h('div', { class: 'sec' }, h('h3', {}, 'Progress')),
-    h('div', { class: 'dash' },
-      card('Scores', h('div', { class: 'tr-prog' }, ...rows.map(([id, l]) => {
-        const s = l.filter(e => e.score != null).map(e => e.score);
-        const first = s.slice(0, 3), lastN = s.slice(-3);
-        const avg = a => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null);
-        const delta = s.length >= 4 ? avg(lastN) - avg(first) : null;
-        return h('button', { class: 'tr-prog-row', onclick: () => { state.tr.drill = id; renderTraining(); } },
-          h('span', { class: 'tr-icon sm' }, icon(TR_ICONS[id])), h('span', { class: 'tr-prog-name' }, drillDef(id).name),
-          sparkline(l.map(e => e.score), 160, 28),
-          h('b', {}, s.at(-1) ?? '—'),
-          delta == null ? h('span', { class: 'muted' }, `${l.length}×`) : h('span', { class: delta >= 0 ? 'good' : 'bad' }, `${delta >= 0 ? '+' : ''}${delta}`));
-      })), { span: 2 }),
-      card('Recent sessions', sessionList(hist.slice(-8).reverse()), { span: 2 })));
-}
 
 function sessionList(list) {
   if (!list.length) return h('div', { class: 'muted-note' }, 'No sessions yet');

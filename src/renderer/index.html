@@ -61,10 +61,15 @@
       <div class="demo-list">
         <div class="list-head">
           <input id="demoSearch" type="search" placeholder="Search matches or maps…">
+          <button class="icon-btn filter-btn" id="filterDemos" title="Filter matches" aria-expanded="false" aria-controls="demoFilters">
+            <svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4 2v-8.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+            <span class="filter-count" id="filterCount"></span>
+          </button>
           <button class="icon-btn" id="refreshDemos" title="Rescan demo folders">
             <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
           </button>
         </div>
+        <div class="match-filters hidden" id="demoFilters" role="group" aria-label="Match filters"></div>
         <div class="list-sub" id="demoListSub"></div>
         <div class="demos" id="demos"></div>
       </div>

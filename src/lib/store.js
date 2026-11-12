@@ -54,9 +54,10 @@ class JsonFile {
 }
 
 class DemoStore {
-  constructor(userData, version) {
+  constructor(userData, version, parser = '') {
     this.dir = path.join(userData, 'demo-data');
     this.version = version;
+    this.parser = parser;
     fs.mkdirSync(this.dir, { recursive: true });
     this.index = new JsonFile(path.join(this.dir, 'index.json'));
     this.names = new JsonFile(path.join(this.dir, 'names.json'));
@@ -115,12 +116,13 @@ class DemoStore {
     fs.rmSync(path.join(this.dir, `${id}.json`), { force: true });
   }
 
-  // A demo the parser rejected stays rejected until the extraction code changes.
+  // A demo the parser rejected stays rejected until the extraction code or the parser build changes
+  // (a CS2 update can break every new demo until the parser is updated).
   failure(id) {
     const f = this.failures.get(id);
-    return f && f.version === this.version ? f : null;
+    return f && f.version === this.version && f.parser === this.parser ? f : null;
   }
-  setFailure(id, info) { this.failures.set(id, { version: this.version, ...info }); }
+  setFailure(id, info) { this.failures.set(id, { version: this.version, parser: this.parser, ...info }); }
 
   // Values computed from the stored facts, so they are never stale: the key includes both versions.
   derived(key, version) {
