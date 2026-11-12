@@ -430,7 +430,7 @@ function renderCompare() {
       const n = Math.round(r * 100), hot = r >= 0.9, good = r >= 0.6, bad = r <= 0.25;
       return h('span', { class: `cmp-tier ${hot || good ? 'high' : bad ? 'low' : ''}`, title: `Better than ${r * 100}% of your lobbies${s.g === 'Aim' ? ' (estimated from quartiles)' : ''}` },
         hot || good || bad ? glyph(hot ? CMP_ICONS.flame : good ? CMP_ICONS.up : CMP_ICONS.down) : null,
-        `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'} percentile`);
+        `TOP ${100 - n}%`);
     };
     const value = (side, v, r) => h('div', { class: `cmp-v ${side} ${win === side ? 'win' : ''}` },
       h('b', {}, win === side ? glyph(ICONS.check) : null, fmt(v)),

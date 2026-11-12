@@ -241,25 +241,26 @@ function applyTheme(t) {
   windowIcon();
 }
 // Utility and My scenarios show their selected map behind the page, in the theme's colors. An open
-// match swaps the whole theme for that map's own map theme (its screenshot and colors).
+// match or selected map in Maps uses that map's own theme (its screenshot and colors).
 let shownTheme = null, backdrop = '';
 function pageBackdrop() {
   const match = state.view === 'matches' && state.demo ? state.analysis?.map || state.demo.summary?.map || state.demo.failure?.map || '' : '';
-  const map = match || (state.view === 'utility' && state.ut.map !== 'all' ? state.ut.map
+  const themedMap = match || (state.view === 'maps' ? state.mp.map : '') || '';
+  const map = themedMap || (state.view === 'utility' && state.ut.map !== 'all' ? state.ut.map
     : state.view === 'training' && state.tr?.drill === 'scenario' ? state.sc?.edit?.map || state.sc?.map : '') || '';
-  const key = match ? `match:${match}` : map;
+  const key = themedMap ? `map-theme:${themedMap}` : map;
   if (key === backdrop || !shownTheme) return;
-  const wasMatch = backdrop.startsWith('match:');
+  const wasMapTheme = backdrop.startsWith('map-theme:');
   backdrop = key;
-  if (match) return matchTheme(match);
-  if (wasMatch) themeColors(shownTheme);
+  if (themedMap) return mapPageTheme(themedMap);
+  if (wasMapTheme) themeColors(shownTheme);
   if (!map) return Scene.set(shownTheme);
   // No CS2 screenshot: the map name makes the scene fall back to its radar.
   mapShot(map).then(shot => { if (backdrop === map) Scene.set({ ...shownTheme, scene: 'map', map, shot: shot || map, photoUrl: '' }); });
 }
 // The map theme's colors (maps without one: a neutral base, the map's color as accent) and the
 // screenshot mapShot picks; no CS2 screenshot falls back to the radar, as for a map theme.
-function matchTheme(map) {
+function mapPageTheme(map) {
   const own = THEMES.find(t => t.map === map);
   const t = { ...(own || { base: '#0b0f13', accent: MAPS[map]?.[1] || shownTheme.accent }), scene: 'map', map, pattern: '', logo: '' };
   const key = backdrop;
@@ -367,6 +368,7 @@ async function refreshEnv() {
 
 // ---------- Demos ----------
 $('#demoSearch').addEventListener('input', e => { state.search = e.target.value.toLowerCase(); renderDemoList(); });
+$('#filterDemos').addEventListener('click', () => { state.mf.open = !state.mf.open; renderDemoList(); });
 $('#refreshDemos').addEventListener('click', () => loadDemos());
 $('#githubBtn').addEventListener('click', () => api.openGithub());
 
@@ -498,25 +500,104 @@ function playerDemos() {
   return state.demos.filter(d => ids.has(d.id));
 }
 
+// ---------- Match list filters (the Filter button next to the search) ----------
+// A match not read yet has no map, score or rating, so any filter on those hides it until it is read.
+const MF_DEFAULTS = { result: 'all', map: 'all', mode: 'all', period: 'all', rating: 'all', highlights: 'all', source: 'all' };
+state.mf = { open: false, ...MF_DEFAULTS };
+const isValveDemo = d => /^match730_/.test(d.name);
+const demoScore = (d, me) => (state.who && me?.score ? { mine: me.score[0], enemy: me.score[1] } : d.summary?.score);
+
+// Which choices make sense for these demos; a filter with one choice is hidden (and reset).
+function demoFilterOptions(demos, mine) {
+  const maps = [...new Set(demos.map(d => d.summary?.map || mine.get(d.id)?.map).filter(Boolean))].sort((a, b) => mapName(a).localeCompare(mapName(b)));
+  const modes = [...new Set(demos.map(d => mine.get(d.id)?.mode).filter(Boolean))].sort();
+  const sources = new Set(demos.map(d => (isValveDemo(d) ? 'valve' : 'other')));
+  const f = state.mf;
+  if (!maps.includes(f.map)) f.map = 'all';
+  if (!modes.includes(f.mode) || modes.length < 2) f.mode = 'all';
+  if (sources.size < 2) f.source = 'all';
+  if (state.who) f.highlights = 'all'; // highlight counts are for my own point of view
+  return { maps, modes: modes.length > 1 ? modes : [], sources: sources.size > 1, highlights: !state.who };
+}
+const demoFilterCount = () => Object.keys(MF_DEFAULTS).filter(k => state.mf[k] !== MF_DEFAULTS[k]).length;
+
+function filterDemos(demos, mine) {
+  const f = state.mf;
+  let list = demos.filter(d => {
+    const s = d.summary, me = mine.get(d.id), sc = demoScore(d, me);
+    if (f.result !== 'all' && (!sc || resultOf(sc.mine, sc.enemy) !== f.result)) return false;
+    if (f.map !== 'all' && (s?.map || me?.map) !== f.map) return false;
+    if (f.mode !== 'all' && me?.mode !== f.mode) return false;
+    if (f.source !== 'all' && (isValveDemo(d) ? 'valve' : 'other') !== f.source) return false;
+    if (f.rating !== 'all') {
+      const r = me?.rating;
+      if (r == null || (f.rating === 'low' ? r >= 1 : r < +f.rating)) return false;
+    }
+    if (f.highlights !== 'all' && (!s?.highlights || (f.highlights !== 'some' && Math.round((s.best || 0) / 25) < +f.highlights))) return false;
+    return true;
+  });
+  if (/d$/.test(f.period)) { const since = Date.now() - parseInt(f.period, 10) * 86400000; list = list.filter(d => d.date >= since); }
+  else if (f.period !== 'all') { const keep = new Set([...list].sort((a, b) => b.date - a.date).slice(0, +f.period)); list = list.filter(d => keep.has(d)); }
+  return list;
+}
+
+let demoFiltersKey = '';
+function renderDemoFilters(opts) {
+  const f = state.mf, el = $('#demoFilters'), btn = $('#filterDemos'), n = demoFilterCount();
+  btn.classList.toggle('on', f.open || n > 0);
+  btn.setAttribute('aria-expanded', String(f.open));
+  btn.title = n ? `Filter matches (${n} active)` : 'Filter matches';
+  $('#filterCount').textContent = n || '';
+  // Rebuilt only when the choices change, so a menu stays open while background reading refreshes the list.
+  const key = JSON.stringify([f.open, opts]);
+  if (key === demoFiltersKey) return;
+  demoFiltersKey = key;
+  el.classList.toggle('hidden', !f.open);
+  if (!f.open) { el.replaceChildren(); return; }
+  const svg = name => () => pickSvg(PICK_ICONS[name]);
+  const row = (label, k, options, icon) => [h('span', { class: 'mf-label' }, label),
+    select(f[k], options, v => { f[k] = v; renderDemoList(); }, { seg: false, icon, noun: label.toLowerCase() === 'map' ? 'maps' : 'options' })];
+  el.replaceChildren(
+    ...row('Result', 'result', [['all', 'Any result'], ['w', 'Wins'], ['l', 'Losses'], ['d', 'Draws']], () => pickSvg(PICK_ICONS.trophy)),
+    ...(opts.maps.length > 1 ? row('Map', 'map', [['all', 'All maps'], ...opts.maps.map(m => [m, mapName(m)])], v => pickMap(v)) : []),
+    ...(opts.modes.length ? row('Mode', 'mode', [['all', 'All modes'], ...opts.modes.map(m => [m, m])], v => pickSvg(PICK_ICONS[v === 'Wingman' ? 'user' : 'users'])) : []),
+    ...row('Period', 'period', PERIODS, v => pickSvg(PICK_ICONS[v === 'all' ? 'clock' : 'calendar'])),
+    ...row('Rating', 'rating', [['all', 'Any rating'], ['1.2', '1.20 and above'], ['1', '1.00 and above'], ['low', 'Below 1.00']], svg('speed')),
+    ...(opts.highlights ? row('Highlights', 'highlights', [['all', 'Any'], ['some', 'With highlights'], ['3', '★★★ or better'], ['4', '★★★★ or better']], svg('star')) : []),
+    ...(opts.sources ? row('Source', 'source', [['all', 'All demos'], ['valve', 'Valve matches'], ['other', 'Other demos']], svg('film')) : []),
+    h('div', { class: 'mf-foot' }, h('button', { class: 'link-btn', onclick: clearDemoFilters }, 'Clear filters')),
+  );
+}
+function clearDemoFilters() {
+  Object.assign(state.mf, MF_DEFAULTS);
+  demoFiltersKey = ''; // the pickers show the old values until rebuilt
+  renderDemoList();
+}
+
 function renderDemoList() {
   const q = state.search;
   const demos = playerDemos();
-  const list = demos.filter(d => !q || d.name.toLowerCase().includes(q) || mapName(d.summary?.map).toLowerCase().includes(q) || (d.customName || '').toLowerCase().includes(q));
+  const mine = new Map((shownProfile()?.matches || []).map(m => [m.id, m]));
+  renderDemoFilters(demoFilterOptions(demos, mine));
+  const list = filterDemos(demos.filter(d => !q || d.name.toLowerCase().includes(q) || mapName(d.summary?.map).toLowerCase().includes(q) || (d.customName || '').toLowerCase().includes(q)), mine);
+  const filtered = demoFilterCount() > 0;
   const pending = state.demos.filter(d => !d.summary && !d.failed).length;
   $('#matchCount').textContent = state.demos.length || '';
   $('#demoListSub').replaceChildren(
     playerMenu(),
-    h('span', {}, `${demos.length} match${demos.length === 1 ? '' : 'es'}`),
+    h('span', {}, list.length !== demos.length ? `${list.length} of ${demos.length} matches` : `${demos.length} match${demos.length === 1 ? '' : 'es'}`),
     state.who ? ` Matches with ${state.other?.name || 'this player'}` : '',
     pending ? h('span', {}, ' · ', h('span', { class: 'spinner', style: { width: '11px', height: '11px', borderWidth: '2px' } }), ` analyzing ${pending}…`) : '',
   );
-  const mine = new Map((shownProfile()?.matches || []).map(m => [m.id, m]));
-  $('#demos').replaceChildren(...list.map(d => {
+  const empty = !list.length && demos.length ? h('div', { class: 'demos-empty' },
+    filtered ? 'No matches for these filters' : 'No matches found',
+    filtered ? h('button', { class: 'link-btn', onclick: clearDemoFilters }, 'Clear filters') : null) : null;
+  $('#demos').replaceChildren(...(empty ? [empty] : []), ...list.map(d => {
     const s = d.summary;
     const me = mine.get(d.id);
-    const sc = state.who && me?.score ? { mine: me.score[0], enemy: me.score[1] } : s?.score;
+    const sc = demoScore(d, me);
     const res = sc ? resultOf(sc.mine, sc.enemy) : null;
-    const isMM = /^match730_/.test(d.name);
+    const isMM = isValveDemo(d);
     const title = h('div', { class: 'demo-title', title: 'Double-click to rename', ondblclick: e => { e.stopPropagation(); editName(d, title); } }, demoTitle(d));
     const where = isRush(d) ? 'could not be read' : isMM ? 'Valve match' : d.name.replace(/\.dem$/i, '');
     return h('div', { class: `demo res-${res || 'none'} ${state.demo?.path === d.path ? 'active' : ''}`, onclick: () => openDemo(d) },
@@ -2864,6 +2945,7 @@ function mapsIndex() {
 
 function renderMaps() {
   const view = $('#view-maps');
+  pageBackdrop();
   if (state.mp.map) return view.replaceChildren(mapDetail());
   const maps = mapsIndex();
   const pending = state.demos.filter(d => !d.summary && !d.failed).length;
